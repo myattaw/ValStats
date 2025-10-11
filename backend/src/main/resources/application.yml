@@ -1,0 +1,14 @@
+micronaut:
+  application:
+    name: valstats
+  server:
+    port: 8080
+  http:
+    client:
+      read-timeout: 30s
+      url-encoding: standard
+
+netty:
+  default:
+    allocator:
+      max-order: 3

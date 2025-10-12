@@ -6,5 +6,5 @@ import io.micronaut.serde.annotation.Serdeable;
 @Introspected
 @Serdeable.Deserializable
 @Serdeable.Serializable
-public record Match(Metadata metadata, Players players) {
+public record Metadata(String map, String mode, String matchid) {
 }

@@ -6,7 +6,6 @@ import io.micronaut.http.annotation.Header;
 import io.micronaut.http.annotation.PathVariable;
 import io.micronaut.http.annotation.QueryValue;
 import io.micronaut.http.client.annotation.Client;
-import io.micronaut.core.annotation.Nullable;
 
 import java.util.Map;
 

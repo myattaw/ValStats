@@ -50,7 +50,8 @@ public class ValorantService {
                                     )
                             ))
                             .collect(Collectors.toList());
-                    return new Match(new Players(filteredPlayers));
+                    // Pass through metadata as well
+                    return new Match(match.metadata(), new Players(filteredPlayers));
                 })
                 .collect(Collectors.toList());
         return new MatchResponse(rawResponse.status(), filteredData);

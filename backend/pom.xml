@@ -18,7 +18,7 @@
         <release.version>21</release.version>
         <micronaut.version>4.9.4</micronaut.version>
         <micronaut.runtime>lambda</micronaut.runtime>
-        <micronaut.aot.enabled>false</micronaut.aot.enabled>
+        <micronaut.aot.enabled>true</micronaut.aot.enabled>
         <micronaut.aot.packageName>com.valstats.aot.generated</micronaut.aot.packageName>
         <!-- Use ValstatsApplication for local development -->
         <exec.mainClass>io.micronaut.function.aws.runtime.MicronautLambdaRuntime</exec.mainClass>
@@ -70,6 +70,11 @@
         <dependency>
             <groupId>io.micronaut.serde</groupId>
             <artifactId>micronaut-serde-jackson</artifactId>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
             <scope>compile</scope>
         </dependency>
         <dependency>

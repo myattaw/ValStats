@@ -3,6 +3,9 @@ micronaut:
     name: valstats
   server:
     port: 8080
+    response-compression:
+      enabled: true
+      mime-types: application/json
   http:
     client:
       read-timeout: 30s

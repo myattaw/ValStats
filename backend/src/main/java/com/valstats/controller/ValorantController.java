@@ -1,5 +1,6 @@
 package com.valstats.controller;
 
+import com.valstats.model.MatchResponse;
 import com.valstats.service.ValorantService;
 import io.micronaut.http.annotation.Controller;
 import io.micronaut.http.annotation.Get;
@@ -17,7 +18,7 @@ public class ValorantController {
     }
 
     @Get("/matches/{region}/{name}/{tag}")
-    public Map<String, Object> getMatches(
+    public MatchResponse getMatches(
             @PathVariable String region,
             @PathVariable String name,
             @PathVariable String tag) {
@@ -25,7 +26,7 @@ public class ValorantController {
     }
 
     @Get("/test")
-    public Map<String, Object> test() {
+    public MatchResponse test() {
         // This is the "hello world" endpoint that makes the specific request
         return valorantService.getMatches("na", "yoru smurf", "rages");
     }
@@ -37,4 +38,3 @@ public class ValorantController {
     }
 
 }
-

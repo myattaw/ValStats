@@ -1,9 +1,16 @@
 package com.valstats.service;
 
 import com.valstats.client.ValorantApiClient;
+import com.valstats.model.Match;
+import com.valstats.model.MatchResponse;
+import com.valstats.model.Player;
+import com.valstats.model.Players;
+import com.valstats.model.Stats;
 import jakarta.inject.Singleton;
 
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Singleton
 public class ValorantService {
@@ -15,13 +22,38 @@ public class ValorantService {
         this.valorantApiClient = valorantApiClient;
     }
 
-    public Map<String, Object> getMatches(String region, String playerName, String playerTag) {
-        return valorantApiClient.getMatches(region, playerName, playerTag, AUTH_TOKEN);
+    public MatchResponse getMatches(String region, String playerName, String playerTag) {
+        MatchResponse rawResponse = valorantApiClient.getMatches(region, playerName, playerTag, 10, AUTH_TOKEN);
+        return filterMatchesResponse(rawResponse);
     }
 
     public Map<String, Object> getMMRHistory(String region, String playerName, String playerTag) {
         return valorantApiClient.getMMRHistory(region, playerName, playerTag, AUTH_TOKEN);
     }
 
-}
+    private MatchResponse filterMatchesResponse(MatchResponse rawResponse) {
+        List<Match> filteredData = rawResponse.data().stream()
+                .map(match -> {
+                    List<Player> filteredPlayers = match.players().all_players().stream()
+                            .map(player -> new Player(
+                                    player.puuid(),
+                                    player.name(),
+                                    player.tag(),
+                                    player.team(),
+                                    player.character(),
+                                    player.currenttier(),
+                                    player.currenttier_patched(),
+                                    new Stats(
+                                            player.stats().kills(),
+                                            player.stats().deaths(),
+                                            player.stats().assists()
+                                    )
+                            ))
+                            .collect(Collectors.toList());
+                    return new Match(new Players(filteredPlayers));
+                })
+                .collect(Collectors.toList());
+        return new MatchResponse(rawResponse.status(), filteredData);
+    }
 
+}

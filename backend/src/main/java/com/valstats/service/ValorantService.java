@@ -19,7 +19,9 @@ public class ValorantService {
         return valorantApiClient.getMatches(region, playerName, playerTag, AUTH_TOKEN);
     }
 
-
+    public Map<String, Object> getMMRHistory(String region, String playerName, String playerTag) {
+        return valorantApiClient.getMMRHistory(region, playerName, playerTag, AUTH_TOKEN);
+    }
 
 }
 

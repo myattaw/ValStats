@@ -29,5 +29,12 @@ public class ValorantController {
         // This is the "hello world" endpoint that makes the specific request
         return valorantService.getMatches("na", "yoru smurf", "rages");
     }
+
+    @Get("/test2")
+    public Map<String, Object> test2() {
+        // This is the "hello world" endpoint that makes the specific request
+        return valorantService.getMMRHistory("na", "yoru smurf", "rages");
+    }
+
 }
 

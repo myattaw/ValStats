@@ -16,6 +16,16 @@ public interface ValorantApiClient {
             @PathVariable String region,
             @PathVariable String name,
             @PathVariable String tag,
-            @Header("Authorization") String authorization);
+            @Header("Authorization") String authorization
+    );
+
+    @Get("/valorant/v1/mmr-history/{region}/{name}/{tag}")
+    Map<String, Object> getMMRHistory(
+            @PathVariable String region,
+            @PathVariable String name,
+            @PathVariable String tag,
+            @Header("Authorization") String authorization
+    );
+
 }
 

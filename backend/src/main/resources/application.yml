@@ -2,6 +2,19 @@ micronaut:
   application:
     name: valstats
   server:
+    cors:
+      enabled: true
+      configurations:
+        allowed:
+          allowed-origins:
+            - "http://localhost:3000" # Replace with your frontend URL
+          allowed-methods:
+            - GET
+            - POST
+            - PUT
+            - DELETE
+          allowed-headers:
+            - "*"
     port: 8080
     response-compression:
       enabled: true

@@ -3,9 +3,9 @@ package com.valstats.service;
 import com.valstats.client.ValorantApiClient;
 import com.valstats.model.Match;
 import com.valstats.model.MatchResponse;
-import com.valstats.model.Player;
-import com.valstats.model.Players;
-import com.valstats.model.Stats;
+import com.valstats.model.player.Player;
+import com.valstats.model.player.Players;
+import com.valstats.model.player.Stats;
 import jakarta.inject.Singleton;
 
 import java.util.List;
@@ -44,14 +44,15 @@ public class ValorantService {
                                     player.currenttier(),
                                     player.currenttier_patched(),
                                     new Stats(
+                                            player.stats().score(),
                                             player.stats().kills(),
                                             player.stats().deaths(),
                                             player.stats().assists()
                                     )
                             ))
                             .collect(Collectors.toList());
-                    // Pass through metadata as well
-                    return new Match(match.metadata(), new Players(filteredPlayers));
+                    // Pass through metadata and teams as well
+                    return new Match(match.metadata(), new Players(filteredPlayers), match.teams());
                 })
                 .collect(Collectors.toList());
         return new MatchResponse(rawResponse.status(), filteredData);

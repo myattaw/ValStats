@@ -1,10 +1,11 @@
-package com.valstats.model;
+package com.valstats.model.player;
 
 import io.micronaut.core.annotation.Introspected;
 import io.micronaut.serde.annotation.Serdeable;
+import java.util.List;
 
 @Introspected
 @Serdeable.Deserializable
 @Serdeable.Serializable
-public record Metadata(String map, String mode, String matchid, int rounds_played) {
+public record Players(List<Player> all_players) {
 }

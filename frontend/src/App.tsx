@@ -3,11 +3,28 @@ import {Search, Target} from 'lucide-react';
 import {StatsOverview} from './components/StatsOverview';
 import {MatchHistory} from './components/MatchHistory';
 import {ActSelector} from './components/ActSelector';
+import {Skeleton} from './components/ui/skeleton';
 
 export default function App() {
+
     const [searchQuery, setSearchQuery] = React.useState('');
     const [selectedPlayer, setSelectedPlayer] = React.useState<string | null>('TenZ#NA1');
     const [selectedAct, setSelectedAct] = React.useState('all');
+    const [profile, setProfile] = React.useState<any>(null);
+
+    React.useEffect(() => {
+        // Fetch player profile data on startup
+        const fetchProfile = async () => {
+            try {
+                const res = await fetch('http://localhost:60222/api/valorant/account');
+                const json = await res.json();
+                setProfile(json.data);
+            } catch (e) {
+                setProfile(null);
+            }
+        };
+        fetchProfile();
+    }, []);
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
@@ -15,6 +32,9 @@ export default function App() {
             setSelectedPlayer(searchQuery);
         }
     };
+
+    // Add loading state for profile
+    const isProfileLoading = profile === null;
 
     return (
         <div className="min-h-screen bg-[#0a0a0a] text-white">
@@ -46,48 +66,68 @@ export default function App() {
             <main className="max-w-7xl mx-auto px-6 py-8">
 
                 {/* Stats Content */}
-                {selectedPlayer && (
-                    <div className="space-y-6">
-                        {/* Player Info Bar */}
-                        <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-lg p-6">
-                            <div className="flex items-center justify-between mb-6">
-                                <div className="flex items-center gap-4">
-                                    <div
-                                        className="w-16 h-16 bg-gradient-to-br from-[#4a7cff] to-[#2d5acc] rounded-lg flex items-center justify-center">
-                                        <span className="text-2xl">T</span>
-                                    </div>
-                                    <div>
-                                        <h2 className="text-white">TenZ</h2>
-                                        <p className="text-gray-400">#NA1 • Radiant</p>
-                                    </div>
+                <div className="space-y-6">
+                    {/* Player Info Bar */}
+                    <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-lg p-6">
+                        <div className="flex items-center justify-between mb-6">
+                            <div className="flex items-center gap-4">
+                                <div
+                                    className="w-16 h-16 rounded-lg flex items-center justify-center overflow-hidden"
+                                >
+                                    {isProfileLoading ? (
+                                        <Skeleton className="w-16 h-16 rounded-lg bg-[#2a2a2a]" />
+                                    ) : profile?.card?.small ? (
+                                        <img
+                                            src={profile.card.small}
+                                            alt={profile.name}
+                                            className="w-16 h-16 object-cover rounded-lg"
+                                        />
+                                    ) : null}
                                 </div>
-                                <div className="flex items-center gap-8">
-                                    <div className="text-center">
-                                        <div className="text-gray-400">Peak Rating</div>
-                                        <div className="text-white">534 RR</div>
-                                    </div>
-                                    <div className="text-center">
-                                        <div className="text-gray-400">Current Rank</div>
-                                        <div className="text-white">Radiant</div>
-                                    </div>
-                                    <div className="text-center">
-                                        <div className="text-gray-400">Winrate</div>
-                                        <div className="text-[#4ade80]">56.3%</div>
-                                    </div>
+                                <div>
+                                    {isProfileLoading ? (
+                                        <>
+                                            <Skeleton className="h-6 w-32 mb-2 bg-[#2a2a2a]" />
+                                            <Skeleton className="h-4 w-24 bg-[#2a2a2a]" />
+                                        </>
+                                    ) : (
+                                        <>
+                                            <h2 className="text-white">{profile?.name}</h2>
+                                            <p className="text-gray-400">
+                                                #{profile?.tag}
+                                                {profile?.account_level ? ` • Lv.${profile.account_level}` : ""}
+                                            </p>
+                                        </>
+                                    )}
                                 </div>
                             </div>
-                            <div className="border-t border-[#1a1a1a] pt-4">
-                                <ActSelector selectedAct={selectedAct} onActChange={setSelectedAct}/>
+                            <div className="flex items-center gap-8">
+                                <div className="text-center">
+                                    <div className="text-gray-400">Peak Rating</div>
+                                    <div className="text-white">534 RR</div>
+                                </div>
+                                <div className="text-center">
+                                    <div className="text-gray-400">Current Rank</div>
+                                    <div className="text-white">Radiant</div>
+                                </div>
+                                <div className="text-center">
+                                    <div className="text-gray-400">Winrate</div>
+                                    <div className="text-[#4ade80]">56.3%</div>
+                                </div>
                             </div>
                         </div>
-
-                        {/* Stats Overview */}
-                        <StatsOverview/>
-
-                        {/* Match History */}
-                        <MatchHistory/>
+                        <div className="border-t border-[#1a1a1a] pt-4">
+                            <ActSelector selectedAct={selectedAct} onActChange={setSelectedAct}/>
+                        </div>
                     </div>
-                )}
+
+                    {/* Stats Overview */}
+                    <StatsOverview/>
+
+                    {/* Match History */}
+                    {/* Only render MatchHistory if profile is loaded and has puuid */}
+                    {profile?.puuid && <MatchHistory puuid={profile.puuid} />}
+                </div>
             </main>
         </div>
     );

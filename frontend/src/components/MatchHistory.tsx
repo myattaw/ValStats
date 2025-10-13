@@ -38,7 +38,11 @@ interface Match {
     teams?: any; // <-- Add this line to include teams property
 }
 
-export function MatchHistory() {
+interface MatchHistoryProps {
+    puuid?: string;
+}
+
+export function MatchHistory({ puuid }: MatchHistoryProps) {
     const [expandedMatch, setExpandedMatch] = useState<string | null>(null);
     const [loadingMatchId, setLoadingMatchId] = useState<string | null>(null);
     const [loadingMore, setLoadingMore] = useState(false);
@@ -52,8 +56,8 @@ export function MatchHistory() {
             setIsInitialLoading(true);
             try {
                 const [matchRes, mmrRes] = await Promise.all([
-                    fetch("http://localhost:62674/api/valorant/test"),
-                    fetch("http://localhost:62674/api/valorant/test2"),
+                    fetch("http://localhost:60222/api/valorant/test"),
+                    fetch("http://localhost:60222/api/valorant/test2"),
                 ]);
                 const matchJson = await matchRes.json();
                 const mmrJson = await mmrRes.json();
@@ -71,8 +75,12 @@ export function MatchHistory() {
                     const meta = match.metadata;
                     const mmr = mmrMap.get(meta.matchid) || {};
                     const allPlayers = match.players?.all_players || [];
+                    // Use puuid from props if available, otherwise fallback to name/tag
                     let yourPlayer = allPlayers[0];
-                    if (mmrJson.name && mmrJson.tag) {
+                    if (puuid) {
+                        const found = allPlayers.find((p: any) => p.puuid === puuid);
+                        if (found) yourPlayer = found;
+                    } else if (mmrJson.name && mmrJson.tag) {
                         const found = allPlayers.find(
                             (p: any) =>
                                 p.name === mmrJson.name && p.tag === mmrJson.tag
@@ -85,7 +93,7 @@ export function MatchHistory() {
                     const agent = yourPlayer ? yourPlayer.character : "";
                     const agentIcon = yourPlayer?.assets?.agent?.small || "";
                     const score = yourPlayer ? yourPlayer.stats.score : 0;
-                    const puuid = yourPlayer ? yourPlayer.puuid : ""; // <-- Ensure puuid is set
+                    const selfPuuid = yourPlayer ? yourPlayer.puuid : "";
                     const roundsPlayed =
                         (yourPlayer && yourPlayer.stats.rounds_played) ||
                         mmr.rounds_played ||
@@ -126,7 +134,7 @@ export function MatchHistory() {
                         date_raw: mmr.date_raw,
                         rounds_played: roundsPlayed,
                         players: allPlayers.map((p: any) => ({
-                            puuid: p.puuid, // <-- Parse puuid from player
+                            puuid: p.puuid,
                             name: p.name,
                             agent: p.character,
                             kills: p.stats.kills,
@@ -139,7 +147,7 @@ export function MatchHistory() {
                             team: p.team,
                         })),
                         teams: match.teams,
-                        puuid, // <-- Optionally, if you want to keep yourPlayer's puuid at match level
+                        puuid: selfPuuid,
                     };
                 });
 
@@ -153,7 +161,7 @@ export function MatchHistory() {
             }
         };
         fetchCombinedMatches();
-    }, []);
+    }, [puuid]);
 
     // Fetch match details from API
     const fetchMatchDetails = async (matchId: string): Promise<PlayerStats[]> => {
@@ -444,8 +452,7 @@ export function MatchHistory() {
                                                                   ADR: {
                                                                     match.players && match.rounds_played > 0
                                                                       ? (() => {
-                                                                          //TODO: fix this later (we need to fetch self stats as well)
-                                                                          const yourPuuid = "37654ff9-b560-5b0f-a2bb-3e00e37b651b";
+                                                                          const yourPuuid = puuid || "37654ff9-b560-5b0f-a2bb-3e00e37b651b";
                                                                           const yourPlayer = match.players.find(p => p.puuid === yourPuuid);
                                                                           return yourPlayer
                                                                             ? Math.round(yourPlayer.damage_made / match.rounds_played)

@@ -28,7 +28,7 @@ public class ValorantService {
 
     @Inject
     @Client("https://api.henrikdev.xyz/valorant/v1/account")
-    HttpClient accountClient;
+    private HttpClient accountClient;
 
     public ValorantService(ValorantApiClient valorantApiClient) {
         this.valorantApiClient = valorantApiClient;

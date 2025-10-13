@@ -3,6 +3,7 @@ package com.valstats.service;
 import com.valstats.client.ValorantApiClient;
 import com.valstats.model.Match;
 import com.valstats.model.MatchResponse;
+import com.valstats.model.player.Assets;
 import com.valstats.model.player.Player;
 import com.valstats.model.player.Players;
 import com.valstats.model.player.Stats;
@@ -23,7 +24,7 @@ public class ValorantService {
     }
 
     public MatchResponse getMatches(String region, String playerName, String playerTag) {
-        MatchResponse rawResponse = valorantApiClient.getMatches(region, playerName, playerTag, 10, AUTH_TOKEN);
+        MatchResponse rawResponse = valorantApiClient.getMatches(region, playerName, playerTag, 1, AUTH_TOKEN);
         return filterMatchesResponse(rawResponse);
     }
 
@@ -48,6 +49,10 @@ public class ValorantService {
                                             player.stats().kills(),
                                             player.stats().deaths(),
                                             player.stats().assists()
+                                    ),
+                                    player.assets() == null ? null : new Assets(player.assets().card() == null ? null :
+                                            new Assets.Card(player.assets().card().small()),
+                                            player.assets().agent() == null ? null : new Assets.Agent(player.assets().agent().small())
                                     )
                             ))
                             .collect(Collectors.toList());

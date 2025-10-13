@@ -9,8 +9,9 @@ interface PlayerStats {
     kills: number;
     deaths: number;
     assists: number;
-    acs: number;
+    score: number;
     headshot: number;
+    agentIcon?: string; // NEW: agent icon url
 }
 
 interface Match {
@@ -18,255 +19,158 @@ interface Match {
     map: string;
     mapId: string;
     result: "Victory" | "Defeat";
-    score: string;
+    score: number;
+    enemy_score: number;
     kda: string;
     agent: string;
     acs: number;
     timestamp: string;
     rank: string;
+    ranking_in_tier: number;
     rrChange: number;
+    rounds_played: number;
+    date_raw?: number;
     players?: PlayerStats[];
+    agentIcon?: string; // NEW: agent icon for main match
 }
 
 export function MatchHistory() {
-    const [expandedMatch, setExpandedMatch] = useState<
-        string | null
-    >(null);
-    const [loadingMatchId, setLoadingMatchId] = useState<
-        string | null
-    >(null);
+    const [expandedMatch, setExpandedMatch] = useState<string | null>(null);
+    const [loadingMatchId, setLoadingMatchId] = useState<string | null>(null);
     const [loadingMore, setLoadingMore] = useState(false);
-    const [isInitialLoading, setIsInitialLoading] =
-        useState(true);
+    const [isInitialLoading, setIsInitialLoading] = useState(true);
     const [matches, setMatches] = useState<Match[]>([]);
-    const [hoveredMatch, setHoveredMatch] = useState<
-        string | null
-    >(null);
+    const [hoveredMatch, setHoveredMatch] = useState<string | null>(null);
 
-    // Simulate initial loading (2-4 seconds)
+    // Fetch both match and mmr data, combine by match id
     useEffect(() => {
-        const loadingTime = Math.random() * 2000 + 2000;
-        const timer = setTimeout(
-            () => setIsInitialLoading(false),
-            loadingTime,
-        );
-        return () => clearTimeout(timer);
+        const fetchCombinedMatches = async () => {
+            setIsInitialLoading(true);
+            try {
+                const [matchRes, mmrRes] = await Promise.all([
+                    fetch("http://localhost:57608/api/valorant/test"),
+                    fetch("http://localhost:57608/api/valorant/test2"),
+                ]);
+                const matchJson = await matchRes.json();
+                const mmrJson = await mmrRes.json();
+
+                // Build a map of mmr data by match_id
+                const mmrMap = new Map<string, any>();
+                (mmrJson.data || []).forEach((mmr: any) => {
+                    if (mmr.match_id) {
+                        mmrMap.set(mmr.match_id, mmr);
+                    }
+                });
+
+                // Combine match data with mmr data
+                const combinedMatches: Match[] = (matchJson.data || []).map((match: any) => {
+                    const meta = match.metadata;
+                    const mmr = mmrMap.get(meta.matchid) || {};
+                    const allPlayers = match.players?.all_players || [];
+                    let yourPlayer = allPlayers[0];
+                    if (mmrJson.name && mmrJson.tag) {
+                        const found = allPlayers.find(
+                            (p: any) =>
+                                p.name === mmrJson.name && p.tag === mmrJson.tag
+                        );
+                        if (found) yourPlayer = found;
+                    }
+                    const kda = yourPlayer
+                        ? `${yourPlayer.stats.kills}/${yourPlayer.stats.deaths}/${yourPlayer.stats.assists}`
+                        : "";
+                    const agent = yourPlayer ? yourPlayer.character : "";
+                    const agentIcon = yourPlayer?.assets?.agent?.small || ""; // NEW
+                    const score = yourPlayer ? yourPlayer.stats.score : 0;
+                    // Use player's rounds_played if available, fallback to mmr.rounds_played or meta.rounds_played
+                    const roundsPlayed =
+                        (yourPlayer && yourPlayer.stats.rounds_played) ||
+                        mmr.rounds_played ||
+                        meta.rounds_played ||
+                        0;
+                    const acs = roundsPlayed > 0 ? Math.round(score / roundsPlayed) : 0;
+
+                    // --- NEW: Get real team scores ---
+                    let userTeam = yourPlayer?.team?.toLowerCase() || "blue";
+                    let userScore = 0;
+                    let enemyScore = 0;
+                    if (match.teams) {
+                        if (userTeam === "red") {
+                            userScore = match.teams.red.rounds_won;
+                            enemyScore = match.teams.blue.rounds_won;
+                        } else {
+                            userScore = match.teams.blue.rounds_won;
+                            enemyScore = match.teams.red.rounds_won;
+                        }
+                    }
+
+                    return {
+                        id: meta.matchid,
+                        map: meta.map || (mmr.map?.name ?? "Unknown"),
+                        mapId: mmr.map?.id || "",
+                        result: (match.teams && match.teams[userTeam]?.has_won)
+                            ? "Victory"
+                            : "Defeat",
+                        kda,
+                        agent,
+                        agentIcon, // NEW
+                        score: userScore,
+                        enemy_score: enemyScore,
+                        acs,
+                        timestamp: mmr.date || "",
+                        rank: mmr.currenttierpatched || "",
+                        ranking_in_tier: mmr.currenttier || 0,
+                        rrChange: mmr.mmr_change_to_last_game || 0,
+                        date_raw: mmr.date_raw,
+                        rounds_played: roundsPlayed,
+                        players: allPlayers.map((p: any) => ({
+                            name: p.name,
+                            agent: p.character,
+                            kills: p.stats.kills,
+                            deaths: p.stats.deaths,
+                            assists: p.stats.assists,
+                            score: p.stats.score,
+                            headshot: 0,
+                            agentIcon: p.assets?.agent?.small || "", // NEW
+                        })),
+                    };
+                });
+
+                // Sort by date_raw descending (most recent first)
+                combinedMatches.sort((a, b) => (b.date_raw || 0) - (a.date_raw || 0));
+                setMatches(combinedMatches);
+            } catch (e) {
+                setMatches([]);
+            } finally {
+                setIsInitialLoading(false);
+            }
+        };
+        fetchCombinedMatches();
     }, []);
 
-    // Set initial matches after loading
-    useEffect(() => {
-        if (!isInitialLoading && matches.length === 0) {
-            setMatches([
-                {
-                    id: "1",
-                    map: "Ascent",
-                    mapId: "7eaecc1b-4337-bbf6-6ab9-04b8f06b3319",
-                    result: "Victory",
-                    score: "13-7",
-                    kda: "24/15/8",
-                    agent: "Jett",
-                    acs: 298,
-                    timestamp: "2 hours ago",
-                    rank: "Radiant",
-                    rrChange: 23,
-                },
-                {
-                    id: "2",
-                    map: "Bind",
-                    mapId: "2c9d57ec-4431-9c5e-2939-8f9ef6dd5cba",
-                    result: "Defeat",
-                    score: "11-13",
-                    kda: "18/19/6",
-                    agent: "Raze",
-                    acs: 234,
-                    timestamp: "4 hours ago",
-                    rank: "Radiant",
-                    rrChange: -18,
-                },
-                {
-                    id: "3",
-                    map: "Haven",
-                    mapId: "2bee0dc9-4ffe-519b-1cbd-7fbe763a6047",
-                    result: "Victory",
-                    score: "13-9",
-                    kda: "27/12/5",
-                    agent: "Jett",
-                    acs: 312,
-                    timestamp: "6 hours ago",
-                    rank: "Radiant",
-                    rrChange: 21,
-                },
-                {
-                    id: "4",
-                    map: "Split",
-                    mapId: "d960549e-485c-e861-8d71-aa9d1aed12a2",
-                    result: "Victory",
-                    score: "13-5",
-                    kda: "21/10/7",
-                    agent: "Reyna",
-                    acs: 289,
-                    timestamp: "8 hours ago",
-                    rank: "Radiant",
-                    rrChange: 25,
-                },
-                {
-                    id: "5",
-                    map: "Icebox",
-                    mapId: "e2ad5c54-4114-a870-9641-8ea21279579a",
-                    result: "Defeat",
-                    score: "10-13",
-                    kda: "16/18/4",
-                    agent: "Jett",
-                    acs: 215,
-                    timestamp: "1 day ago",
-                    rank: "Radiant",
-                    rrChange: -20,
-                },
-            ]);
-        }
-    }, [isInitialLoading, matches.length]);
-
-    const fetchMatchDetails = async (
-        matchId: string,
-    ): Promise<PlayerStats[]> => {
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        return [
-            {
-                name: "TenZ",
-                agent: "Jett",
-                kills: 24,
-                deaths: 15,
-                assists: 8,
-                acs: 298,
-                headshot: 32,
-            },
-            {
-                name: "SicK",
-                agent: "Sage",
-                kills: 18,
-                deaths: 14,
-                assists: 12,
-                acs: 245,
-                headshot: 28,
-            },
-            {
-                name: "dapr",
-                agent: "Cypher",
-                kills: 16,
-                deaths: 16,
-                assists: 9,
-                acs: 221,
-                headshot: 24,
-            },
-            {
-                name: "ShahZaM",
-                agent: "Sova",
-                kills: 15,
-                deaths: 17,
-                assists: 14,
-                acs: 210,
-                headshot: 26,
-            },
-            {
-                name: "zombs",
-                agent: "Omen",
-                kills: 12,
-                deaths: 18,
-                assists: 10,
-                acs: 189,
-                headshot: 22,
-            },
-            {
-                name: "Enemy1",
-                agent: "Reyna",
-                kills: 20,
-                deaths: 19,
-                assists: 5,
-                acs: 267,
-                headshot: 30,
-            },
-            {
-                name: "Enemy2",
-                agent: "Killjoy",
-                kills: 14,
-                deaths: 17,
-                assists: 8,
-                acs: 198,
-                headshot: 25,
-            },
-            {
-                name: "Enemy3",
-                agent: "Breach",
-                kills: 13,
-                deaths: 18,
-                assists: 11,
-                acs: 187,
-                headshot: 21,
-            },
-            {
-                name: "Enemy4",
-                agent: "Phoenix",
-                kills: 16,
-                deaths: 16,
-                assists: 7,
-                acs: 203,
-                headshot: 27,
-            },
-            {
-                name: "Enemy5",
-                agent: "Brimstone",
-                kills: 11,
-                deaths: 15,
-                assists: 9,
-                acs: 175,
-                headshot: 19,
-            },
-        ];
+    // Fetch match details from API
+    const fetchMatchDetails = async (matchId: string): Promise<PlayerStats[]> => {
+        const res = await fetch("http://localhost:57608/api/valorant/test");
+        const data = await res.json();
+        const players = data.data[0].players.all_players;
+        return players.map((p: any) => ({
+            name: p.name,
+            agent: p.character,
+            score: p.stats.score,
+            kills: p.stats.kills,
+            deaths: p.stats.deaths,
+            assists: p.stats.assists,
+            headshot: 0,
+            agentIcon: p.assets?.agent?.small || "", // NEW
+        }));
     };
 
+    // Fetch more matches (for demo, just duplicate the initial matches)
     const fetchMoreMatches = async (): Promise<Match[]> => {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        return [
-            {
-                id: `${matches.length + 1}`,
-                map: "Breeze",
-                mapId: "f08d4e7a-4d7b-21f3-cc6c-8f46b1f1d0fa",
-                result: "Victory",
-                score: "13-8",
-                kda: "22/14/6",
-                agent: "Jett",
-                acs: 276,
-                timestamp: "2 days ago",
-                rank: "Radiant",
-                rrChange: 19,
-            },
-            {
-                id: `${matches.length + 2}`,
-                map: "Fracture",
-                mapId: "b529448b-4d60-346e-e89e-00a4c527a405",
-                result: "Defeat",
-                score: "9-13",
-                kda: "15/17/8",
-                agent: "Raze",
-                acs: 198,
-                timestamp: "2 days ago",
-                rank: "Radiant",
-                rrChange: -22,
-            },
-            {
-                id: `${matches.length + 3}`,
-                map: "Lotus",
-                mapId: "2fe4ed3a-450a-948b-6d6b-e89a78e680a9",
-                result: "Victory",
-                score: "13-11",
-                kda: "26/13/9",
-                agent: "Jett",
-                acs: 301,
-                timestamp: "3 days ago",
-                rank: "Radiant",
-                rrChange: 17,
-            },
-        ];
+        // For demo, just duplicate the current matches with new ids
+        return matches.map((m, idx) => ({
+            ...m,
+            id: `${m.id}-more-${idx}`,
+        }));
     };
 
     const handleMatchClick = async (matchId: string) => {
@@ -284,9 +188,29 @@ export function MatchHistory() {
         setLoadingMatchId(matchId);
         try {
             const playerStats = await fetchMatchDetails(matchId);
+            let acs = null;
+            let kda = "";
+            let agent = "";
+            let roundsPlayed = null;
+            if (playerStats.length > 0) {
+                const p = playerStats[0];
+                kda = `${p.kills}/${p.deaths}/${p.assists}`;
+                agent = p.agent;
+                // Try to get rounds played from player stats, fallback to match
+                roundsPlayed = matches.find(m => m.id === matchId)?.rounds_played || 0;
+                acs = roundsPlayed > 0 ? Math.round(p.score / roundsPlayed) : 0;
+            }
             setMatches((prev) =>
                 prev.map((m) =>
-                    m.id === matchId ? {...m, players: playerStats} : m,
+                    m.id === matchId
+                        ? {
+                            ...m,
+                            players: playerStats,
+                            kda: kda ?? m.kda,
+                            agent: agent ?? m.agent,
+                            acs: acs ?? m.acs,
+                        }
+                        : m,
                 ),
             );
             setExpandedMatch(matchId);
@@ -313,7 +237,7 @@ export function MatchHistory() {
         <div className="rounded-lg border border-[#2a2a2a] bg-[#1a1a1a] p-5">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4 flex-1">
-                    <Skeleton className="w-12 h-12 rounded-lg bg-[#2a2a2a]"/>
+                    <Skeleton className="w-16 h-16 rounded-lg bg-[#2a2a2a]"/>
                     <div className="flex-1 space-y-3">
                         <div className="flex items-center gap-3">
                             <Skeleton className="h-5 w-16 bg-[#2a2a2a]"/>
@@ -418,10 +342,19 @@ export function MatchHistory() {
                                                 <div className="flex items-center justify-between relative z-30">
                                                     <div className="flex items-center gap-4">
                                                         <div
-                                                            className="w-12 h-12 bg-gradient-to-br from-[#4a7cff] to-[#2d5acc] rounded-lg flex items-center justify-center flex-shrink-0">
-                              <span className="text-sm">
-                                {match.agent[0]}
-                              </span>
+                                                            className="w-16 h-16  bg-black/30 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden"
+                                                        >
+                                                            {match.agentIcon ? (
+                                                                <img
+                                                                    src={match.agentIcon}
+                                                                    alt={match.agent}
+                                                                    className="w-10 h-10 object-contain"
+                                                                />
+                                                            ) : (
+                                                                <span className="text-sm">
+                                                                    {match.agent[0]}
+                                                                </span>
+                                                            )}
                                                         </div>
 
                                                         <div>
@@ -440,13 +373,14 @@ export function MatchHistory() {
                                 </span>
                                                                 <span
                                                                     className="text-gray-400 px-2 py-1 rounded bg-black/30">
-                                  {match.score}
+                                                                    {/* Real score */}
+                                                                    {match.score}-{match.enemy_score}
                                 </span>
 
                                                                 <div
                                                                     className="flex items-center gap-1.5 px-2 py-1 rounded bg-black/30">
                                                                     <img
-                                                                        src="https://media.valorant-api.com/competitivetiers/03621f52-342b-cf4e-4f86-9350a49c6d04/27/smallicon.png"
+                                                                        src={`https://media.valorant-api.com/competitivetiers/03621f52-342b-cf4e-4f86-9350a49c6d04/${match.ranking_in_tier}/smallicon.png`}
                                                                         alt="Rank Icon"
                                                                         className="w-3 h-3"
                                                                     />
@@ -456,10 +390,10 @@ export function MatchHistory() {
                                                                 </div>
 
                                                                 <div
-                                                                    className={`flex items-center gap-1 px-2 py-1 rounded ${
+                                                                    className={`flex items-center gap-1 px-2 py-1 rounded bg-black/30 ${
                                                                         match.rrChange > 0
-                                                                            ? "bg-[#4ade80]/10 text-[#4ade80]"
-                                                                            : "bg-[#f87171]/10 text-[#f87171]"
+                                                                            ? "text-[#4ade80]"
+                                                                            : "text-[#f87171]"
                                                                     }`}
                                                                 >
                                                                     {match.rrChange > 0 ? (
@@ -540,10 +474,19 @@ export function MatchHistory() {
                                                                     >
                                                                         <div className="flex items-center gap-4">
                                                                             <div
-                                                                                className="w-8 h-8 bg-gradient-to-br from-[#4a7cff] to-[#2d5acc] rounded flex items-center justify-center">
-                                        <span className="text-xs">
-                                          {player.agent[0]}
-                                        </span>
+                                                                                className="w-8 h-8 bg-gradient-to-br from-[#4a7cff] to-[#2d5acc] rounded flex items-center justify-center overflow-hidden"
+                                                                            >
+                                                                                {player.agentIcon ? (
+                                                                                    <img
+                                                                                        src={player.agentIcon}
+                                                                                        alt={player.agent}
+                                                                                        className="w-7 h-7 object-contain"
+                                                                                    />
+                                                                                ) : (
+                                                                                    <span className="text-xs">
+                                                                                        {player.agent[0]}
+                                                                                    </span>
+                                                                                )}
                                                                             </div>
                                                                             <div>
                                                                                 <div className="text-white text-sm">
@@ -571,7 +514,7 @@ export function MatchHistory() {
                                                                                     ACS
                                                                                 </div>
                                                                                 <div className="text-white">
-                                                                                    {player.acs}
+                                                                                    {player.score}
                                                                                 </div>
                                                                             </div>
                                                                             <div className="text-center">
@@ -611,10 +554,19 @@ export function MatchHistory() {
                                                                     >
                                                                         <div className="flex items-center gap-4">
                                                                             <div
-                                                                                className="w-8 h-8 bg-gradient-to-br from-[#f87171] to-[#dc2626] rounded flex items-center justify-center">
-                                        <span className="text-xs">
-                                          {player.agent[0]}
-                                        </span>
+                                                                                className="w-8 h-8 bg-gradient-to-br from-[#f87171] to-[#dc2626] rounded flex items-center justify-center overflow-hidden"
+                                                                            >
+                                                                                {player.agentIcon ? (
+                                                                                    <img
+                                                                                        src={player.agentIcon}
+                                                                                        alt={player.agent}
+                                                                                        className="w-7 h-7 object-contain"
+                                                                                    />
+                                                                                ) : (
+                                                                                    <span className="text-xs">
+                                                                                        {player.agent[0]}
+                                                                                    </span>
+                                                                                )}
                                                                             </div>
                                                                             <div>
                                                                                 <div className="text-white text-sm">
@@ -642,7 +594,7 @@ export function MatchHistory() {
                                                                                     ACS
                                                                                 </div>
                                                                                 <div className="text-white">
-                                                                                    {player.acs}
+                                                                                    {player.score}
                                                                                 </div>
                                                                             </div>
                                                                             <div className="text-center">

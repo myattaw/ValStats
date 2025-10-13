@@ -24,7 +24,7 @@ public class ValorantService {
     }
 
     public MatchResponse getMatches(String region, String playerName, String playerTag) {
-        MatchResponse rawResponse = valorantApiClient.getMatches(region, playerName, playerTag, 1, AUTH_TOKEN);
+        MatchResponse rawResponse = valorantApiClient.getMatches(region, playerName, playerTag, 10, AUTH_TOKEN);
         return filterMatchesResponse(rawResponse);
     }
 

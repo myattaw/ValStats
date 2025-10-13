@@ -4,14 +4,17 @@ import {Collapsible, CollapsibleContent, CollapsibleTrigger,} from "./ui/collaps
 import {Skeleton} from "./ui/skeleton";
 
 interface PlayerStats {
+    puuid: string; // <-- Ensure puuid is present
     name: string;
     agent: string;
     kills: number;
     deaths: number;
     assists: number;
     score: number;
+    damage_made: number;
     headshot: number;
-    agentIcon?: string; // NEW: agent icon url
+    agentIcon?: string;
+    team?: string;
 }
 
 interface Match {
@@ -31,7 +34,8 @@ interface Match {
     rounds_played: number;
     date_raw?: number;
     players?: PlayerStats[];
-    agentIcon?: string; // NEW: agent icon for main match
+    agentIcon?: string;
+    teams?: any; // <-- Add this line to include teams property
 }
 
 export function MatchHistory() {
@@ -48,8 +52,8 @@ export function MatchHistory() {
             setIsInitialLoading(true);
             try {
                 const [matchRes, mmrRes] = await Promise.all([
-                    fetch("http://localhost:57608/api/valorant/test"),
-                    fetch("http://localhost:57608/api/valorant/test2"),
+                    fetch("http://localhost:62674/api/valorant/test"),
+                    fetch("http://localhost:62674/api/valorant/test2"),
                 ]);
                 const matchJson = await matchRes.json();
                 const mmrJson = await mmrRes.json();
@@ -79,9 +83,9 @@ export function MatchHistory() {
                         ? `${yourPlayer.stats.kills}/${yourPlayer.stats.deaths}/${yourPlayer.stats.assists}`
                         : "";
                     const agent = yourPlayer ? yourPlayer.character : "";
-                    const agentIcon = yourPlayer?.assets?.agent?.small || ""; // NEW
+                    const agentIcon = yourPlayer?.assets?.agent?.small || "";
                     const score = yourPlayer ? yourPlayer.stats.score : 0;
-                    // Use player's rounds_played if available, fallback to mmr.rounds_played or meta.rounds_played
+                    const puuid = yourPlayer ? yourPlayer.puuid : ""; // <-- Ensure puuid is set
                     const roundsPlayed =
                         (yourPlayer && yourPlayer.stats.rounds_played) ||
                         mmr.rounds_played ||
@@ -89,7 +93,6 @@ export function MatchHistory() {
                         0;
                     const acs = roundsPlayed > 0 ? Math.round(score / roundsPlayed) : 0;
 
-                    // --- NEW: Get real team scores ---
                     let userTeam = yourPlayer?.team?.toLowerCase() || "blue";
                     let userScore = 0;
                     let enemyScore = 0;
@@ -112,7 +115,7 @@ export function MatchHistory() {
                             : "Defeat",
                         kda,
                         agent,
-                        agentIcon, // NEW
+                        agentIcon,
                         score: userScore,
                         enemy_score: enemyScore,
                         acs,
@@ -123,15 +126,20 @@ export function MatchHistory() {
                         date_raw: mmr.date_raw,
                         rounds_played: roundsPlayed,
                         players: allPlayers.map((p: any) => ({
+                            puuid: p.puuid, // <-- Parse puuid from player
                             name: p.name,
                             agent: p.character,
                             kills: p.stats.kills,
                             deaths: p.stats.deaths,
                             assists: p.stats.assists,
                             score: p.stats.score,
+                            damage_made: p.damage_made,
                             headshot: 0,
-                            agentIcon: p.assets?.agent?.small || "", // NEW
+                            agentIcon: p.assets?.agent?.small || "",
+                            team: p.team,
                         })),
+                        teams: match.teams,
+                        puuid, // <-- Optionally, if you want to keep yourPlayer's puuid at match level
                     };
                 });
 
@@ -149,18 +157,21 @@ export function MatchHistory() {
 
     // Fetch match details from API
     const fetchMatchDetails = async (matchId: string): Promise<PlayerStats[]> => {
-        const res = await fetch("http://localhost:57608/api/valorant/test");
+        const res = await fetch("http://localhost:62674/api/valorant/test");
         const data = await res.json();
         const players = data.data[0].players.all_players;
         return players.map((p: any) => ({
+            puuid: p.puuid, // <-- Parse puuid from player
             name: p.name,
             agent: p.character,
             score: p.stats.score,
             kills: p.stats.kills,
             deaths: p.stats.deaths,
             assists: p.stats.assists,
+            damage_made: p.damage_made,
             headshot: 0,
-            agentIcon: p.assets?.agent?.small || "", // NEW
+            agentIcon: p.assets?.agent?.small || "",
+            team: p.team,
         }));
     };
 
@@ -400,7 +411,8 @@ export function MatchHistory() {
                                                                         <TrendingUp className="w-3 h-3"/>
                                                                     ) : (
                                                                         <TrendingDown className="w-3 h-3"/>
-                                                                    )}
+                                                                    )
+                                                                    }
                                                                     <span className="text-xs">
                                     {match.rrChange > 0
                                         ? "+"
@@ -414,17 +426,34 @@ export function MatchHistory() {
                                   Agent: {match.agent}
                                 </span>
                                                                 <span className="text-gray-400">
-                                  •
-                                </span>
+                                                                  •
+                                                                </span>
                                                                 <span className="text-gray-400">
-                                  KDA: {match.kda}
-                                </span>
+                                                                  KDA: {match.kda}
+                                                                </span>
                                                                 <span className="text-gray-400">
-                                  •
-                                </span>
+                                                                  •
+                                                                </span>
                                                                 <span className="text-gray-400">
-                                  ACS: {match.acs}
-                                </span>
+                                                                  ACS: {match.acs}
+                                                                </span>
+                                                                <span className="text-gray-400">
+                                                                  •
+                                                                </span>
+                                                                <span className="text-gray-400">
+                                                                  ADR: {
+                                                                    match.players && match.rounds_played > 0
+                                                                      ? (() => {
+                                                                          //TODO: fix this later (we need to fetch self stats as well)
+                                                                          const yourPuuid = "37654ff9-b560-5b0f-a2bb-3e00e37b651b";
+                                                                          const yourPlayer = match.players.find(p => p.puuid === yourPuuid);
+                                                                          return yourPlayer
+                                                                            ? Math.round(yourPlayer.damage_made / match.rounds_played)
+                                                                            : 0;
+                                                                        })()
+                                                                      : 0
+                                                                  }
+                                                                </span>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -451,165 +480,240 @@ export function MatchHistory() {
                                         <CollapsibleContent>
                                             {match.players && (
                                                 <div>
-                                                    {/* Winning Team */}
-                                                    <div
-                                                        className={`p-5 border-l border-r ${
-                                                            match.result === "Victory"
-                                                                ? "bg-[#4ade80]/10 border-[#4ade80]"
-                                                                : "bg-[#f87171]/10 border-[#f87171]"
-                                                        }`}
-                                                    >
-                                                        <h4 className="text-sm text-gray-400 mb-3">
-                                                            {match.result === "Victory"
-                                                                ? "Your Team (Victory)"
-                                                                : "Enemy Team (Victory)"}
-                                                        </h4>
-                                                        <div className="space-y-2">
-                                                            {match.players
-                                                                .slice(0, 5)
-                                                                .map((player, idx) => (
-                                                                    <div
-                                                                        key={idx}
-                                                                        className="flex items-center justify-between p-3 bg-black/20 rounded-lg"
-                                                                    >
-                                                                        <div className="flex items-center gap-4">
-                                                                            <div
-                                                                                className="w-8 h-8 bg-gradient-to-br from-[#4a7cff] to-[#2d5acc] rounded flex items-center justify-center overflow-hidden"
-                                                                            >
-                                                                                {player.agentIcon ? (
-                                                                                    <img
-                                                                                        src={player.agentIcon}
-                                                                                        alt={player.agent}
-                                                                                        className="w-7 h-7 object-contain"
-                                                                                    />
-                                                                                ) : (
-                                                                                    <span className="text-xs">
-                                                                                        {player.agent[0]}
-                                                                                    </span>
-                                                                                )}
-                                                                            </div>
-                                                                            <div>
-                                                                                <div className="text-white text-sm">
-                                                                                    {player.name}
-                                                                                </div>
-                                                                                <div className="text-xs text-gray-400">
-                                                                                    {player.agent}
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-                                                                        <div
-                                                                            className="flex items-center gap-6 text-sm">
-                                                                            <div className="text-center">
-                                                                                <div className="text-gray-400 text-xs">
-                                                                                    K/D/A
-                                                                                </div>
-                                                                                <div className="text-white">
-                                                                                    {player.kills}/
-                                                                                    {player.deaths}/
-                                                                                    {player.assists}
-                                                                                </div>
-                                                                            </div>
-                                                                            <div className="text-center">
-                                                                                <div className="text-gray-400 text-xs">
-                                                                                    ACS
-                                                                                </div>
-                                                                                <div className="text-white">
-                                                                                    {player.score}
-                                                                                </div>
-                                                                            </div>
-                                                                            <div className="text-center">
-                                                                                <div className="text-gray-400 text-xs">
-                                                                                    HS%
-                                                                                </div>
-                                                                                <div className="text-white">
-                                                                                    {player.headshot}%
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-                                                                    </div>
-                                                                ))}
-                                                        </div>
-                                                    </div>
+                                                    {(() => {
+                                                        // Dynamically determine which team is the "top" (winning) and "bottom" (losing) team
+                                                        const allPlayers = match.players || [];
+                                                        // Find team names from match.teams
+                                                        const teams = match.teams;
+                                                        let topTeamName = "blue";
+                                                        let bottomTeamName = "red";
+                                                        if (teams) {
+                                                            if (match.result === "Victory") {
+                                                                topTeamName = teams.blue.has_won ? "blue" : "red";
+                                                                bottomTeamName = teams.blue.has_won ? "red" : "blue";
+                                                            } else {
+                                                                topTeamName = teams.blue.has_won ? "red" : "blue";
+                                                                bottomTeamName = teams.blue.has_won ? "blue" : "red";
+                                                            }
+                                                        }
+                                                        // Get players for each team
+                                                        const topTeamPlayers = allPlayers.filter(
+                                                            (p) => p.team?.toLowerCase() === topTeamName
+                                                        );
+                                                        const bottomTeamPlayers = allPlayers.filter(
+                                                            (p) => p.team?.toLowerCase() === bottomTeamName
+                                                        );
+                                                        // Sort by score descending
+                                                        topTeamPlayers.sort((a, b) => b.score - a.score);
+                                                        bottomTeamPlayers.sort((a, b) => b.score - a.score);
 
-                                                    {/* Losing Team */}
-                                                    <div
-                                                        className={`p-5 border-l border-r border-b rounded-b-lg ${
-                                                            match.result === "Victory"
-                                                                ? "bg-[#f87171]/10 border-[#f87171]"
-                                                                : "bg-[#4ade80]/10 border-[#4ade80]"
-                                                        }`}
-                                                    >
-                                                        <h4 className="text-sm text-gray-400 mb-3">
-                                                            {match.result === "Victory"
-                                                                ? "Enemy Team (Defeat)"
-                                                                : "Your Team (Defeat)"}
-                                                        </h4>
-                                                        <div className="space-y-2">
-                                                            {match.players
-                                                                .slice(5, 10)
-                                                                .map((player, idx) => (
-                                                                    <div
-                                                                        key={idx}
-                                                                        className="flex items-center justify-between p-3 bg-black/20 rounded-lg"
-                                                                    >
-                                                                        <div className="flex items-center gap-4">
+                                                        // Team labels
+                                                        const topLabel =
+                                                            (teams && teams[topTeamName]?.has_won)
+                                                                ? "Victory"
+                                                                : "Defeat";
+                                                        const bottomLabel =
+                                                            (teams && teams[bottomTeamName]?.has_won)
+                                                                ? "Victory"
+                                                                : "Defeat";
+
+                                                        return (
+                                                            <>
+                                                                {/* Top (winning or losing) Team */}
+                                                                <div
+                                                                    className={`p-5 border-l border-r ${
+                                                                        topLabel === "Victory"
+                                                                            ? "bg-[#4ade80]/10 border-[#4ade80]"
+                                                                            : "bg-[#f87171]/10 border-[#f87171]"
+                                                                    }`}
+                                                                >
+                                                                    <h4 className="text-sm text-gray-400 mb-3">
+                                                                        {topLabel === "Victory"
+                                                                            ? "Winning Team (Victory)"
+                                                                            : "Losing Team (Defeat)"}
+                                                                    </h4>
+                                                                    <div className="space-y-2">
+                                                                        {topTeamPlayers.map((player, idx) => (
                                                                             <div
-                                                                                className="w-8 h-8 bg-gradient-to-br from-[#f87171] to-[#dc2626] rounded flex items-center justify-center overflow-hidden"
+                                                                                key={idx}
+                                                                                className="flex items-center justify-between p-3 bg-black/20 rounded-lg"
                                                                             >
-                                                                                {player.agentIcon ? (
-                                                                                    <img
-                                                                                        src={player.agentIcon}
-                                                                                        alt={player.agent}
-                                                                                        className="w-7 h-7 object-contain"
-                                                                                    />
-                                                                                ) : (
-                                                                                    <span className="text-xs">
-                                                                                        {player.agent[0]}
-                                                                                    </span>
-                                                                                )}
+                                                                                <div
+                                                                                    className="flex items-center gap-4">
+                                                                                    <div
+                                                                                        className={`w-8 h-8 rounded flex items-center justify-center overflow-hidden ${
+                                                                                            topLabel === "Victory"
+                                                                                                ? "bg-gradient-to-br from-[#4a7cff] to-[#2d5acc]"
+                                                                                                : "bg-gradient-to-br from-[#f87171] to-[#dc2626]"
+                                                                                        }`}
+                                                                                    >
+                                                                                        {player.agentIcon ? (
+                                                                                            <img
+                                                                                                src={player.agentIcon}
+                                                                                                alt={player.agent}
+                                                                                                className="w-7 h-7 object-contain"
+                                                                                            />
+                                                                                        ) : (
+                                                                                            <span className="text-xs">
+                                                                                                {player.agent[0]}
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </div>
+                                                                                    <div>
+                                                                                        <div
+                                                                                            className="text-white text-sm">
+                                                                                            {player.name}
+                                                                                        </div>
+                                                                                        <div
+                                                                                            className="text-xs text-gray-400">
+                                                                                            {player.agent}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div
+                                                                                    className="flex items-center gap-6 text-sm">
+                                                                                    <div className="text-center">
+                                                                                        <div
+                                                                                            className="text-gray-400 text-xs">
+                                                                                            K/D/A
+                                                                                        </div>
+                                                                                        <div className="text-white">
+                                                                                            {player.kills}/
+                                                                                            {player.deaths}/
+                                                                                            {player.assists}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div className="text-center">
+                                                                                        <div
+                                                                                            className="text-gray-400 text-xs">
+                                                                                            ACS
+                                                                                        </div>
+                                                                                        <div className="text-white">
+                                                                                            {Math.round(player.score / match.rounds_played)}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div className="text-center">
+                                                                                        <div
+                                                                                            className="text-gray-400 text-xs">
+                                                                                            ADR
+                                                                                        </div>
+                                                                                        <div className="text-white">
+                                                                                            {Math.round(player.damage_made / match.rounds_played)}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div className="text-center">
+                                                                                        <div
+                                                                                            className="text-gray-400 text-xs">
+                                                                                            HS%
+                                                                                        </div>
+                                                                                        <div className="text-white">
+                                                                                            {player.headshot}%
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
                                                                             </div>
-                                                                            <div>
-                                                                                <div className="text-white text-sm">
-                                                                                    {player.name}
-                                                                                </div>
-                                                                                <div className="text-xs text-gray-400">
-                                                                                    {player.agent}
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-                                                                        <div
-                                                                            className="flex items-center gap-6 text-sm">
-                                                                            <div className="text-center">
-                                                                                <div className="text-gray-400 text-xs">
-                                                                                    K/D/A
-                                                                                </div>
-                                                                                <div className="text-white">
-                                                                                    {player.kills}/
-                                                                                    {player.deaths}/
-                                                                                    {player.assists}
-                                                                                </div>
-                                                                            </div>
-                                                                            <div className="text-center">
-                                                                                <div className="text-gray-400 text-xs">
-                                                                                    ACS
-                                                                                </div>
-                                                                                <div className="text-white">
-                                                                                    {player.score}
-                                                                                </div>
-                                                                            </div>
-                                                                            <div className="text-center">
-                                                                                <div className="text-gray-400 text-xs">
-                                                                                    HS%
-                                                                                </div>
-                                                                                <div className="text-white">
-                                                                                    {player.headshot}%
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
+                                                                        ))}
                                                                     </div>
-                                                                ))}
-                                                        </div>
-                                                    </div>
+                                                                </div>
+                                                                {/* Bottom (losing or winning) Team */}
+                                                                <div
+                                                                    className={`p-5 border-l border-r border-b rounded-b-lg ${
+                                                                        bottomLabel === "Victory"
+                                                                            ? "bg-[#4ade80]/10 border-[#4ade80]"
+                                                                            : "bg-[#f87171]/10 border-[#f87171]"
+                                                                    }`}
+                                                                >
+                                                                    <h4 className="text-sm text-gray-400 mb-3">
+                                                                        {bottomLabel === "Victory"
+                                                                            ? "Winning Team (Victory)"
+                                                                            : "Losing Team (Defeat)"}
+                                                                    </h4>
+                                                                    <div className="space-y-2">
+                                                                        {bottomTeamPlayers.map((player, idx) => (
+                                                                            <div
+                                                                                key={idx}
+                                                                                className="flex items-center justify-between p-3 bg-black/20 rounded-lg"
+                                                                            >
+                                                                                <div
+                                                                                    className="flex items-center gap-4">
+                                                                                    <div
+                                                                                        className={`w-8 h-8 rounded flex items-center justify-center overflow-hidden ${
+                                                                                            bottomLabel === "Victory"
+                                                                                                ? "bg-gradient-to-br from-[#4a7cff] to-[#2d5acc]"
+                                                                                                : "bg-gradient-to-br from-[#f87171] to-[#dc2626]"
+                                                                                        }`}
+                                                                                    >
+                                                                                        {player.agentIcon ? (
+                                                                                            <img
+                                                                                                src={player.agentIcon}
+                                                                                                alt={player.agent}
+                                                                                                className="w-7 h-7 object-contain"
+                                                                                            />
+                                                                                        ) : (
+                                                                                            <span className="text-xs">
+                                                                                                {player.agent[0]}
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </div>
+                                                                                    <div>
+                                                                                        <div
+                                                                                            className="text-white text-sm">
+                                                                                            {player.name}
+                                                                                        </div>
+                                                                                        <div
+                                                                                            className="text-xs text-gray-400">
+                                                                                            {player.agent}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div
+                                                                                    className="flex items-center gap-6 text-sm">
+                                                                                    <div className="text-center">
+                                                                                        <div
+                                                                                            className="text-gray-400 text-xs">
+                                                                                            K/D/A
+                                                                                        </div>
+                                                                                        <div className="text-white">
+                                                                                            {player.kills}/
+                                                                                            {player.deaths}/
+                                                                                            {player.assists}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div className="text-center">
+                                                                                        <div
+                                                                                            className="text-gray-400 text-xs">
+                                                                                            ACS
+                                                                                        </div>
+                                                                                        <div className="text-white">
+                                                                                            {Math.round(player.score / match.rounds_played)}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div className="text-center">
+                                                                                        <div
+                                                                                            className="text-gray-400 text-xs">
+                                                                                            ADR
+                                                                                        </div>
+                                                                                        <div className="text-white">
+                                                                                            {Math.round(player.damage_made / match.rounds_played)}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div className="text-center">
+                                                                                        <div
+                                                                                            className="text-gray-400 text-xs">
+                                                                                            HS%
+                                                                                        </div>
+                                                                                        <div className="text-white">
+                                                                                            {player.headshot}%
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            </>
+                                                        );
+                                                    })()}
                                                 </div>
                                             )}
                                         </CollapsibleContent>

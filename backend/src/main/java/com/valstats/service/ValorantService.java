@@ -53,7 +53,7 @@ public class ValorantService {
                                     player.assets() == null ? null : new Assets(player.assets().card() == null ? null :
                                             new Assets.Card(player.assets().card().small()),
                                             player.assets().agent() == null ? null : new Assets.Agent(player.assets().agent().small())
-                                    )
+                                    ), player.damage_made()
                             ))
                             .collect(Collectors.toList());
                     // Pass through metadata and teams as well

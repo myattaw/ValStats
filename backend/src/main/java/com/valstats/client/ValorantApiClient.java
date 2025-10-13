@@ -29,4 +29,11 @@ public interface ValorantApiClient {
             @Header("Authorization") String authorization
     );
 
+    @Get("/valorant/v1/account/{name}/{tag}")
+    Map<String, Object> getAccount(
+            @PathVariable String name,
+            @PathVariable String tag,
+            @Header("Authorization") String authorization
+    );
+
 }

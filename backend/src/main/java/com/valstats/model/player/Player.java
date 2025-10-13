@@ -1,5 +1,6 @@
 package com.valstats.model.player;
 
+import com.valstats.model.assets.Assets;
 import io.micronaut.core.annotation.Introspected;
 import io.micronaut.serde.annotation.Serdeable;
 

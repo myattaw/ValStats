@@ -37,4 +37,9 @@ public class ValorantController {
         return valorantService.getMMRHistory("na", "yoru smurf", "rages");
     }
 
+    @Get("/account")
+    public Map<String, Object> getAccount() {
+        return valorantService.getAccountDetails("yoru smurf", "rages");
+    }
+
 }

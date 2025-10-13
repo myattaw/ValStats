@@ -3,10 +3,14 @@ package com.valstats.service;
 import com.valstats.client.ValorantApiClient;
 import com.valstats.model.Match;
 import com.valstats.model.MatchResponse;
-import com.valstats.model.player.Assets;
+import com.valstats.model.assets.Assets;
 import com.valstats.model.player.Player;
 import com.valstats.model.player.Players;
 import com.valstats.model.player.Stats;
+import io.micronaut.http.client.HttpClient;
+import io.micronaut.http.client.annotation.Client;
+import io.micronaut.serde.ObjectMapper;
+import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 
 import java.util.List;
@@ -18,6 +22,13 @@ public class ValorantService {
 
     private final ValorantApiClient valorantApiClient;
     private static final String AUTH_TOKEN = System.getenv("HDEV_KEY");
+
+    @Inject
+    private ObjectMapper objectMapper;
+
+    @Inject
+    @Client("https://api.henrikdev.xyz/valorant/v1/account")
+    HttpClient accountClient;
 
     public ValorantService(ValorantApiClient valorantApiClient) {
         this.valorantApiClient = valorantApiClient;
@@ -63,4 +74,7 @@ public class ValorantService {
         return new MatchResponse(rawResponse.status(), filteredData);
     }
 
+    public Map<String, Object> getAccountDetails(String name, String tag) {
+        return valorantApiClient.getAccount(name, tag, AUTH_TOKEN);
+    }
 }

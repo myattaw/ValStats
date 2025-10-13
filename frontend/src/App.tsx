@@ -16,7 +16,7 @@ export default function App() {
         // Fetch player profile data on startup
         const fetchProfile = async () => {
             try {
-                const res = await fetch('http://localhost:60222/api/valorant/account');
+                const res = await fetch('http://localhost:54903/api/valorant/account/rages/alt');
                 const json = await res.json();
                 setProfile(json.data);
             } catch (e) {

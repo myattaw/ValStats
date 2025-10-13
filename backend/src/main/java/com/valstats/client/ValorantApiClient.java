@@ -13,11 +13,19 @@ import java.util.Map;
 public interface ValorantApiClient {
 
     @Get("/valorant/v3/matches/{region}/{name}/{tag}")
-    MatchResponse getMatches(
+    MatchResponse getRecentMatches(
             @PathVariable String region,
             @PathVariable String name,
             @PathVariable String tag,
             @QueryValue(value = "size", defaultValue = "10") Integer size, // <- Micronaut query param
+            @Header("Authorization") String authorization
+    );
+
+    @Get("/valorant/v1/stored-matches/{region}/{name}/{tag}")
+    Map<String, Object> getStoredMatches(
+            @PathVariable String region,
+            @PathVariable String name,
+            @PathVariable String tag,
             @Header("Authorization") String authorization
     );
 

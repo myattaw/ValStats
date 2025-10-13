@@ -7,12 +7,9 @@ import com.valstats.model.assets.Assets;
 import com.valstats.model.player.Player;
 import com.valstats.model.player.Players;
 import com.valstats.model.player.Stats;
-import io.micronaut.http.client.HttpClient;
-import io.micronaut.http.client.annotation.Client;
-import io.micronaut.serde.ObjectMapper;
-import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -23,20 +20,17 @@ public class ValorantService {
     private final ValorantApiClient valorantApiClient;
     private static final String AUTH_TOKEN = System.getenv("HDEV_KEY");
 
-    @Inject
-    private ObjectMapper objectMapper;
-
-    @Inject
-    @Client("https://api.henrikdev.xyz/valorant/v1/account")
-    private HttpClient accountClient;
-
     public ValorantService(ValorantApiClient valorantApiClient) {
         this.valorantApiClient = valorantApiClient;
     }
 
-    public MatchResponse getMatches(String region, String playerName, String playerTag) {
-        MatchResponse rawResponse = valorantApiClient.getMatches(region, playerName, playerTag, 10, AUTH_TOKEN);
+    public MatchResponse getRecentMatches(String region, String playerName, String playerTag) {
+        MatchResponse rawResponse = valorantApiClient.getRecentMatches(region, playerName, playerTag, 10, AUTH_TOKEN);
         return filterMatchesResponse(rawResponse);
+    }
+
+    public Map<String, Object> getStoredMatches(String region, String playerName, String playerTag) {
+        return valorantApiClient.getStoredMatches(region, playerName, playerTag, AUTH_TOKEN);
     }
 
     public Map<String, Object> getMMRHistory(String region, String playerName, String playerTag) {

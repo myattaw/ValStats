@@ -56,9 +56,10 @@ export function MatchHistory({ puuid }: MatchHistoryProps) {
             setIsInitialLoading(true);
             try {
                 const [matchRes, mmrRes] = await Promise.all([
-                    fetch("http://localhost:60222/api/valorant/test"),
-                    fetch("http://localhost:60222/api/valorant/test2"),
+                    fetch("http://localhost:54903/api/valorant/recent-matches/na/rages/alt?size=10"),
+                    fetch("http://localhost:54903/api/valorant/mmr-history/na/rages/alt"),
                 ]);
+
                 const matchJson = await matchRes.json();
                 const mmrJson = await mmrRes.json();
 
@@ -159,13 +160,16 @@ export function MatchHistory({ puuid }: MatchHistoryProps) {
             } finally {
                 setIsInitialLoading(false);
             }
+
+            console.log("Fetched and combined matches:", matches)
+
         };
         fetchCombinedMatches();
     }, [puuid]);
 
     // Fetch match details from API
     const fetchMatchDetails = async (matchId: string): Promise<PlayerStats[]> => {
-        const res = await fetch("http://localhost:62674/api/valorant/test");
+        const res = await fetch("http://localhost:54903/api/valorant/recent-matches/na/rages/alt/");
         const data = await res.json();
         const players = data.data[0].players.all_players;
         return players.map((p: any) => ({

@@ -17,18 +17,26 @@ public class ValorantController {
         this.valorantService = valorantService;
     }
 
-    @Get("/matches/{region}/{name}/{tag}")
+    @Get("/recent-matches/{region}/{name}/{tag}")
     public MatchResponse getMatches(
             @PathVariable String region,
             @PathVariable String name,
             @PathVariable String tag) {
-        return valorantService.getMatches(region, name, tag);
+        return valorantService.getRecentMatches(region, name, tag);
+    }
+
+    @Get("/stored-matches/{region}/{name}/{tag}")
+    public Map<String, Object> getAllMatches(
+            @PathVariable String region,
+            @PathVariable String name,
+            @PathVariable String tag) {
+        return valorantService.getStoredMatches(region, name, tag);
     }
 
     @Get("/test")
     public MatchResponse test() {
         // This is the "hello world" endpoint that makes the specific request
-        return valorantService.getMatches("na", "yoru smurf", "rages");
+        return valorantService.getRecentMatches("na", "yoru smurf", "rages");
     }
 
     @Get("/test2")
@@ -37,9 +45,19 @@ public class ValorantController {
         return valorantService.getMMRHistory("na", "yoru smurf", "rages");
     }
 
-    @Get("/account")
-    public Map<String, Object> getAccount() {
-        return valorantService.getAccountDetails("yoru smurf", "rages");
+    @Get("/mmr-history/{region}/{name}/{tag}")
+    public Map<String, Object> getMMRHistory(
+            @PathVariable String region,
+            @PathVariable String name,
+            @PathVariable String tag) {
+        return valorantService.getMMRHistory(region, name, tag);
+    }
+
+    @Get("/account/{name}/{tag}")
+    public Map<String, Object> getAccount(
+            @PathVariable String name,
+            @PathVariable String tag) {
+        return valorantService.getAccountDetails(name, tag);
     }
 
 }

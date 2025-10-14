@@ -46,7 +46,7 @@ interface MatchHistoryProps {
 }
 
 // Constants
-const API_BASE_URL = "http://localhost:64457/api/valorant";
+const API_BASE_URL = "http://localhost:57914/api/valorant";
 const DEFAULT_PUUID = "37654ff9-b560-5b0f-a2bb-3e00e37b651b";
 const INITIAL_MATCHES_SIZE = 15;
 const DETAILED_MATCHES_SIZE = 3;
@@ -568,6 +568,31 @@ export function MatchHistory({puuid}: MatchHistoryProps) {
         </div>
     );
 
+    // Fallback rank names for tiers 0 (Unranked), 3-27 (Iron 1 to Radiant)
+    const RANK_NAMES = [
+        "Unranked", // 0
+        "", "", // 1, 2 (unused)
+        "Iron 1", "Iron 2", "Iron 3", // 3-5
+        "Bronze 1", "Bronze 2", "Bronze 3", // 6-8
+        "Silver 1", "Silver 2", "Silver 3", // 9-11
+        "Gold 1", "Gold 2", "Gold 3", // 12-14
+        "Platinum 1", "Platinum 2", "Platinum 3", // 15-17
+        "Diamond 1", "Diamond 2", "Diamond 3", // 18-20
+        "Ascendant 1", "Ascendant 2", "Ascendant 3", // 21-23
+        "Immortal 1", "Immortal 2", "Immortal 3", // 24-26
+        "Radiant" // 27
+    ];
+
+    // Helper to get fallback rank name
+    const getRankName = (match: Match) => {
+        if (match.rank && match.rank.trim() !== "") return match.rank;
+        const idx = match.ranking_in_tier;
+        if (typeof idx === "number" && idx >= 0 && idx < RANK_NAMES.length) {
+            return RANK_NAMES[idx];
+        }
+        return "Unranked";
+    };
+
     return (
         <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-lg overflow-hidden">
             <div className="border-b border-[#1a1a1a] p-6">
@@ -663,13 +688,12 @@ export function MatchHistory({puuid}: MatchHistoryProps) {
                                                                 <span className="text-white">{match.map}</span>
                                                                 <span
                                                                     className={`px-3 py-1 rounded ${resultBadgeColor}`}>
-                                  {match.result}
-                                </span>
+                                                                    {match.result}
+                                                                </span>
                                                                 <span
                                                                     className="text-gray-400 px-2 py-1 rounded bg-black/30">
-                                  {match.score}-{match.enemy_score}
-                                </span>
-
+                                                                    {match.score}-{match.enemy_score}
+                                                                </span>
                                                                 <div
                                                                     className="flex items-center gap-1.5 px-2 py-1 rounded bg-black/30">
                                                                     <img
@@ -678,22 +702,24 @@ export function MatchHistory({puuid}: MatchHistoryProps) {
                                                                         className="w-3 h-3"
                                                                     />
                                                                     <span className="text-xs text-gray-300">
-                                    {match.rank}
-                                  </span>
+                                                                        {getRankName(match)}
+                                                                    </span>
                                                                 </div>
-
-                                                                <div
-                                                                    className={`flex items-center gap-1 px-2 py-1 rounded bg-black/30 ${rrChangeColor}`}>
-                                                                    {match.rrChange > 0 ? (
-                                                                        <TrendingUp className="w-3 h-3"/>
-                                                                    ) : (
-                                                                        <TrendingDown className="w-3 h-3"/>
-                                                                    )}
-                                                                    <span className="text-xs">
-                                    {match.rrChange > 0 ? "+" : ""}
-                                                                        {match.rrChange} RR
-                                  </span>
-                                                                </div>
+                                                                {/* Only show RR change if not 0 */}
+                                                                {match.rrChange !== 0 && (
+                                                                    <div
+                                                                        className={`flex items-center gap-1 px-2 py-1 rounded bg-black/30 ${rrChangeColor}`}>
+                                                                        {match.rrChange > 0 ? (
+                                                                            <TrendingUp className="w-3 h-3"/>
+                                                                        ) : (
+                                                                            <TrendingDown className="w-3 h-3"/>
+                                                                        )}
+                                                                        <span className="text-xs">
+                                                                            {match.rrChange > 0 ? "+" : ""}
+                                                                            {match.rrChange} RR
+                                                                        </span>
+                                                                    </div>
+                                                                )}
                                                             </div>
 
                                                             {/* Match stats */}

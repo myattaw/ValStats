@@ -29,6 +29,7 @@ public interface ValorantApiClient {
             @PathVariable String tag,
             @QueryValue(value = "size", defaultValue = "10") Integer size,
             @QueryValue(value = "page", defaultValue = "1") Integer page,
+            @QueryValue(value = "mode", defaultValue = "competitive") String filter,
             @Header("Authorization") String authorization
     );
 

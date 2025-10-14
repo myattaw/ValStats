@@ -30,7 +30,7 @@ public class ValorantService {
     }
 
     public Map<String, Object> getStoredMatches(String region, String playerName, String playerTag, int size, int page) {
-        return valorantApiClient.getStoredMatches(region, playerName, playerTag, size, page, AUTH_TOKEN);
+        return valorantApiClient.getStoredMatches(region, playerName, playerTag, size, page, "competitive", AUTH_TOKEN);
     }
 
     public Map<String, Object> getMMRHistory(String region, String playerName, String playerTag) {

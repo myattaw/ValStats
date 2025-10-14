@@ -6,7 +6,7 @@ import { ActSelector } from './components/ActSelector';
 import { Skeleton } from './components/ui/skeleton';
 
 // Constants
-const API_BASE_URL = 'http://localhost:64457/api/valorant';
+const API_BASE_URL = 'http://localhost:57914/api/valorant';
 
 // Types
 interface ProfileData {

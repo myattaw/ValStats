@@ -5,6 +5,7 @@ import com.valstats.service.ValorantService;
 import io.micronaut.http.annotation.Controller;
 import io.micronaut.http.annotation.Get;
 import io.micronaut.http.annotation.PathVariable;
+import io.micronaut.http.annotation.QueryValue;
 
 import java.util.Map;
 
@@ -21,28 +22,24 @@ public class ValorantController {
     public MatchResponse getMatches(
             @PathVariable String region,
             @PathVariable String name,
-            @PathVariable String tag) {
-        return valorantService.getRecentMatches(region, name, tag);
+            @PathVariable String tag,
+            @QueryValue(value = "size", defaultValue = "10") Integer size,
+            @QueryValue(value = "start", defaultValue = "0") Integer start
+
+    ) {
+        return valorantService.getRecentMatches(region, name, tag, size, start);
     }
 
     @Get("/stored-matches/{region}/{name}/{tag}")
     public Map<String, Object> getAllMatches(
             @PathVariable String region,
             @PathVariable String name,
-            @PathVariable String tag) {
-        return valorantService.getStoredMatches(region, name, tag);
-    }
+            @PathVariable String tag,
+            @QueryValue(value = "size", defaultValue = "10") Integer size,
+            @QueryValue(value = "page", defaultValue = "1") Integer page
 
-    @Get("/test")
-    public MatchResponse test() {
-        // This is the "hello world" endpoint that makes the specific request
-        return valorantService.getRecentMatches("na", "yoru smurf", "rages");
-    }
-
-    @Get("/test2")
-    public Map<String, Object> test2() {
-        // This is the "hello world" endpoint that makes the specific request
-        return valorantService.getMMRHistory("na", "yoru smurf", "rages");
+    ) {
+        return valorantService.getStoredMatches(region, name, tag, size, page);
     }
 
     @Get("/mmr-history/{region}/{name}/{tag}")

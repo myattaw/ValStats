@@ -18,6 +18,7 @@ public interface ValorantApiClient {
             @PathVariable String name,
             @PathVariable String tag,
             @QueryValue(value = "size", defaultValue = "10") Integer size, // <- Micronaut query param
+            @QueryValue(value = "start", defaultValue = "1") Integer start,
             @Header("Authorization") String authorization
     );
 
@@ -26,6 +27,8 @@ public interface ValorantApiClient {
             @PathVariable String region,
             @PathVariable String name,
             @PathVariable String tag,
+            @QueryValue(value = "size", defaultValue = "10") Integer size,
+            @QueryValue(value = "page", defaultValue = "1") Integer page,
             @Header("Authorization") String authorization
     );
 

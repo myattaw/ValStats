@@ -24,13 +24,13 @@ public class ValorantService {
         this.valorantApiClient = valorantApiClient;
     }
 
-    public MatchResponse getRecentMatches(String region, String playerName, String playerTag) {
-        MatchResponse rawResponse = valorantApiClient.getRecentMatches(region, playerName, playerTag, 10, AUTH_TOKEN);
+    public MatchResponse getRecentMatches(String region, String playerName, String playerTag, int size, int page) {
+        MatchResponse rawResponse = valorantApiClient.getRecentMatches(region, playerName, playerTag, size, page, AUTH_TOKEN);
         return filterMatchesResponse(rawResponse);
     }
 
-    public Map<String, Object> getStoredMatches(String region, String playerName, String playerTag) {
-        return valorantApiClient.getStoredMatches(region, playerName, playerTag, AUTH_TOKEN);
+    public Map<String, Object> getStoredMatches(String region, String playerName, String playerTag, int size, int page) {
+        return valorantApiClient.getStoredMatches(region, playerName, playerTag, size, page, AUTH_TOKEN);
     }
 
     public Map<String, Object> getMMRHistory(String region, String playerName, String playerTag) {

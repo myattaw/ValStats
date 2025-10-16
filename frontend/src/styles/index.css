@@ -763,6 +763,11 @@
     border-bottom-width: 0 !important;
   }
 
+    .\!border-0 {
+        border-bottom-style: var(--tw-border-style) !important;
+        border-width: 0 !important;
+    }
+
   .border-b {
     border-bottom-style: var(--tw-border-style);
     border-bottom-width: 1px;

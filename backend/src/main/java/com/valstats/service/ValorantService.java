@@ -9,7 +9,6 @@ import com.valstats.model.player.Players;
 import com.valstats.model.player.Stats;
 import jakarta.inject.Singleton;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;

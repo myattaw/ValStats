@@ -6,5 +6,5 @@ import io.micronaut.serde.annotation.Serdeable;
 @Introspected
 @Serdeable.Deserializable
 @Serdeable.Serializable
-public record Stats(int score, int kills, int deaths, int assists) {
+public record Stats(int score, int kills, int deaths, int assists, int bodyshots, int headshots, int legshots) {
 }

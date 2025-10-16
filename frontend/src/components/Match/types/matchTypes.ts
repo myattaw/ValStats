@@ -7,9 +7,11 @@ export interface PlayerStats {
     assists: number;
     score: number;
     damage_made: number;
-    headshot: number;
     agentIcon?: string;
     team?: string;
+    bodyshots?: number;
+    headshots?: number;
+    legshots?: number;
 }
 
 export interface Match {
@@ -38,4 +40,3 @@ export interface Match {
 export interface MatchHistoryProps {
     puuid?: string;
 }
-

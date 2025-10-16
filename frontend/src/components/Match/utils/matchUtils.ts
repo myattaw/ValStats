@@ -1,6 +1,6 @@
 import { Match, PlayerStats } from '../types/matchTypes';
 
-const API_BASE_URL = "http://localhost:49175/api/valorant";
+const API_BASE_URL = "http://localhost:52800/api/valorant";
 const DEFAULT_PUUID = "37654ff9-b560-5b0f-a2bb-3e00e37b651b";
 const INITIAL_MATCHES_SIZE = 15;
 const DETAILED_MATCHES_SIZE = 3;
@@ -196,14 +196,16 @@ export const extractTeamStats = (teams: any, userTeam: string) => {
 
 export const mapPlayerData = (p: any): PlayerStats => ({
     puuid: p.puuid,
-    name: p.character,
+    name: p.name, // FIX: use actual player name
     agent: p.character,
     kills: p.stats.kills,
     deaths: p.stats.deaths,
     assists: p.stats.assists,
     score: p.stats.score,
     damage_made: p.damage_made,
-    headshot: 0,
+    headshots: p.stats.headshots,
+    bodyshots: p.stats.bodyshots,
+    legshots: p.stats.legshots,
     agentIcon: p.assets?.agent?.small || "",
     team: p.team,
 });
@@ -252,4 +254,3 @@ export const calculateADR = (match: Match, puuid?: string): number => {
         ? Math.round(yourPlayer.damage_made / match.rounds_played)
         : 0;
 };
-

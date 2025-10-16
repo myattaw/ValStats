@@ -1,6 +1,16 @@
 import {Skeleton} from "../ui/skeleton";
 import {PlayerStats} from './types/matchTypes';
 
+// Helper to calculate headshot percentage
+function getHeadshotPercentage(player: PlayerStats): string {
+    const hs = player.headshots ?? 0;
+    const bs = player.bodyshots ?? 0;
+    const ls = player.legshots ?? 0;
+    const total = hs + bs + ls;
+    if (total === 0) return "0%";
+    return `${Math.round((hs / total) * 100)}%`;
+}
+
 // Component for displaying match player data
 export const MatchPlayerRow = ({player, teamStyle, rounds_played}: {
     player: PlayerStats;
@@ -29,7 +39,7 @@ export const MatchPlayerRow = ({player, teamStyle, rounds_played}: {
             <StatDisplay label="K/D/A" value={`${player.kills}/${player.deaths}/${player.assists}`}/>
             <StatDisplay label="ACS" value={Math.round(player.score / rounds_played).toString()}/>
             <StatDisplay label="ADR" value={Math.round(player.damage_made / rounds_played).toString()}/>
-            <StatDisplay label="HS%" value={`${player.headshot}%`}/>
+            <StatDisplay label="HS%" value={getHeadshotPercentage(player)}/>
         </div>
     </div>
 );

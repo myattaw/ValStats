@@ -52,7 +52,10 @@ public class ValorantService {
                                             player.stats().score(),
                                             player.stats().kills(),
                                             player.stats().deaths(),
-                                            player.stats().assists()
+                                            player.stats().assists(),
+                                            player.stats().bodyshots(),
+                                            player.stats().headshots(),
+                                            player.stats().legshots()
                                     ),
                                     player.assets() == null ? null : new Assets(player.assets().card() == null ? null :
                                             new Assets.Card(player.assets().card().small()),

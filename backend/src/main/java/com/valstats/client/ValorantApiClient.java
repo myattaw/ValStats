@@ -48,4 +48,9 @@ public interface ValorantApiClient {
             @Header("Authorization") String authorization
     );
 
+    @Get("/valorant/v2/match/{matchid}")
+    Map<String, Object> getMatchById(
+            @PathVariable String matchid,
+            @Header("Authorization") String authorization
+    );
 }

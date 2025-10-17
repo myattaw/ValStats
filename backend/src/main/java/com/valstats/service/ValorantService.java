@@ -73,4 +73,9 @@ public class ValorantService {
     public Map<String, Object> getAccountDetails(String name, String tag) {
         return valorantApiClient.getAccount(name, tag, AUTH_TOKEN);
     }
+
+    public Map<String, Object> getMatchById(String matchid) {
+        return valorantApiClient.getMatchById(matchid, AUTH_TOKEN);
+    }
+
 }

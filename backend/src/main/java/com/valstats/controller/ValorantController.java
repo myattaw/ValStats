@@ -57,4 +57,9 @@ public class ValorantController {
         return valorantService.getAccountDetails(name, tag);
     }
 
+    @Get("/match/{matchid}")
+    public Map<String, Object> getMatchById(@PathVariable String matchid) {
+        return valorantService.getMatchById(matchid);
+    }
+
 }

@@ -8,6 +8,7 @@ function getHeadshotPercentage(player: PlayerStats): string {
     const ls = player.legshots ?? 0;
     const total = hs + bs + ls;
     if (total === 0) return "0%";
+
     return `${Math.round((hs / total) * 100)}%`;
 }
 
@@ -16,33 +17,36 @@ export const MatchPlayerRow = ({player, teamStyle, rounds_played}: {
     player: PlayerStats;
     teamStyle: string;
     rounds_played: number;
-}) => (
-    <div className="flex items-center justify-between p-3 bg-black/20 rounded-lg">
-        <div className="flex items-center gap-4">
-            <div className={`w-8 h-8 rounded flex items-center justify-center overflow-hidden ${teamStyle}`}>
-                {player.agentIcon ? (
-                    <img
-                        src={player.agentIcon}
-                        alt={player.agent}
-                        className="w-7 h-7 object-contain"
-                    />
-                ) : (
-                    <span className="text-xs">{player.agent[0]}</span>
-                )}
+}) => {
+    const rp = player.rounds_played ?? rounds_played;
+    return (
+        <div className="flex items-center justify-between p-3 bg-black/20 rounded-lg">
+            <div className="flex items-center gap-4">
+                <div className={`w-8 h-8 rounded flex items-center justify-center overflow-hidden ${teamStyle}`}>
+                    {player.agentIcon ? (
+                        <img
+                            src={player.agentIcon}
+                            alt={player.agent}
+                            className="w-7 h-7 object-contain"
+                        />
+                    ) : (
+                        <span className="text-xs">{player.agent[0]}</span>
+                    )}
+                </div>
+                <div>
+                    <div className="text-white text-sm">{player.name}</div>
+                    <div className="text-xs text-gray-400">{player.agent}</div>
+                </div>
             </div>
-            <div>
-                <div className="text-white text-sm">{player.name}</div>
-                <div className="text-xs text-gray-400">{player.agent}</div>
+            <div className="flex items-center gap-6 text-sm">
+                <StatDisplay label="K/D/A" value={`${player.kills}/${player.deaths}/${player.assists}`}/>
+                <StatDisplay label="ACS" value={rp > 0 ? Math.round(player.score / rp).toString() : "0"}/>
+                <StatDisplay label="ADR" value={rp > 0 ? Math.round(player.damage_made / rp).toString() : "0"}/>
+                <StatDisplay label="HS%" value={getHeadshotPercentage(player)}/>
             </div>
         </div>
-        <div className="flex items-center gap-6 text-sm">
-            <StatDisplay label="K/D/A" value={`${player.kills}/${player.deaths}/${player.assists}`}/>
-            <StatDisplay label="ACS" value={Math.round(player.score / rounds_played).toString()}/>
-            <StatDisplay label="ADR" value={Math.round(player.damage_made / rounds_played).toString()}/>
-            <StatDisplay label="HS%" value={getHeadshotPercentage(player)}/>
-        </div>
-    </div>
-);
+    );
+};
 
 // Component for displaying player stats
 export const StatDisplay = ({label, value}: { label: string; value: string }) => (

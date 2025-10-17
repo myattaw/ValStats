@@ -12,6 +12,7 @@ export interface PlayerStats {
     bodyshots?: number;
     headshots?: number;
     legshots?: number;
+    rounds_played?: number; // <-- Add this
 }
 
 export interface Match {

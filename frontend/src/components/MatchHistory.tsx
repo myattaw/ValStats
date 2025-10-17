@@ -73,20 +73,10 @@ export function MatchHistory({puuid}: MatchHistoryProps) {
 
     // Handle match click
     const handleMatchClick = async (matchId: string) => {
-        const match = matches.find((m) => m.id === matchId);
-        if (!match) return;
-
-        if (expandedMatch === matchId) {
-            setExpandedMatch(null);
-            return;
-        }
-
-        if (match.hasDetails && match.players) {
-            setExpandedMatch(matchId);
-            return;
-        }
-
+        // Always show loading spinner while fetching
         setLoadingMatchId(matchId);
+        setExpandedMatch(matchId);
+
         try {
             const playerStats = await fetchMatchDetails(matchId);
 
@@ -97,8 +87,10 @@ export function MatchHistory({puuid}: MatchHistoryProps) {
                         : m
                 )
             );
-            setExpandedMatch(matchId);
+            // expandedMatch stays open
         } catch (error) {
+            // On error, keep spinner visible and expanded
+            // Optionally, you could add a timeout or retry logic here
             console.error("Failed to load match details:", error);
         } finally {
             setLoadingMatchId(null);
@@ -242,16 +234,44 @@ export function MatchHistory({puuid}: MatchHistoryProps) {
                                 : "bg-[#f87171]/20 text-[#f87171]";
                             const rrChangeColor = match.rrChange > 0 ? "text-[#4ade80]" : "text-[#f87171]";
 
+                            // Only fetch details if not loaded yet
+                            const handleExpand = async () => {
+                                // If already loading, do nothing
+                                if (loadingMatchId === match.id) return;
+
+                                // Fetch details if players are missing or only 1 player is present
+                                if (!match.players || match.players.length <= 1) {
+                                    setLoadingMatchId(match.id);
+                                    setExpandedMatch(match.id);
+                                    try {
+                                        const playerStats = await fetchMatchDetails(match.id);
+                                        setMatches(prev =>
+                                            prev.map(m =>
+                                                m.id === match.id
+                                                    ? {...m, players: playerStats, hasDetails: true}
+                                                    : m
+                                            )
+                                        );
+                                    } catch (error) {
+                                        console.error("Failed to load match details:", error);
+                                    } finally {
+                                        setLoadingMatchId(null);
+                                    }
+                                } else {
+                                    setExpandedMatch(isExpanded ? null : match.id);
+                                }
+                            };
+
                             return (
                                 <Collapsible
                                     key={match.id}
-                                    open={isExpanded}
-                                    onOpenChange={() => handleMatchClick(match.id)}
+                                    open={isExpanded && !!match.players}
+                                    onOpenChange={handleExpand}
                                 >
                                     <div>
                                         <CollapsibleTrigger
                                             className={`w-full text-left p-0 transition-colors relative overflow-hidden ${
-                                                isExpanded
+                                                isExpanded && match.players
                                                     ? "rounded-t-lg border-t border-l border-r !border-b-0"
                                                     : "rounded-lg border"
                                             } ${borderColor}`}
@@ -363,12 +383,13 @@ export function MatchHistory({puuid}: MatchHistoryProps) {
                                                             <Clock className="w-4 h-4"/>
                                                             <span>{match.timestamp}</span>
                                                         </div>
+                                                        {/* Spinner stays until request finishes, even on error */}
                                                         {loadingMatchId === match.id ? (
                                                             <Loader2 className="w-5 h-5 text-gray-400 animate-spin"/>
                                                         ) : (
                                                             <ChevronDown
                                                                 className={`w-5 h-5 text-gray-400 transition-transform ${
-                                                                    isExpanded ? "rotate-180" : ""
+                                                                    isExpanded && match.players ? "rotate-180" : ""
                                                                 }`}
                                                             />
                                                         )}
@@ -377,19 +398,14 @@ export function MatchHistory({puuid}: MatchHistoryProps) {
                                             </div>
                                         </CollapsibleTrigger>
 
-                                        {/* Expanded match content */}
-                                        <CollapsibleContent>
-                                            {match.players ? (
+                                        {/* Expanded match content only if players loaded */}
+                                        {isExpanded && match.players && (
+                                            <CollapsibleContent>
                                                 <div>
                                                     {renderMatchTeams(match)}
                                                 </div>
-                                            ) : (
-                                                <div
-                                                    className="p-5 border-l border-r border-b rounded-b-lg bg-[#1a1a1a] flex justify-center">
-                                                    <Loader2 className="w-6 h-6 text-gray-400 animate-spin"/>
-                                                </div>
-                                            )}
-                                        </CollapsibleContent>
+                                            </CollapsibleContent>
+                                        )}
                                     </div>
                                 </Collapsible>
                             );

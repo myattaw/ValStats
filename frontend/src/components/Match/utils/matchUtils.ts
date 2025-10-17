@@ -1,6 +1,6 @@
 import { Match, PlayerStats } from '../types/matchTypes';
 
-const API_BASE_URL = "http://localhost:52800/api/valorant";
+const API_BASE_URL = "http://localhost:57386/api/valorant";
 const DEFAULT_PUUID = "37654ff9-b560-5b0f-a2bb-3e00e37b651b";
 const INITIAL_MATCHES_SIZE = 15;
 const DETAILED_MATCHES_SIZE = 3;
@@ -80,19 +80,34 @@ export const processStoredMatches = (
             const displayDate = mmr.date || startedDate.toLocaleString();
 
             const kda = `${stats.kills}/${stats.deaths}/${stats.assists}`;
-            const acs = meta.rounds_played > 0 ? Math.round(stats.score / meta.rounds_played) : 0;
 
-            const userTeam = stats.team.toLowerCase() || "blue";
-            const userScore = match.teams[userTeam] || 0;
-            const enemyScore = match.teams[userTeam === "blue" ? "red" : "blue"] || 0;
+            // Get team names
+            const userTeam = stats.team?.toLowerCase() || "blue";
+            const enemyTeam = userTeam === "blue" ? "red" : "blue";
+
+            // Get rounds won by each team
+            const userScore = match.teams?.[userTeam] ?? match.teams?.[userTeam]?.rounds_won ?? 0;
+            const enemyScore = match.teams?.[enemyTeam] ?? match.teams?.[enemyTeam]?.rounds_won ?? 0;
+
+            // Calculate total rounds played
+            const rounds_played = (match.teams?.red?.rounds_won ?? match.teams?.red ?? 0)
+                + (match.teams?.blue?.rounds_won ?? match.teams?.blue ?? 0);
+
+            // Calculate ACS and ADR
+            const acs = rounds_played > 0 ? Math.round(stats.score / rounds_played) : 0;
+            const damage_made = stats.damage?.made ?? 0;
+            const adr = rounds_played > 0 ? Math.round(damage_made / rounds_played) : 0;
+
+            // Extract shots
+            const headshots = stats.shots?.head ?? 0;
+            const bodyshots = stats.shots?.body ?? 0;
+            const legshots = stats.shots?.leg ?? 0;
 
             return {
                 id: meta.id,
                 map: meta.map?.name || "Unknown",
                 mapId: meta.map?.id || "",
-                result: userTeam === "blue"
-                    ? (match.teams.blue > match.teams.red ? "Victory" : "Defeat")
-                    : (match.teams.red > match.teams.blue ? "Victory" : "Defeat"),
+                result: userScore > enemyScore ? "Victory" : "Defeat",
                 kda,
                 agent: stats.character?.name || "",
                 agentIcon: `https://media.valorant-api.com/agents/${stats.character?.id}/displayicon.png`,
@@ -104,13 +119,31 @@ export const processStoredMatches = (
                 rank: mmr.currenttierpatched || "",
                 ranking_in_tier: mmr.currenttier || stats.tier || 0,
                 rrChange: mmr.mmr_change_to_last_game || 0,
-                rounds_played: meta.rounds_played || 0,
+                rounds_played,
                 teams: {
-                    red: {rounds_won: match.teams.red},
-                    blue: {rounds_won: match.teams.blue},
+                    red: {rounds_won: match.teams?.red?.rounds_won ?? match.teams?.red ?? 0},
+                    blue: {rounds_won: match.teams?.blue?.rounds_won ?? match.teams?.blue ?? 0},
                 },
                 puuid: stats.puuid,
                 hasDetails: false,
+                players: [
+                    {
+                        puuid: stats.puuid,
+                        name: "", // Not available in stored-matches
+                        agent: stats.character?.name || "",
+                        kills: stats.kills,
+                        deaths: stats.deaths,
+                        assists: stats.assists,
+                        score: stats.score ?? 0,
+                        damage_made,
+                        headshots,
+                        bodyshots,
+                        legshots,
+                        agentIcon: `https://media.valorant-api.com/agents/${stats.character?.id}/displayicon.png`,
+                        team: stats.team,
+                        rounds_played,
+                    }
+                ],
             };
         });
 };
@@ -194,9 +227,9 @@ export const extractTeamStats = (teams: any, userTeam: string) => {
     return {userScore, enemyScore};
 };
 
-export const mapPlayerData = (p: any): PlayerStats => ({
+export const mapPlayerData = (p: any, rounds_played?: number): PlayerStats => ({
     puuid: p.puuid,
-    name: p.name, // FIX: use actual player name
+    name: p.name,
     agent: p.character,
     kills: p.stats.kills,
     deaths: p.stats.deaths,
@@ -208,18 +241,24 @@ export const mapPlayerData = (p: any): PlayerStats => ({
     legshots: p.stats.legshots,
     agentIcon: p.assets?.agent?.small || "",
     team: p.team,
+    rounds_played: rounds_played,
 });
 
 export const fetchMatchDetails = async (matchId: string): Promise<PlayerStats[]> => {
     try {
-        const res = await fetch(`${API_BASE_URL}/match/${matchId}/na/rages/alt`);
+        const res = await fetch(`${API_BASE_URL}/match/${matchId}`);
         const data = await res.json();
 
         if (data.status !== 200 || !data.data) {
             throw new Error("Failed to fetch match details");
         }
 
-        return (data.data.players?.all_players || []).map(mapPlayerData);
+        // Support both array and object for data
+        const matchData = Array.isArray(data.data) ? data.data[0] : data.data;
+        const rounds_played = matchData?.metadata?.rounds_played ?? 0;
+        const all_players = matchData?.players?.all_players || [];
+
+        return all_players.map((p: any) => mapPlayerData(p, rounds_played));
     } catch (error) {
         console.error("Error fetching match details:", error);
         throw error;

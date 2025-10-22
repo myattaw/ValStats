@@ -43,6 +43,70 @@ const ProfileSkeleton: React.FC = () => (
     </>
 );
 
+const CircularProgress: React.FC<{ percentage: number; size?: number; stroke?: number }> = ({percentage, size = 64, stroke = 8}) => {
+    const clamped = Math.max(0, Math.min(100, Number(percentage) || 0));
+    const radius = (size - stroke) / 2;
+    const circumference = 2 * Math.PI * radius;
+    const halfCirc = circumference / 2;
+
+    const offset = halfCirc * (1 - clamped / 100);
+
+    const fontSize = Math.max(12, Math.round(size * 0.20)); // increase text size slightly
+
+    return (
+        <div style={{width: size, height: size}} className="flex items-center justify-center">
+            <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`${clamped}% winrate`}>
+                <defs>
+                    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#4a7cff" />
+                        <stop offset="100%" stopColor="#2d5acc" />
+                    </linearGradient>
+                </defs>
+
+                {/* rotate 180deg so the arc starts at the LEFT and fills left->right */}
+                <g transform={`translate(${size / 2}, ${size / 2}) rotate(180)`}>
+                    {/* background/trail - draw only the top half using dasharray, rounded caps */}
+                    <circle
+                        cx={0}
+                        cy={0}
+                        r={radius}
+                        stroke="#111"
+                        strokeWidth={stroke}
+                        fill="transparent"
+                        strokeLinecap="round"
+                        strokeDasharray={`${halfCirc} ${circumference}`}
+                        strokeDashoffset={0}
+                    />
+                    {/* progress arc with rounded ends */}
+                    <circle
+                        cx={0}
+                        cy={0}
+                        r={radius}
+                        stroke="url(#grad)"
+                        strokeWidth={stroke}
+                        strokeLinecap="round"
+                        fill="transparent"
+                        strokeDasharray={`${halfCirc} ${circumference}`}
+                        strokeDashoffset={offset}
+                    />
+                </g>
+
+                {/* percentage text centered vertically slightly below the arc */}
+                <text
+                    x="50%"
+                    y={size * 0.72}
+                    dominantBaseline="middle"
+                    textAnchor="middle"
+                    fontSize={fontSize}
+                    fill="#fff"
+                >
+                    {clamped.toFixed(1).replace(/\.0$/, '')}%
+                </text>
+            </svg>
+        </div>
+    );
+};
+
 export default function App() {
     const [searchQuery, setSearchQuery] = React.useState('');
     const [selectedPlayer, setSelectedPlayer] = React.useState<string | null>('TenZ#NA1');
@@ -74,6 +138,15 @@ export default function App() {
 
     // Helpers
     const isProfileLoading = profile === null;
+
+    // derive icons and winrate (use loose access and fallbacks)
+    const defaultTierId = "03621f52-342b-cf4e-4f86-9350a49c6d04";
+    const profileAny = profile as any || {};
+    const peakTierIdx = typeof profileAny.peak_tier_index === 'number' ? profileAny.peak_tier_index : profileAny.peak_tier || profileAny.peak_ranking_in_tier || 27;
+    const currentTierIdx = typeof profileAny.current_tier_index === 'number' ? profileAny.current_tier_index : profileAny.currenttier || profileAny.ranking_in_tier || 27;
+    const peakIconUrl = `https://media.valorant-api.com/competitivetiers/${defaultTierId}/${peakTierIdx}/smallicon.png`;
+    const currentIconUrl = `https://media.valorant-api.com/competitivetiers/${defaultTierId}/${currentTierIdx}/smallicon.png`;
+    const winrate = typeof profileAny.winrate === 'number' ? profileAny.winrate : (profileAny.wl ? (profileAny.wl.winrate || 56.3) : 56.3);
 
     return (
         <div className="min-h-screen bg-[#0a0a0a] text-white">
@@ -109,6 +182,7 @@ export default function App() {
                     <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-lg p-6">
                         <div className="flex items-center justify-between mb-6">
                             <div className="flex items-center gap-4">
+                                {/* ...existing code for avatar & name... */}
                                 <div className="w-16 h-16 rounded-lg flex items-center justify-center overflow-hidden">
                                     {isProfileLoading ? (
                                         <Skeleton className="w-16 h-16 rounded-lg bg-[#2a2a2a]"/>
@@ -136,10 +210,42 @@ export default function App() {
                                 </div>
                             </div>
 
+                            {/* NEW layout for Peak Rank / Current Rank / Winrate */}
                             <div className="flex items-center gap-8">
-                                <StatCard title="Peak Rating" value="534 RR"/>
-                                <StatCard title="Current Rank" value="Radiant"/>
-                                <StatCard title="Winrate" value="56.3%" isPositive={true}/>
+                                <div className="text-center">
+                                    <div className="text-gray-400 mb-2">
+                                        Peak Rank
+                                    </div>
+                                    <div className="flex justify-center">
+                                        <img
+                                            src={peakIconUrl}
+                                            alt="Peak Rank"
+                                            className="w-16 h-16"
+                                            onError={(e) => { (e.currentTarget as HTMLImageElement).src = peakIconUrl; }}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="text-center">
+                                    <div className="text-gray-400 mb-2">
+                                        Current Rank
+                                    </div>
+                                    <div className="flex justify-center">
+                                        <img
+                                            src={currentIconUrl}
+                                            alt="Current Rank"
+                                            className="w-16 h-16"
+                                            onError={(e) => { (e.currentTarget as HTMLImageElement).src = currentIconUrl; }}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="text-center">
+                                    <div className="text-gray-400 mb-2">
+                                        Winrate
+                                    </div>
+                                    <CircularProgress percentage={Number(winrate)} />
+                                </div>
                             </div>
                         </div>
 

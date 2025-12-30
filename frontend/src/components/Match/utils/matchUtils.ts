@@ -1,7 +1,7 @@
 import { Match, PlayerStats } from '../types/matchTypes';
 
-const API_BASE_URL = "http://localhost:51013/api/valorant";
-const DEFAULT_PUUID = "37654ff9-b560-5b0f-a2bb-3e00e37b651b";
+const API_BASE_URL = "http://localhost:50623/api/valorant";
+const DEFAULT_PUUID = "d7b77923-01f6-5e9d-aeef-c0756a4db839";
 const INITIAL_MATCHES_SIZE = 15;
 const DETAILED_MATCHES_SIZE = 3;
 const LOAD_MORE_SIZE = 10;
@@ -265,10 +265,16 @@ export const fetchMatchDetails = async (matchId: string): Promise<PlayerStats[]>
     }
 };
 
-export const fetchMoreMatches = async (nextPage: number): Promise<Match[]> => {
+export const fetchMoreMatches = async (
+    nextPage: number,
+    playerName: string,
+    playerTag: string
+): Promise<Match[]> => {
     try {
+        const encodedName = encodeURIComponent(playerName);
+        const encodedTag = encodeURIComponent(playerTag);
         const storedRes = await fetch(
-            `${API_BASE_URL}/stored-matches/na/rages/alt?size=${LOAD_MORE_SIZE}&page=${nextPage}`
+            `${API_BASE_URL}/stored-matches/na/${encodedName}/${encodedTag}?size=${LOAD_MORE_SIZE}&page=${nextPage}`
         );
         const storedJson = await storedRes.json();
 

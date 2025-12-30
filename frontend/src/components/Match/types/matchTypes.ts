@@ -40,4 +40,6 @@ export interface Match {
 
 export interface MatchHistoryProps {
     puuid?: string;
+    playerName: string;
+    playerTag: string;
 }

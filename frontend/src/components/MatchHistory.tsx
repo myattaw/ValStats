@@ -16,7 +16,7 @@ import {
 
 import {MatchSkeleton, TeamDisplay} from './Match/MatchComponents';
 
-export function MatchHistory({puuid}: MatchHistoryProps) {
+export function MatchHistory({puuid, playerName, playerTag}: MatchHistoryProps) {
     const [expandedMatch, setExpandedMatch] = useState<string | null>(null);
     const [loadingMatchId, setLoadingMatchId] = useState<string | null>(null);
     const [loadingMore, setLoadingMore] = useState(false);
@@ -25,21 +25,24 @@ export function MatchHistory({puuid}: MatchHistoryProps) {
     const [hoveredMatch, setHoveredMatch] = useState<string | null>(null);
     const [page, setPage] = useState(1);
 
-    // Fetch initial match data
+    // Fetch initial match data - now uses playerName and playerTag
     useEffect(() => {
-        setPage(1); // Reset page on puuid change
+        setPage(1);
+        setMatches([]);
         fetchInitialMatches();
-    }, [puuid]);
+    }, [puuid, playerName, playerTag]);
 
-    // Helper functions
     const fetchInitialMatches = async () => {
         setIsInitialLoading(true);
 
+        const encodedName = encodeURIComponent(playerName);
+        const encodedTag = encodeURIComponent(playerTag);
+
         try {
             const [recentRes, storedRes, mmrRes] = await Promise.all([
-                fetch(`${API_BASE_URL}/recent-matches/na/rages/alt?size=${DETAILED_MATCHES_SIZE}`),
-                fetch(`${API_BASE_URL}/stored-matches/na/rages/alt?size=${INITIAL_MATCHES_SIZE}`),
-                fetch(`${API_BASE_URL}/mmr-history/na/rages/alt`),
+                fetch(`${API_BASE_URL}/recent-matches/na/${encodedName}/${encodedTag}?size=${DETAILED_MATCHES_SIZE}`),
+                fetch(`${API_BASE_URL}/stored-matches/na/${encodedName}/${encodedTag}?size=${INITIAL_MATCHES_SIZE}`),
+                fetch(`${API_BASE_URL}/mmr-history/na/${encodedName}/${encodedTag}`),
             ]);
 
             const recentJson = await recentRes.json();
@@ -178,12 +181,12 @@ export function MatchHistory({puuid}: MatchHistoryProps) {
         return "Unranked";
     };
 
-    // Handle loading more matches
+    // Handle loading more matches - now passes player params
     const handleLoadMore = async () => {
         setLoadingMore(true);
         try {
             const nextPage = page + 1;
-            const newMatches = await fetchMoreMatches(nextPage);
+            const newMatches = await fetchMoreMatches(nextPage, playerName, playerTag);
             setMatches(prev => {
                 const existingIds = new Set(prev.map(m => m.id));
                 const uniqueNewMatches = newMatches.filter(m => !existingIds.has(m.id));

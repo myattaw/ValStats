@@ -6,8 +6,6 @@ import {ActSelector} from './components/ActSelector';
 import {Skeleton} from './components/ui/skeleton';
 import {API_BASE_URL} from "./components/Match/utils/matchUtils";
 
-// Constants
-
 // Types
 interface ProfileData {
     name: string;
@@ -17,6 +15,11 @@ interface ProfileData {
     card?: {
         small: string;
     };
+}
+
+interface PlayerIdentifier {
+    name: string;
+    tag: string;
 }
 
 interface StatCardProps {
@@ -51,7 +54,7 @@ const CircularProgress: React.FC<{ percentage: number; size?: number; stroke?: n
 
     const offset = halfCirc * (1 - clamped / 100);
 
-    const fontSize = Math.max(12, Math.round(size * 0.20)); // increase text size slightly
+    const fontSize = Math.max(12, Math.round(size * 0.20));
 
     return (
         <div style={{width: size, height: size}} className="flex items-center justify-center">
@@ -63,9 +66,7 @@ const CircularProgress: React.FC<{ percentage: number; size?: number; stroke?: n
                     </linearGradient>
                 </defs>
 
-                {/* rotate 180deg so the arc starts at the LEFT and fills left->right */}
                 <g transform={`translate(${size / 2}, ${size / 2}) rotate(180)`}>
-                    {/* background/trail - draw only the top half using dasharray, rounded caps */}
                     <circle
                         cx={0}
                         cy={0}
@@ -77,7 +78,6 @@ const CircularProgress: React.FC<{ percentage: number; size?: number; stroke?: n
                         strokeDasharray={`${halfCirc} ${circumference}`}
                         strokeDashoffset={0}
                     />
-                    {/* progress arc with rounded ends */}
                     <circle
                         cx={0}
                         cy={0}
@@ -91,7 +91,6 @@ const CircularProgress: React.FC<{ percentage: number; size?: number; stroke?: n
                     />
                 </g>
 
-                {/* percentage text centered vertically slightly below the arc */}
                 <text
                     x="50%"
                     y={size * 0.72}
@@ -107,39 +106,63 @@ const CircularProgress: React.FC<{ percentage: number; size?: number; stroke?: n
     );
 };
 
+// Helper to parse player search query (format: "name#tag")
+function parsePlayerQuery(query: string): PlayerIdentifier | null {
+    const trimmed = query.trim();
+    const hashIndex = trimmed.lastIndexOf('#');
+    if (hashIndex === -1 || hashIndex === 0 || hashIndex === trimmed.length - 1) {
+        return null;
+    }
+    return {
+        name: trimmed.substring(0, hashIndex),
+        tag: trimmed.substring(hashIndex + 1)
+    };
+}
+
 export default function App() {
     const [searchQuery, setSearchQuery] = React.useState('');
-    const [selectedPlayer, setSelectedPlayer] = React.useState<string | null>('TenZ#NA1');
+    const [currentPlayer, setCurrentPlayer] = React.useState<PlayerIdentifier>({name: 'wheaty', tag: '420'});
     const [selectedAct, setSelectedAct] = React.useState('all');
     const [profile, setProfile] = React.useState<ProfileData | null>(null);
+    const [searchError, setSearchError] = React.useState<string | null>(null);
 
-    // Fetch player profile data
+    // Fetch player profile data when currentPlayer changes
     React.useEffect(() => {
         const fetchProfile = async () => {
+            setProfile(null); // Reset to show loading state
+            setSearchError(null);
             try {
-                const res = await fetch(`${API_BASE_URL}/account/rages/alt`);
+                const res = await fetch(`${API_BASE_URL}/account/${encodeURIComponent(currentPlayer.name)}/${encodeURIComponent(currentPlayer.tag)}`);
+                if (!res.ok) {
+                    throw new Error('Player not found');
+                }
                 const json = await res.json();
                 setProfile(json.data);
             } catch (e) {
                 console.error("Error fetching profile:", e);
+                setSearchError('Player not found. Please check the name and tag.');
                 setProfile(null);
             }
         };
 
         fetchProfile();
-    }, []);
+    }, [currentPlayer]);
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
-        if (searchQuery.trim()) {
-            setSelectedPlayer(searchQuery);
+        const parsed = parsePlayerQuery(searchQuery);
+        if (parsed) {
+            setCurrentPlayer(parsed);
+            setSearchQuery('');
+        } else {
+            setSearchError('Invalid format. Use: PlayerName#Tag');
         }
     };
 
     // Helpers
-    const isProfileLoading = profile === null;
+    const isProfileLoading = profile === null && !searchError;
 
-    // derive icons and winrate (use loose access and fallbacks)
+    // derive icons and winrate
     const defaultTierId = "03621f52-342b-cf4e-4f86-9350a49c6d04";
     const profileAny = profile as any || {};
     const peakTierIdx = typeof profileAny.peak_tier_index === 'number' ? profileAny.peak_tier_index : profileAny.peak_tier || profileAny.peak_ranking_in_tier || 27;
@@ -165,13 +188,25 @@ export default function App() {
                                 <input
                                     type="text"
                                     value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                    placeholder="Search player..."
+                                    onChange={(e) => {
+                                        setSearchQuery(e.target.value);
+                                        setSearchError(null);
+                                    }}
+                                    placeholder="Search player (Name#Tag)..."
                                     className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg pl-10 pr-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-[#4a7cff] transition-colors w-64"
                                 />
                             </div>
+                            <button
+                                type="submit"
+                                className="px-4 py-2 bg-[#4a7cff] text-white rounded-lg hover:bg-[#3d6ae0] transition-colors"
+                            >
+                                Search
+                            </button>
                         </form>
                     </div>
+                    {searchError && (
+                        <div className="mt-2 text-[#f87171] text-sm">{searchError}</div>
+                    )}
                 </div>
             </header>
 
@@ -182,7 +217,6 @@ export default function App() {
                     <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-lg p-6">
                         <div className="flex items-center justify-between mb-6">
                             <div className="flex items-center gap-4">
-                                {/* ...existing code for avatar & name... */}
                                 <div className="w-16 h-16 rounded-lg flex items-center justify-center overflow-hidden">
                                     {isProfileLoading ? (
                                         <Skeleton className="w-16 h-16 rounded-lg bg-[#2a2a2a]"/>
@@ -198,6 +232,8 @@ export default function App() {
                                 <div>
                                     {isProfileLoading ? (
                                         <ProfileSkeleton/>
+                                    ) : searchError ? (
+                                        <h2 className="text-[#f87171]">Player not found</h2>
                                     ) : (
                                         <>
                                             <h2 className="text-white">{profile?.name}</h2>
@@ -210,43 +246,39 @@ export default function App() {
                                 </div>
                             </div>
 
-                            {/* NEW layout for Peak Rank / Current Rank / Winrate */}
-                            <div className="flex items-center gap-8">
-                                <div className="text-center">
-                                    <div className="text-gray-400 mb-2">
-                                        Peak Rank
+                            {/* Rank and Winrate section */}
+                            {!searchError && (
+                                <div className="flex items-center gap-8">
+                                    <div className="text-center">
+                                        <div className="text-gray-400 mb-2">Peak Rank</div>
+                                        <div className="flex justify-center">
+                                            <img
+                                                src={peakIconUrl}
+                                                alt="Peak Rank"
+                                                className="w-16 h-16"
+                                                onError={(e) => { (e.currentTarget as HTMLImageElement).src = peakIconUrl; }}
+                                            />
+                                        </div>
                                     </div>
-                                    <div className="flex justify-center">
-                                        <img
-                                            src={peakIconUrl}
-                                            alt="Peak Rank"
-                                            className="w-16 h-16"
-                                            onError={(e) => { (e.currentTarget as HTMLImageElement).src = peakIconUrl; }}
-                                        />
-                                    </div>
-                                </div>
 
-                                <div className="text-center">
-                                    <div className="text-gray-400 mb-2">
-                                        Current Rank
+                                    <div className="text-center">
+                                        <div className="text-gray-400 mb-2">Current Rank</div>
+                                        <div className="flex justify-center">
+                                            <img
+                                                src={currentIconUrl}
+                                                alt="Current Rank"
+                                                className="w-16 h-16"
+                                                onError={(e) => { (e.currentTarget as HTMLImageElement).src = currentIconUrl; }}
+                                            />
+                                        </div>
                                     </div>
-                                    <div className="flex justify-center">
-                                        <img
-                                            src={currentIconUrl}
-                                            alt="Current Rank"
-                                            className="w-16 h-16"
-                                            onError={(e) => { (e.currentTarget as HTMLImageElement).src = currentIconUrl; }}
-                                        />
-                                    </div>
-                                </div>
 
-                                <div className="text-center">
-                                    <div className="text-gray-400 mb-2">
-                                        Winrate
+                                    <div className="text-center">
+                                        <div className="text-gray-400 mb-2">Winrate</div>
+                                        <CircularProgress percentage={Number(winrate)} />
                                     </div>
-                                    <CircularProgress percentage={Number(winrate)} />
                                 </div>
-                            </div>
+                            )}
                         </div>
 
                         <div className="border-t border-[#1a1a1a] pt-4">
@@ -257,8 +289,14 @@ export default function App() {
                     {/* Stats Overview */}
                     <StatsOverview/>
 
-                    {/* Match History */}
-                    {profile?.puuid && <MatchHistory puuid={profile.puuid}/>}
+                    {/* Match History - pass player info */}
+                    {profile?.puuid && (
+                        <MatchHistory
+                            puuid={profile.puuid}
+                            playerName={currentPlayer.name}
+                            playerTag={currentPlayer.tag}
+                        />
+                    )}
                 </div>
             </main>
         </div>

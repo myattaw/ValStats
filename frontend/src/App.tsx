@@ -119,12 +119,64 @@ function parsePlayerQuery(query: string): PlayerIdentifier | null {
     };
 }
 
+// New: parse player identifier from current URL (supports /id/Name_Tag and tracker.gg style)
+function parsePlayerFromUrl(): PlayerIdentifier | null {
+    try {
+        const path = (window.location && window.location.pathname) || '';
+        // 1) vtl.lol style: /id/Name_Tag (split on last underscore)
+        const idMatch = path.match(/\/id\/(.+)$/i);
+        if (idMatch && idMatch[1]) {
+            const decoded = decodeURIComponent(idMatch[1]);
+            const lastUnderscore = decoded.lastIndexOf('_');
+            if (lastUnderscore > 0 && lastUnderscore < decoded.length - 1) {
+                const name = decoded.substring(0, lastUnderscore);
+                const tag = decoded.substring(lastUnderscore + 1);
+                return { name, tag };
+            }
+        }
+
+        // 2) tracker.gg style: /valorant/profile/riot/NAME%23TAG/...
+        const trackerMatch = path.match(/\/valorant\/profile\/riot\/([^\/]+)(\/|$)/i);
+        if (trackerMatch && trackerMatch[1]) {
+            const decoded = decodeURIComponent(trackerMatch[1]); // will decode %23 to '#'
+            const parsed = parsePlayerQuery(decoded);
+            if (parsed) return parsed;
+            // fallback if tracker used NAME_Tag (rare)
+            const lastUnderscore = decoded.lastIndexOf('_');
+            if (lastUnderscore > 0 && lastUnderscore < decoded.length - 1) {
+                return {
+                    name: decoded.substring(0, lastUnderscore),
+                    tag: decoded.substring(lastUnderscore + 1)
+                };
+            }
+        }
+
+        // 3) generic: if pathname contains a raw "Name#Tag" segment anywhere
+        const segments = path.split('/').map(s => decodeURIComponent(s)).filter(Boolean);
+        for (const seg of segments) {
+            const parsed = parsePlayerQuery(seg);
+            if (parsed) return parsed;
+        }
+    } catch (e) {
+        console.warn('Failed to parse player from URL', e);
+    }
+    return null;
+}
+
 export default function App() {
     const [searchQuery, setSearchQuery] = React.useState('');
     const [currentPlayer, setCurrentPlayer] = React.useState<PlayerIdentifier>({name: 'wheaty', tag: '420'});
     const [selectedAct, setSelectedAct] = React.useState('all');
     const [profile, setProfile] = React.useState<ProfileData | null>(null);
     const [searchError, setSearchError] = React.useState<string | null>(null);
+
+    // On mount: if URL contains a player identifier, use it
+    React.useEffect(() => {
+        const fromUrl = parsePlayerFromUrl();
+        if (fromUrl) {
+            setCurrentPlayer(fromUrl);
+        }
+    }, []);
 
     // Fetch player profile data when currentPlayer changes
     React.useEffect(() => {
@@ -154,6 +206,16 @@ export default function App() {
         if (parsed) {
             setCurrentPlayer(parsed);
             setSearchQuery('');
+            setSearchError(null);
+            // Push a shareable URL: /id/Name_Tag (encode components)
+            try {
+                const urlName = encodeURIComponent(parsed.name);
+                const urlTag = encodeURIComponent(parsed.tag);
+                const newPath = `/id/${urlName}_${urlTag}`;
+                window.history.pushState(null, '', newPath);
+            } catch (err) {
+                // ignore pushState errors (e.g., in some embedded contexts)
+            }
         } else {
             setSearchError('Invalid format. Use: PlayerName#Tag');
         }

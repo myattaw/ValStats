@@ -1,7 +1,7 @@
 import {useEffect, useState} from "react";
 import {ChevronDown, Clock, Loader2, TrendingDown, TrendingUp} from "lucide-react";
 import {Collapsible, CollapsibleContent, CollapsibleTrigger} from "./ui/collapsible";
-import {Match, MatchHistoryProps} from './Match/types/matchTypes';
+import {Match} from './Match/types/matchTypes';
 import {
     API_BASE_URL,
     buildMmrMap,
@@ -16,7 +16,15 @@ import {
 
 import {MatchSkeleton, TeamDisplay} from './Match/MatchComponents';
 
-export function MatchHistory({puuid, playerName, playerTag}: MatchHistoryProps) {
+export function MatchHistory({
+    puuid,
+    playerName,
+    playerTag
+}: {
+    puuid?: string | null;
+    playerName: string;
+    playerTag: string;
+}) {
     const [expandedMatch, setExpandedMatch] = useState<string | null>(null);
     const [loadingMatchId, setLoadingMatchId] = useState<string | null>(null);
     const [loadingMore, setLoadingMore] = useState(false);
@@ -25,24 +33,28 @@ export function MatchHistory({puuid, playerName, playerTag}: MatchHistoryProps) 
     const [hoveredMatch, setHoveredMatch] = useState<string | null>(null);
     const [page, setPage] = useState(1);
 
-    // Fetch initial match data - now uses playerName and playerTag
+    // Fetch initial match data
     useEffect(() => {
-        setPage(1);
-        setMatches([]);
+        setPage(1); // Reset page on puuid / player change
         fetchInitialMatches();
-    }, [puuid, playerName, playerTag]);
+    }, [puuid, playerName, playerTag]); // <- run when player changes
 
+    // Helper functions
     const fetchInitialMatches = async () => {
         setIsInitialLoading(true);
-
-        const encodedName = encodeURIComponent(playerName);
-        const encodedTag = encodeURIComponent(playerTag);
+        setPage(1); // ensure page state reset
 
         try {
+            // Build endpoint segment from playerName/playerTag; fallback to previous segment
+            const hasNameTag = !!(playerName && playerTag);
+            const nameSeg = hasNameTag
+                ? `${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}`
+                : 'rages/alt';
+
             const [recentRes, storedRes, mmrRes] = await Promise.all([
-                fetch(`${API_BASE_URL}/recent-matches/na/${encodedName}/${encodedTag}?size=${DETAILED_MATCHES_SIZE}`),
-                fetch(`${API_BASE_URL}/stored-matches/na/${encodedName}/${encodedTag}?size=${INITIAL_MATCHES_SIZE}`),
-                fetch(`${API_BASE_URL}/mmr-history/na/${encodedName}/${encodedTag}`),
+                fetch(`${API_BASE_URL}/recent-matches/na/${nameSeg}?size=${DETAILED_MATCHES_SIZE}`),
+                fetch(`${API_BASE_URL}/stored-matches/na/${nameSeg}?size=${INITIAL_MATCHES_SIZE}`),
+                fetch(`${API_BASE_URL}/mmr-history/na/${nameSeg}`),
             ]);
 
             const recentJson = await recentRes.json();
@@ -52,7 +64,7 @@ export function MatchHistory({puuid, playerName, playerTag}: MatchHistoryProps) 
             // Build MMR map
             const mmrMap = buildMmrMap(mmrJson.data || []);
 
-            // Process matches
+            // Process matches (pass puuid for correct player selection)
             const recentMatches = processRecentMatches(recentJson.data || [], mmrMap, mmrJson, puuid);
             const detailedMatchIds = new Set(recentMatches.map(m => m.id));
             const storedMatches = processStoredMatches(
@@ -181,11 +193,12 @@ export function MatchHistory({puuid, playerName, playerTag}: MatchHistoryProps) 
         return "Unranked";
     };
 
-    // Handle loading more matches - now passes player params
+    // Handle loading more matches
     const handleLoadMore = async () => {
         setLoadingMore(true);
         try {
             const nextPage = page + 1;
+            // Pass playerName and playerTag to fetchMoreMatches
             const newMatches = await fetchMoreMatches(nextPage, playerName, playerTag);
             setMatches(prev => {
                 const existingIds = new Set(prev.map(m => m.id));

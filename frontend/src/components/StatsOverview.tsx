@@ -38,7 +38,9 @@ export function StatsOverview() {
                 <div
                     key={stat.label}
                     className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-lg p-3 hover:border-[#2a2a2a] transition-colors"
+                    style={{ backfaceVisibility: 'hidden' }}
                 >
+
                     <div className="flex items-start justify-between mb-1.5">
                         <stat.icon className="w-3.5 h-3.5 text-[#4a7cff]"/>
                         <div

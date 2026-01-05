@@ -187,3 +187,11 @@
 html {
     font-size: var(--font-size);
 }
+
+.match-card-fix {
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    contain: paint;
+    isolation: isolate;
+}
+

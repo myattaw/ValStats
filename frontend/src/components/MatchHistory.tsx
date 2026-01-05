@@ -233,21 +233,26 @@ export function MatchHistory({
                                     backgroundImage: `url(https://media.valorant-api.com/maps/${match.mapId}/splash.png)`,
                                     backgroundPosition: "center",
                                     backgroundSize: "cover",
+                                    backfaceVisibility: 'hidden' as const
                                 }
                                 : undefined;
 
                             const isExpanded = expandedMatch === match.id;
                             const isVictory = match.result === "Victory";
                             const borderColor = isVictory ? "border-[#4ade80]" : "border-[#f87171]";
+
                             const overlayColor = isVictory
                                 ? "rgba(74, 222, 128, 0.1)"
                                 : "rgba(248, 113, 113, 0.1)";
+
                             const hoverOverlayColor = isVictory
                                 ? "rgba(74, 222, 128, 0.15)"
                                 : "rgba(248, 113, 113, 0.15)";
+
                             const resultBadgeColor = isVictory
                                 ? "bg-[#4ade80]/20 text-[#4ade80]"
                                 : "bg-[#f87171]/20 text-[#f87171]";
+
                             const rrChangeColor = match.rrChange > 0 ? "text-[#4ade80]" : "text-[#f87171]";
 
                             // Only fetch details if not loaded yet
@@ -323,7 +328,7 @@ export function MatchHistory({
                                                                 <img
                                                                     src={match.agentIcon}
                                                                     alt={match.agent}
-                                                                    className="w-10 h-10 object-contain"
+                                                                    className="w-full h-full object-cover"
                                                                 />
                                                             ) : (
                                                                 <span className="text-sm">

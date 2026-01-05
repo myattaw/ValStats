@@ -349,7 +349,7 @@ export default function App() {
                     </div>
 
                     {/* Stats Overview */}
-                    <StatsOverview/>
+                    {/*<StatsOverview/>*/}
 
                     {/* Match History - pass player info */}
                     {profile?.puuid && (

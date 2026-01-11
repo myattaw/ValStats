@@ -31,6 +31,19 @@
         </repository>
     </repositories>
 
+    <!-- Add AWS SDK v2 BOM to manage SDK versions -->
+    <dependencyManagement>
+      <dependencies>
+        <dependency>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>bom</artifactId>
+          <version>2.20.28</version>
+          <type>pom</type>
+          <scope>import</scope>
+        </dependency>
+      </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>org.yaml</groupId>
@@ -96,6 +109,24 @@
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-engine</artifactId>
             <scope>test</scope>
+        </dependency>
+
+        <!-- AWS DynamoDB SDK -->
+        <dependency>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>dynamodb</artifactId>
+        </dependency>
+
+        <!-- DynamoDB Enhanced client (higher-level API) -->
+        <dependency>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>dynamodb-enhanced</artifactId>
+        </dependency>
+
+        <!-- Netty HTTP client for SDK v2 (recommended for async/non-blocking use) -->
+        <dependency>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>netty-nio-client</artifactId>
         </dependency>
     </dependencies>
     <build>

@@ -28,3 +28,9 @@ netty:
   default:
     allocator:
       max-order: 3
+
+aws:
+  region: us-east-1
+
+dynamodb:
+  table-name: valstats

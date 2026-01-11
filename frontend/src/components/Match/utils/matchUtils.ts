@@ -1,6 +1,6 @@
 import { Match, PlayerStats } from '../types/matchTypes';
 
-const API_BASE_URL = "http://localhost:51278/api/valorant";
+const API_BASE_URL = "http://localhost:64852/api/valorant";
 const DEFAULT_PUUID = "d7b77923-01f6-5e9d-aeef-c0756a4db839";
 const INITIAL_MATCHES_SIZE = 15;
 const DETAILED_MATCHES_SIZE = 3;

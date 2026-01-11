@@ -1,16 +1,19 @@
 package com.valstats.service;
 
+import io.micronaut.context.event.StartupEvent;
+import io.micronaut.runtime.event.annotation.EventListener;
 import jakarta.inject.Singleton;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
-import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
-import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
-import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
+import software.amazon.awssdk.services.dynamodb.model.*;
 
 import java.util.Map;
 
 @Singleton
 public class DynamoDbService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(DynamoDbService.class);
 
     private final DynamoDbClient dbClient;
     private final String tableName = "valstats";
@@ -19,6 +22,27 @@ public class DynamoDbService {
         this.dbClient = dbClient;
     }
 
+    /**
+     * Runs once when the application starts.
+     * Verifies DynamoDB connectivity, region, IAM permissions, and table existence.
+     */
+    @EventListener
+    void onStartup(StartupEvent event) {
+        try {
+            dbClient.describeTable(
+                    DescribeTableRequest.builder()
+                            .tableName(tableName)
+                            .build()
+            );
+
+            LOG.info("Successfully connected to DynamoDB table: {}", tableName);
+
+        } catch (ResourceNotFoundException e) {
+            LOG.error("DynamoDB table '{}' does not exist", tableName, e);
+        } catch (DynamoDbException e) {
+            LOG.error("Failed to connect to DynamoDB", e);
+        }
+    }
 
     public void putItem(Map<String, AttributeValue> item) {
         PutItemRequest request = PutItemRequest.builder()

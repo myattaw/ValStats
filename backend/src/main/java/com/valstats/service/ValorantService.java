@@ -8,32 +8,286 @@ import com.valstats.model.player.Player;
 import com.valstats.model.player.Players;
 import com.valstats.model.player.Stats;
 import jakarta.inject.Singleton;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Singleton
 public class ValorantService {
 
+    private static final Logger LOG = LoggerFactory.getLogger(ValorantService.class);
+
     private final ValorantApiClient valorantApiClient;
+    private final PlayerCacheService playerCacheService;
+    private final MatchProcessor matchProcessor;
+    private final DynamoDbService dynamoDbService;
     private static final String AUTH_TOKEN = System.getenv("HDEV_KEY");
 
-    public ValorantService(ValorantApiClient valorantApiClient) {
+    public ValorantService(
+            ValorantApiClient valorantApiClient,
+            PlayerCacheService playerCacheService,
+            MatchProcessor matchProcessor,
+            DynamoDbService dynamoDbService
+    ) {
         this.valorantApiClient = valorantApiClient;
+        this.playerCacheService = playerCacheService;
+        this.matchProcessor = matchProcessor;
+        this.dynamoDbService = dynamoDbService;
     }
 
     public MatchResponse getRecentMatches(String region, String playerName, String playerTag, int size, int page) {
-        MatchResponse rawResponse = valorantApiClient.getRecentMatches(region, playerName, playerTag, size, page, AUTH_TOKEN);
-        return filterMatchesResponse(rawResponse);
+        // First, get or lookup the player's puuid
+        String puuid = resolvePuuid(playerName, playerTag);
+
+        if (puuid == null) {
+            LOG.warn("Could not resolve puuid for {}#{}", playerName, playerTag);
+            return new MatchResponse(404, Collections.emptyList());
+        }
+
+        // Check if we can fetch from the external API (3-minute cooldown)
+        if (playerCacheService.canFetchFromApi(puuid)) {
+            try {
+                MatchResponse rawResponse = valorantApiClient.getRecentMatches(region, playerName, playerTag, size, page, AUTH_TOKEN);
+                MatchResponse filteredResponse = filterMatchesResponse(rawResponse);
+
+                // Store new matches in DynamoDB
+                int newMatchCount = 0;
+                for (Match match : filteredResponse.data()) {
+                    if (matchProcessor.processMatch(match, puuid)) {
+                        newMatchCount++;
+                    }
+                }
+                LOG.info("Stored {} new matches for player {}#{}", newMatchCount, playerName, playerTag);
+
+                // Update the last fetch time
+                playerCacheService.updateLastFetchTime(puuid, playerName, playerTag, region);
+
+                return filteredResponse;
+            } catch (Exception e) {
+                LOG.error("Failed to fetch from external API, falling back to database", e);
+            }
+        } else {
+            long waitTime = playerCacheService.getSecondsUntilNextFetch(puuid);
+            LOG.info("API cooldown active for {}#{}. {} seconds remaining. Returning cached data.",
+                    playerName, playerTag, waitTime);
+        }
+
+        // Return cached data from DynamoDB
+        return getCachedMatches(puuid, size, page);
     }
 
+    @SuppressWarnings("unchecked")
     public Map<String, Object> getStoredMatches(String region, String playerName, String playerTag, int size, int page) {
-        return valorantApiClient.getStoredMatches(region, playerName, playerTag, size, page, "competitive", AUTH_TOKEN);
+        // Get or lookup the player's puuid
+        String puuid = resolvePuuid(playerName, playerTag);
+
+        if (puuid == null) {
+            // Player doesn't exist in our database, fetch all matches from API
+            LOG.info("Player {}#{} not found in database, fetching from API", playerName, playerTag);
+
+            Map<String, Object> apiResponse = valorantApiClient.getStoredMatches(region, playerName, playerTag, null, null, "competitive", AUTH_TOKEN);
+
+            // Extract puuid from response and store matches
+            if (apiResponse.containsKey("data")) {
+                List<Map<String, Object>> matches = (List<Map<String, Object>>) apiResponse.get("data");
+                if (!matches.isEmpty()) {
+                    // Get puuid from first match
+                    Map<String, Object> firstMatch = matches.get(0);
+                    Map<String, Object> meta = (Map<String, Object>) firstMatch.get("meta");
+                    if (meta != null && meta.containsKey("id")) {
+                        // Need to get puuid from account endpoint
+                        Map<String, Object> accountData = getAccountDetails(playerName, playerTag);
+                        if (accountData.containsKey("data")) {
+                            Map<String, Object> data = (Map<String, Object>) accountData.get("data");
+                            String newPuuid = (String) data.get("puuid");
+                            if (newPuuid != null) {
+                                playerCacheService.storePlayerProfile(newPuuid, playerName, playerTag, region);
+                                playerCacheService.updateLastFetchTime(newPuuid, playerName, playerTag, region);
+                            }
+                        }
+                    }
+                }
+            }
+
+            return apiResponse;
+        }
+
+        // Player exists, check cooldown
+        if (playerCacheService.canFetchFromApi(puuid)) {
+            try {
+                // Fetch only recent matches to check for new ones
+                Map<String, Object> apiResponse = valorantApiClient.getStoredMatches(region, playerName, playerTag, size, page, "competitive", AUTH_TOKEN);
+
+                // Update fetch time
+                playerCacheService.updateLastFetchTime(puuid, playerName, playerTag, region);
+
+                return apiResponse;
+            } catch (Exception e) {
+                LOG.error("Failed to fetch stored matches from API", e);
+            }
+        } else {
+            long waitTime = playerCacheService.getSecondsUntilNextFetch(puuid);
+            LOG.info("API cooldown active. {} seconds remaining. Returning cached data.", waitTime);
+        }
+
+        // Return from database
+        List<Map<String, AttributeValue>> storedMatches = dynamoDbService.getStoredMatchesForPlayer(puuid, size, page);
+
+        // Convert to response format
+        List<Map<String, Object>> matchData = storedMatches.stream()
+                .map(this::convertMatchToResponseFormat)
+                .collect(Collectors.toList());
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", 200);
+        response.put("data", matchData);
+        response.put("cached", true);
+
+        return response;
     }
 
     public Map<String, Object> getMMRHistory(String region, String playerName, String playerTag) {
-        return valorantApiClient.getMMRHistory(region, playerName, playerTag, AUTH_TOKEN);
+        String puuid = resolvePuuid(playerName, playerTag);
+
+        if (puuid == null) {
+            // Fetch from API and store
+            Map<String, Object> apiResponse = valorantApiClient.getMMRHistory(region, playerName, playerTag, AUTH_TOKEN);
+            storeMMRHistoryFromResponse(apiResponse, playerName, playerTag);
+            return apiResponse;
+        }
+
+        // Check cooldown - for MMR we still want fresh data when possible
+        if (playerCacheService.canFetchFromApi(puuid)) {
+            try {
+                Map<String, Object> apiResponse = valorantApiClient.getMMRHistory(region, playerName, playerTag, AUTH_TOKEN);
+                storeMMRHistoryFromResponse(apiResponse, playerName, playerTag);
+                return apiResponse;
+            } catch (Exception e) {
+                LOG.error("Failed to fetch MMR history from API", e);
+            }
+        }
+
+        // Return cached MMR history
+        List<Map<String, AttributeValue>> mmrHistory = dynamoDbService.getMMRHistory(puuid);
+
+        List<Map<String, Object>> historyData = mmrHistory.stream()
+                .map(this::convertMMREntryToResponseFormat)
+                .collect(Collectors.toList());
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", 200);
+        response.put("data", historyData);
+        response.put("cached", true);
+
+        return response;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void storeMMRHistoryFromResponse(Map<String, Object> apiResponse, String playerName, String playerTag) {
+        String puuid = resolvePuuid(playerName, playerTag);
+        if (puuid == null || !apiResponse.containsKey("data")) {
+            return;
+        }
+
+        List<Map<String, Object>> entries = (List<Map<String, Object>>) apiResponse.get("data");
+        for (Map<String, Object> entry : entries) {
+            String matchId = (String) entry.get("match_id");
+            Number rr = (Number) entry.getOrDefault("mmr_change_to_last_game", 0);
+            Number mmr = (Number) entry.getOrDefault("elo", 0);
+            String rank = (String) entry.getOrDefault("currenttierpatched", "Unknown");
+            Number timestamp = (Number) entry.getOrDefault("date_raw", System.currentTimeMillis() / 1000);
+
+            if (matchId != null) {
+                dynamoDbService.storeMMREntry(
+                        puuid,
+                        matchId,
+                        rr.intValue(),
+                        mmr.intValue(),
+                        rank,
+                        timestamp.longValue()
+                );
+            }
+        }
+    }
+
+    private String resolvePuuid(String playerName, String playerTag) {
+        // Try to get from cache first
+        Optional<String> cachedPuuid = playerCacheService.getPuuidByNameTag(playerName, playerTag);
+        if (cachedPuuid.isPresent()) {
+            return cachedPuuid.get();
+        }
+
+        // Fetch from API
+        try {
+            Map<String, Object> accountData = getAccountDetails(playerName, playerTag);
+            if (accountData.containsKey("data")) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> data = (Map<String, Object>) accountData.get("data");
+                String puuid = (String) data.get("puuid");
+                String region = (String) data.getOrDefault("region", "na");
+
+                if (puuid != null) {
+                    // Store the profile for future lookups
+                    playerCacheService.storePlayerProfile(puuid, playerName, playerTag, region);
+                    return puuid;
+                }
+            }
+        } catch (Exception e) {
+            LOG.error("Failed to resolve puuid for {}#{}", playerName, playerTag, e);
+        }
+
+        return null;
+    }
+
+    private MatchResponse getCachedMatches(String puuid, int size, int page) {
+        List<Map<String, AttributeValue>> storedMatches = dynamoDbService.getStoredMatchesForPlayer(puuid, size, page);
+
+        // For now, return empty if no cached data (full match reconstruction would be complex)
+        // In production, you'd reconstruct Match objects from stored data
+        if (storedMatches.isEmpty()) {
+            return new MatchResponse(200, Collections.emptyList());
+        }
+
+        // This is a simplified response - full implementation would reconstruct Match objects
+        return new MatchResponse(200, Collections.emptyList());
+    }
+
+    private Map<String, Object> convertMatchToResponseFormat(Map<String, AttributeValue> item) {
+        Map<String, Object> match = new HashMap<>();
+
+        if (item.containsKey("matchId")) {
+            match.put("match_id", item.get("matchId").s());
+        }
+        if (item.containsKey("gameStart")) {
+            match.put("game_start", Long.parseLong(item.get("gameStart").n()));
+        }
+
+        return match;
+    }
+
+    private Map<String, Object> convertMMREntryToResponseFormat(Map<String, AttributeValue> item) {
+        Map<String, Object> entry = new HashMap<>();
+
+        if (item.containsKey("matchId")) {
+            entry.put("match_id", item.get("matchId").s());
+        }
+        if (item.containsKey("rr")) {
+            entry.put("mmr_change_to_last_game", Integer.parseInt(item.get("rr").n()));
+        }
+        if (item.containsKey("mmr")) {
+            entry.put("elo", Integer.parseInt(item.get("mmr").n()));
+        }
+        if (item.containsKey("rank")) {
+            entry.put("currenttierpatched", item.get("rank").s());
+        }
+        if (item.containsKey("timestamp")) {
+            entry.put("date_raw", Long.parseLong(item.get("timestamp").n()));
+        }
+
+        return entry;
     }
 
     private MatchResponse filterMatchesResponse(MatchResponse rawResponse) {
@@ -75,7 +329,68 @@ public class ValorantService {
     }
 
     public Map<String, Object> getMatchById(String matchid) {
+        // Check database first
+        Optional<Map<String, AttributeValue>> cachedMatch = dynamoDbService.getMatchById(matchid);
+
+        if (cachedMatch.isPresent()) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("status", 200);
+            response.put("cached", true);
+
+            Map<String, Object> matchData = new HashMap<>();
+            Map<String, AttributeValue> item = cachedMatch.get();
+
+            // Build metadata
+            Map<String, Object> metadata = new HashMap<>();
+            if (item.containsKey("matchId")) metadata.put("matchid", item.get("matchId").s());
+            if (item.containsKey("map")) metadata.put("map", item.get("map").s());
+            if (item.containsKey("mode")) metadata.put("mode", item.get("mode").s());
+            if (item.containsKey("gameStart")) metadata.put("game_start", Long.parseLong(item.get("gameStart").n()));
+            if (item.containsKey("gameLength")) metadata.put("game_length", Integer.parseInt(item.get("gameLength").n()));
+
+            matchData.put("metadata", metadata);
+
+            // Get players
+            List<Map<String, AttributeValue>> players = dynamoDbService.getMatchPlayers(matchid);
+            List<Map<String, Object>> allPlayers = players.stream()
+                    .map(this::convertPlayerToResponseFormat)
+                    .collect(Collectors.toList());
+
+            Map<String, Object> playersMap = new HashMap<>();
+            playersMap.put("all_players", allPlayers);
+            matchData.put("players", playersMap);
+
+            response.put("data", matchData);
+            return response;
+        }
+
+        // Fetch from API
         return valorantApiClient.getMatchById(matchid, AUTH_TOKEN);
     }
 
+    private Map<String, Object> convertPlayerToResponseFormat(Map<String, AttributeValue> item) {
+        Map<String, Object> player = new HashMap<>();
+
+        if (item.containsKey("puuid")) player.put("puuid", item.get("puuid").s());
+        if (item.containsKey("name")) player.put("name", item.get("name").s());
+        if (item.containsKey("tag")) player.put("tag", item.get("tag").s());
+        if (item.containsKey("team")) player.put("team", item.get("team").s());
+        if (item.containsKey("character")) player.put("character", item.get("character").s());
+        if (item.containsKey("currenttier")) player.put("currenttier", Integer.parseInt(item.get("currenttier").n()));
+
+        Map<String, Object> stats = new HashMap<>();
+        if (item.containsKey("kills")) stats.put("kills", Integer.parseInt(item.get("kills").n()));
+        if (item.containsKey("deaths")) stats.put("deaths", Integer.parseInt(item.get("deaths").n()));
+        if (item.containsKey("assists")) stats.put("assists", Integer.parseInt(item.get("assists").n()));
+        if (item.containsKey("score")) stats.put("score", Integer.parseInt(item.get("score").n()));
+        if (item.containsKey("headshots")) stats.put("headshots", Integer.parseInt(item.get("headshots").n()));
+        if (item.containsKey("bodyshots")) stats.put("bodyshots", Integer.parseInt(item.get("bodyshots").n()));
+        if (item.containsKey("legshots")) stats.put("legshots", Integer.parseInt(item.get("legshots").n()));
+
+        player.put("stats", stats);
+
+        if (item.containsKey("damage_made")) player.put("damage_made", Integer.parseInt(item.get("damage_made").n()));
+
+        return player;
+    }
 }

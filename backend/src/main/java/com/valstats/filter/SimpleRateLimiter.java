@@ -3,50 +3,57 @@ package com.valstats.filter;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Token bucket rate limiter with smooth refill.
+ * Token bucket rate limiter with burst capacity and smooth refill.
  */
 public class SimpleRateLimiter {
 
-    private final double capacity;
-    private final double refillTokens;
-    private final long refillPeriodNanos;
+    private final double capacity;         // Max burst size
+    private final double refillRate;       // Tokens per second
 
     private double tokens;
     private long lastRefillNanos;
 
-    public SimpleRateLimiter(double capacity, double refillTokens, long refillPeriodNanos) {
-        if (refillPeriodNanos <= 0) {
-            throw new IllegalArgumentException("refillPeriodNanos must be > 0");
+    public SimpleRateLimiter(double capacity, double refillRate) {
+        if (capacity <= 0 || refillRate <= 0) {
+            throw new IllegalArgumentException("capacity and refillRate must be > 0");
         }
 
         this.capacity = capacity;
-        this.refillTokens = refillTokens;
-        this.refillPeriodNanos = refillPeriodNanos;
+        this.refillRate = refillRate;
 
-        this.tokens = capacity;
+        this.tokens = capacity;  // Start with full burst capacity
         this.lastRefillNanos = System.nanoTime();
     }
 
     public synchronized boolean tryConsume() {
+        return tryConsume(1);
+    }
+
+    public synchronized boolean tryConsume(int tokensToConsume) {
         refill();
 
-        if (tokens >= 1.0) {
-            tokens -= 1.0;
+        if (tokens >= tokensToConsume) {
+            tokens -= tokensToConsume;
             return true;
         }
         return false;
     }
 
+    public synchronized double getAvailableTokens() {
+        refill();
+        return tokens;
+    }
+
     private void refill() {
         long now = System.nanoTime();
-        long elapsed = now - lastRefillNanos;
+        long elapsedNanos = now - lastRefillNanos;
 
-        if (elapsed <= 0) {
+        if (elapsedNanos <= 0) {
             return;
         }
 
-        double periods = (double) elapsed / (double) refillPeriodNanos;
-        double tokensToAdd = periods * refillTokens;
+        double elapsedSeconds = elapsedNanos / 1_000_000_000.0;
+        double tokensToAdd = elapsedSeconds * refillRate;
 
         if (tokensToAdd > 0) {
             tokens = Math.min(capacity, tokens + tokensToAdd);
@@ -54,12 +61,21 @@ public class SimpleRateLimiter {
         }
     }
 
-    public static SimpleRateLimiter perMinute(double requestsPerMinute) {
-        double capacity = requestsPerMinute;
-        double refillTokens = requestsPerMinute;
-        long refillPeriodNanos = TimeUnit.MINUTES.toNanos(1);
-
-        return new SimpleRateLimiter(capacity, refillTokens, refillPeriodNanos);
+    /**
+     * Create a limiter with burst capacity and requests per minute sustained rate.
+     *
+     * @param burstCapacity Maximum burst size (e.g., 15 for handling parallel requests)
+     * @param requestsPerMinute Sustained rate limit
+     */
+    public static SimpleRateLimiter withBurst(double burstCapacity, double requestsPerMinute) {
+        double refillRate = requestsPerMinute / 60.0;  // Convert to per-second
+        return new SimpleRateLimiter(burstCapacity, refillRate);
     }
 
+    /**
+     * Legacy method - creates limiter where burst = sustained rate
+     */
+    public static SimpleRateLimiter perMinute(double requestsPerMinute) {
+        return withBurst(requestsPerMinute, requestsPerMinute);
+    }
 }

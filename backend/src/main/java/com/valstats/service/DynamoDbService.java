@@ -69,30 +69,50 @@ public class DynamoDbService {
      * Returns matches ordered by game start time (newest first).
      */
     public List<Map<String, AttributeValue>> getStoredMatchesForPlayer(String puuid, int size, int page) {
-        String prefix = "PLAYER#" + puuid + "#MATCH#";
+        // Query player match markers - these have PK = "PLAYER#<puuid>" and SK starts with "MATCH#"
+        // But the current structure uses PK = "PLAYER#<puuid>#MATCH#<matchId>" which doesn't work for queries
 
-        // Query all match markers for this player
-        QueryResponse response = dbClient.query(QueryRequest.builder()
-                .tableName(tableName)
-                .keyConditionExpression("begins_with(PK, :prefix) AND SK = :marker")
-                .expressionAttributeValues(Map.of(
-                        ":prefix", AttributeValue.fromS(prefix),
-                        ":marker", AttributeValue.fromS("MARKER")
-                ))
-                .scanIndexForward(false) // Newest first
-                .build());
+        // Instead, query from the player's processed matches using the marker structure
+        // Markers are stored with: PK = "PLAYER#<puuid>#MATCH#<matchId>", SK = "MARKER"
+        // We need to use a different approach - query matches from MATCH# entries
 
-        List<Map<String, AttributeValue>> allMatches = response.items();
+        // For now, let's query the player's season aggregates to get match IDs
+        // Or use a scan with filter (temporary solution)
 
-        // Apply pagination
-        int startIndex = (page - 1) * size;
-        int endIndex = Math.min(startIndex + size, allMatches.size());
+        try {
+            // Use scan with filter for player match markers (not efficient but works)
+            // TODO: Create a GSI for efficient player-match lookups
+            ScanResponse response = dbClient.scan(ScanRequest.builder()
+                    .tableName(tableName)
+                    .filterExpression("begins_with(PK, :prefix) AND SK = :marker")
+                    .expressionAttributeValues(Map.of(
+                            ":prefix", AttributeValue.fromS("PLAYER#" + puuid + "#MATCH#"),
+                            ":marker", AttributeValue.fromS("MARKER")
+                    ))
+                    .build());
 
-        if (startIndex >= allMatches.size()) {
+            List<Map<String, AttributeValue>> allMatches = new java.util.ArrayList<>(response.items());
+
+            // Sort by gameStart descending (newest first)
+            allMatches.sort((a, b) -> {
+                long aStart = a.containsKey("gameStart") ? Long.parseLong(a.get("gameStart").n()) : 0;
+                long bStart = b.containsKey("gameStart") ? Long.parseLong(b.get("gameStart").n()) : 0;
+                return Long.compare(bStart, aStart);
+            });
+
+            // Apply pagination
+            int startIndex = (page - 1) * size;
+            int endIndex = Math.min(startIndex + size, allMatches.size());
+
+            if (startIndex >= allMatches.size()) {
+                return Collections.emptyList();
+            }
+
+            return allMatches.subList(startIndex, endIndex);
+        } catch (DynamoDbException e) {
+            LOG.error("Error getting stored matches for player: {}", puuid, e);
             return Collections.emptyList();
         }
-
-        return allMatches.subList(startIndex, endIndex);
     }
 
     /**

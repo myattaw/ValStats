@@ -10,28 +10,31 @@ import io.micronaut.http.filter.HttpServerFilter;
 import io.micronaut.http.filter.ServerFilterChain;
 import jakarta.inject.Singleton;
 import org.reactivestreams.Publisher;
+import reactor.core.publisher.Flux;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Simple per-client rate limiter filter.
+ * Per-client rate limiter filter with burst support.
  * Applies to /api/valorant/** endpoints.
  */
 @Filter("/api/valorant/**")
 @Singleton
 public class RateLimitFilter implements HttpServerFilter {
 
-    // Per-client limiters
     private final ConcurrentHashMap<String, SimpleRateLimiter> limiters = new ConcurrentHashMap<>();
 
-    // DEFAULT: 60 requests per minute per client
+    // Allow burst of 15 requests (handles 3 parallel calls × 5 users simultaneously)
+    private static final double BURST_CAPACITY = 15.0;
+    // Sustained rate: 60 requests per minute
     private static final double REQUESTS_PER_MINUTE = 60.0;
 
     private SimpleRateLimiter createLimiter() {
-        return SimpleRateLimiter.perMinute(REQUESTS_PER_MINUTE);
+        return SimpleRateLimiter.withBurst(BURST_CAPACITY, REQUESTS_PER_MINUTE);
     }
 
     @Override
@@ -41,17 +44,31 @@ public class RateLimitFilter implements HttpServerFilter {
         SimpleRateLimiter limiter = limiters.computeIfAbsent(clientKey, k -> createLimiter());
 
         if (!limiter.tryConsume()) {
-            MutableHttpResponse<Map<String, Object>> tooMany =
-                    HttpResponse.status(HttpStatus.TOO_MANY_REQUESTS)
-                            .body(Map.of(
-                                    "error", "Too Many Requests",
-                                    "message", "Rate limit exceeded"
-                            ));
+            Map<String, Object> errorBody = new HashMap<>();
+            errorBody.put("error", "Too Many Requests");
+            errorBody.put("message", "Rate limit exceeded. Please wait before retrying.");
+            errorBody.put("retryAfterSeconds", 1);
+
+            MutableHttpResponse<?> tooMany = HttpResponse.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(errorBody)
+                    .header("Retry-After", "1")
+                    .header("X-RateLimit-Limit", String.valueOf((int) REQUESTS_PER_MINUTE))
+                    .header("X-RateLimit-Remaining", "0")
+                    .header("X-RateLimit-Burst", String.valueOf((int) BURST_CAPACITY));
 
             return Publishers.just(tooMany);
         }
 
-        return chain.proceed(request);
+        // Add rate limit headers to successful responses
+        int remaining = (int) limiter.getAvailableTokens();
+
+        return Flux.from(chain.proceed(request))
+                .map(response -> {
+                    response.header("X-RateLimit-Limit", String.valueOf((int) REQUESTS_PER_MINUTE));
+                    response.header("X-RateLimit-Remaining", String.valueOf(remaining));
+                    response.header("X-RateLimit-Burst", String.valueOf((int) BURST_CAPACITY));
+                    return response;
+                });
     }
 
     private String resolveClientKey(HttpRequest<?> request) {
@@ -68,6 +85,17 @@ public class RateLimitFilter implements HttpServerFilter {
         }
 
         return remote != null ? remote.toString() : "unknown";
+    }
+
+    /**
+     * Periodically clean up old limiters to prevent memory leaks.
+     * Call this from a scheduled task if needed.
+     */
+    public void cleanupStaleLimiters() {
+        // Simple cleanup - remove limiters that are at full capacity (inactive)
+        limiters.entrySet().removeIf(entry ->
+            entry.getValue().getAvailableTokens() >= BURST_CAPACITY - 0.1
+        );
     }
 
 }

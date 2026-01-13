@@ -47,36 +47,34 @@ public class ValorantService {
             return new MatchResponse(404, Collections.emptyList());
         }
 
-        // Check if we can fetch from the external API (3-minute cooldown)
-        if (playerCacheService.canFetchFromApi(puuid)) {
-            try {
-                MatchResponse rawResponse = valorantApiClient.getRecentMatches(region, playerName, playerTag, size, page, AUTH_TOKEN);
-                MatchResponse filteredResponse = filterMatchesResponse(rawResponse);
-
-                // Store new matches in DynamoDB
-                int newMatchCount = 0;
-                for (Match match : filteredResponse.data()) {
-                    if (matchProcessor.processMatch(match, puuid)) {
-                        newMatchCount++;
-                    }
-                }
-                LOG.info("Stored {} new matches for player {}#{}", newMatchCount, playerName, playerTag);
-
-                // Update the last fetch time
-                playerCacheService.updateLastFetchTime(puuid, playerName, playerTag, region);
-
-                return filteredResponse;
-            } catch (Exception e) {
-                LOG.error("Failed to fetch from external API, falling back to database", e);
-            }
-        } else {
+        // Check if we can fetch from the external API
+        if (!playerCacheService.canFetchFromApi(puuid)) {
             long waitTime = playerCacheService.getSecondsUntilNextFetch(puuid);
-            LOG.info("API cooldown active for {}#{}. {} seconds remaining. Returning cached data.",
-                    playerName, playerTag, waitTime);
+            LOG.info("API cooldown active for recent-matches. {} seconds remaining.", waitTime);
+            return getCachedMatches(puuid, size, page);
         }
 
-        // Return cached data from DynamoDB
-        return getCachedMatches(puuid, size, page);
+        try {
+            MatchResponse rawResponse = valorantApiClient.getRecentMatches(region, playerName, playerTag, size, page, AUTH_TOKEN);
+            MatchResponse filteredResponse = filterMatchesResponse(rawResponse);
+
+            // Store new matches in DynamoDB
+            int newMatchCount = 0;
+            for (Match match : filteredResponse.data()) {
+                if (matchProcessor.processMatch(match, puuid)) {
+                    newMatchCount++;
+                }
+            }
+            LOG.info("Stored {} new matches for player {}#{}", newMatchCount, playerName, playerTag);
+
+            // Update the last fetch time
+            playerCacheService.updateLastFetchTime(puuid, playerName, playerTag, region);
+
+            return filteredResponse;
+        } catch (Exception e) {
+            LOG.error("Failed to fetch from external API, falling back to database", e);
+            return getCachedMatches(puuid, size, page);
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -85,58 +83,50 @@ public class ValorantService {
         String puuid = resolvePuuid(playerName, playerTag);
 
         if (puuid == null) {
-            // Player doesn't exist in our database, fetch all matches from API
+            // Player doesn't exist in our database, fetch from API
             LOG.info("Player {}#{} not found in database, fetching from API", playerName, playerTag);
 
-            Map<String, Object> apiResponse = valorantApiClient.getStoredMatches(region, playerName, playerTag, null, null, "competitive", AUTH_TOKEN);
+            try {
+                Map<String, Object> apiResponse = valorantApiClient.getStoredMatches(region, playerName, playerTag, size, page, "competitive", AUTH_TOKEN);
 
-            // Extract puuid from response and store matches
-            if (apiResponse.containsKey("data")) {
-                List<Map<String, Object>> matches = (List<Map<String, Object>>) apiResponse.get("data");
-                if (!matches.isEmpty()) {
-                    // Get puuid from first match
-                    Map<String, Object> firstMatch = matches.get(0);
-                    Map<String, Object> meta = (Map<String, Object>) firstMatch.get("meta");
-                    if (meta != null && meta.containsKey("id")) {
-                        // Need to get puuid from account endpoint
-                        Map<String, Object> accountData = getAccountDetails(playerName, playerTag);
-                        if (accountData.containsKey("data")) {
-                            Map<String, Object> data = (Map<String, Object>) accountData.get("data");
-                            String newPuuid = (String) data.get("puuid");
-                            if (newPuuid != null) {
-                                playerCacheService.storePlayerProfile(newPuuid, playerName, playerTag, region);
-                                playerCacheService.updateLastFetchTime(newPuuid, playerName, playerTag, region);
-                            }
-                        }
+                // Extract puuid from account endpoint and store
+                Map<String, Object> accountData = getAccountDetails(playerName, playerTag);
+                if (accountData.containsKey("data")) {
+                    Map<String, Object> data = (Map<String, Object>) accountData.get("data");
+                    String newPuuid = (String) data.get("puuid");
+                    if (newPuuid != null) {
+                        playerCacheService.storePlayerProfile(newPuuid, playerName, playerTag, region);
+                        playerCacheService.updateLastFetchTime(newPuuid, playerName, playerTag, region);
                     }
                 }
-            }
 
-            return apiResponse;
+                return apiResponse;
+            } catch (Exception e) {
+                LOG.error("Failed to fetch stored matches for new player", e);
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("status", 500);
+                errorResponse.put("error", "Failed to fetch matches");
+                return errorResponse;
+            }
         }
 
         // Player exists, check cooldown
         if (playerCacheService.canFetchFromApi(puuid)) {
             try {
-                // Fetch only recent matches to check for new ones
                 Map<String, Object> apiResponse = valorantApiClient.getStoredMatches(region, playerName, playerTag, size, page, "competitive", AUTH_TOKEN);
-
-                // Update fetch time
                 playerCacheService.updateLastFetchTime(puuid, playerName, playerTag, region);
-
                 return apiResponse;
             } catch (Exception e) {
                 LOG.error("Failed to fetch stored matches from API", e);
             }
         } else {
             long waitTime = playerCacheService.getSecondsUntilNextFetch(puuid);
-            LOG.info("API cooldown active. {} seconds remaining. Returning cached data.", waitTime);
+            LOG.debug("API cooldown active for stored-matches. {} seconds remaining.", waitTime);
         }
 
         // Return from database
         List<Map<String, AttributeValue>> storedMatches = dynamoDbService.getStoredMatchesForPlayer(puuid, size, page);
 
-        // Convert to response format
         List<Map<String, Object>> matchData = storedMatches.stream()
                 .map(this::convertMatchToResponseFormat)
                 .collect(Collectors.toList());
@@ -154,20 +144,31 @@ public class ValorantService {
 
         if (puuid == null) {
             // Fetch from API and store
-            Map<String, Object> apiResponse = valorantApiClient.getMMRHistory(region, playerName, playerTag, AUTH_TOKEN);
-            storeMMRHistoryFromResponse(apiResponse, playerName, playerTag);
-            return apiResponse;
-        }
-
-        // Check cooldown - for MMR we still want fresh data when possible
-        if (playerCacheService.canFetchFromApi(puuid)) {
             try {
                 Map<String, Object> apiResponse = valorantApiClient.getMMRHistory(region, playerName, playerTag, AUTH_TOKEN);
                 storeMMRHistoryFromResponse(apiResponse, playerName, playerTag);
                 return apiResponse;
             } catch (Exception e) {
+                LOG.error("Failed to fetch MMR history for new player", e);
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("status", 500);
+                errorResponse.put("error", "Failed to fetch MMR history");
+                return errorResponse;
+            }
+        }
+
+        // Check cooldown
+        if (playerCacheService.canFetchFromApi(puuid)) {
+            try {
+                Map<String, Object> apiResponse = valorantApiClient.getMMRHistory(region, playerName, playerTag, AUTH_TOKEN);
+                storeMMRHistoryFromResponse(apiResponse, playerName, playerTag);
+                // Don't update fetch time here - let recent-matches handle it
+                return apiResponse;
+            } catch (Exception e) {
                 LOG.error("Failed to fetch MMR history from API", e);
             }
+        } else {
+            LOG.debug("API cooldown active for mmr-history. Returning cached data.");
         }
 
         // Return cached MMR history
@@ -346,7 +347,8 @@ public class ValorantService {
             if (item.containsKey("map")) metadata.put("map", item.get("map").s());
             if (item.containsKey("mode")) metadata.put("mode", item.get("mode").s());
             if (item.containsKey("gameStart")) metadata.put("game_start", Long.parseLong(item.get("gameStart").n()));
-            if (item.containsKey("gameLength")) metadata.put("game_length", Integer.parseInt(item.get("gameLength").n()));
+            if (item.containsKey("gameLength"))
+                metadata.put("game_length", Integer.parseInt(item.get("gameLength").n()));
 
             matchData.put("metadata", metadata);
 

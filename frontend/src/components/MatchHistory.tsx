@@ -51,24 +51,43 @@ export function MatchHistory({
                 ? `${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}`
                 : 'rages/alt';
 
-            const [recentRes, storedRes, mmrRes] = await Promise.all([
-                fetch(`${API_BASE_URL}/recent-matches/na/${nameSeg}?size=${DETAILED_MATCHES_SIZE}`),
-                fetch(`${API_BASE_URL}/stored-matches/na/${nameSeg}?size=${INITIAL_MATCHES_SIZE}`),
-                fetch(`${API_BASE_URL}/mmr-history/na/${nameSeg}`),
-            ]);
+            // Fetch each resource separately so a single failing endpoint doesn't abort everything
+            let recentJson: any = { data: [] };
+            let storedJson: any = { data: [] };
+            let mmrJson: any = { data: [] };
 
-            const recentJson = await recentRes.json();
-            const storedJson = await storedRes.json();
-            const mmrJson = await mmrRes.json();
+            try {
+                const recentRes = await fetch(`${API_BASE_URL}/recent-matches/na/${nameSeg}?size=${DETAILED_MATCHES_SIZE}`);
+                if (recentRes.ok) recentJson = await recentRes.json();
+                else console.warn('recent-matches fetch returned non-ok status', recentRes.status);
+            } catch (err) {
+                console.warn('recent-matches fetch failed', err);
+            }
 
-            // Build MMR map
-            const mmrMap = buildMmrMap(mmrJson.data || []);
+            try {
+                const storedRes = await fetch(`${API_BASE_URL}/stored-matches/na/${nameSeg}?size=${INITIAL_MATCHES_SIZE}`);
+                if (storedRes.ok) storedJson = await storedRes.json();
+                else console.warn('stored-matches fetch returned non-ok status', storedRes.status);
+            } catch (err) {
+                console.warn('stored-matches fetch failed', err);
+            }
+
+            try {
+                const mmrRes = await fetch(`${API_BASE_URL}/mmr-history/na/${nameSeg}`);
+                if (mmrRes.ok) mmrJson = await mmrRes.json();
+                else console.warn('mmr-history fetch returned non-ok status', mmrRes.status);
+            } catch (err) {
+                console.warn('mmr-history fetch failed', err);
+            }
+
+            // Build MMR map (will be empty if mmrJson missing)
+            const mmrMap = buildMmrMap(mmrJson?.data || []);
 
             // Process matches (pass puuid for correct player selection)
-            const recentMatches = processRecentMatches(recentJson.data || [], mmrMap, mmrJson, puuid);
+            const recentMatches = processRecentMatches(recentJson?.data || [], mmrMap, mmrJson, puuid);
             const detailedMatchIds = new Set(recentMatches.map(m => m.id));
             const storedMatches = processStoredMatches(
-                storedJson.data || [],
+                storedJson?.data || [],
                 mmrMap,
                 detailedMatchIds
             );
@@ -80,6 +99,7 @@ export function MatchHistory({
             setMatches(allMatches);
         } catch (e) {
             console.error("Error fetching matches:", e);
+            // keep fallback (empty) instead of clearing UI aggressively
             setMatches([]);
         } finally {
             setIsInitialLoading(false);

@@ -395,4 +395,233 @@ public class ValorantService {
 
         return player;
     }
+
+    /**
+     * Get kill/death ratio for a player.
+     */
+    public Map<String, Object> getKillRatio(String region, String playerName, String playerTag, String seasonId) {
+        String puuid = resolvePuuid(playerName, playerTag);
+        if (puuid == null) {
+            return errorResponse("Player not found");
+        }
+
+        Map<String, Long> stats = getStatsForSeason(puuid, seasonId);
+        if (stats == null) {
+            return errorResponse("No stats found for player");
+        }
+
+        long kills = stats.getOrDefault("total_kills", 0L);
+        long deaths = stats.getOrDefault("total_deaths", 0L);
+        double kdRatio = deaths > 0 ? (double) kills / deaths : kills;
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", 200);
+        response.put("data", Map.of(
+                "player", playerName + "#" + playerTag,
+                "season", seasonId,
+                "kills", kills,
+                "deaths", deaths,
+                "kd_ratio", Math.round(kdRatio * 100.0) / 100.0,
+                "matches_played", stats.getOrDefault("matches_played", 0L)
+        ));
+        return response;
+    }
+
+    /**
+     * Get headshot percentage for a player.
+     */
+    public Map<String, Object> getHeadshotPercent(String region, String playerName, String playerTag, String seasonId) {
+        String puuid = resolvePuuid(playerName, playerTag);
+        if (puuid == null) {
+            return errorResponse("Player not found");
+        }
+
+        Map<String, Long> stats = getStatsForSeason(puuid, seasonId);
+        if (stats == null) {
+            return errorResponse("No stats found for player");
+        }
+
+        long headshots = stats.getOrDefault("total_headshots", 0L);
+        long bodyshots = stats.getOrDefault("total_bodyshots", 0L);
+        long legshots = stats.getOrDefault("total_legshots", 0L);
+        long totalShots = headshots + bodyshots + legshots;
+
+        double hsPercent = totalShots > 0 ? (double) headshots / totalShots * 100 : 0;
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", 200);
+        response.put("data", Map.of(
+                "player", playerName + "#" + playerTag,
+                "season", seasonId,
+                "headshots", headshots,
+                "bodyshots", bodyshots,
+                "legshots", legshots,
+                "total_shots", totalShots,
+                "headshot_percent", Math.round(hsPercent * 100.0) / 100.0,
+                "matches_played", stats.getOrDefault("matches_played", 0L)
+        ));
+        return response;
+    }
+
+    /**
+     * Get average combat score for a player.
+     */
+    public Map<String, Object> getAvgCombatScore(String region, String playerName, String playerTag, String seasonId) {
+        String puuid = resolvePuuid(playerName, playerTag);
+        if (puuid == null) {
+            return errorResponse("Player not found");
+        }
+
+        Map<String, Long> stats = getStatsForSeason(puuid, seasonId);
+        if (stats == null) {
+            return errorResponse("No stats found for player");
+        }
+
+        long totalScore = stats.getOrDefault("total_score", 0L);
+        long matchesPlayed = stats.getOrDefault("matches_played", 0L);
+
+        double avgScore = matchesPlayed > 0 ? (double) totalScore / matchesPlayed : 0;
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", 200);
+        response.put("data", Map.of(
+                "player", playerName + "#" + playerTag,
+                "season", seasonId,
+                "total_score", totalScore,
+                "matches_played", matchesPlayed,
+                "avg_combat_score", Math.round(avgScore * 100.0) / 100.0
+        ));
+        return response;
+    }
+
+    /**
+     * Get kills per round for a player.
+     * Note: This requires tracking total rounds played, which we'll estimate from matches.
+     */
+    public Map<String, Object> getKillsPerRound(String region, String playerName, String playerTag, String seasonId) {
+        String puuid = resolvePuuid(playerName, playerTag);
+        if (puuid == null) {
+            return errorResponse("Player not found");
+        }
+
+        Map<String, Long> stats = getStatsForSeason(puuid, seasonId);
+        if (stats == null) {
+            return errorResponse("No stats found for player");
+        }
+
+        long kills = stats.getOrDefault("total_kills", 0L);
+        long matchesPlayed = stats.getOrDefault("matches_played", 0L);
+
+        // Estimate rounds: average competitive match is ~20 rounds
+        // For accurate data, we'd need to track total_rounds in the aggregate
+        long estimatedRounds = matchesPlayed * 20;
+
+        double killsPerRound = estimatedRounds > 0 ? (double) kills / estimatedRounds : 0;
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", 200);
+        response.put("data", Map.of(
+                "player", playerName + "#" + playerTag,
+                "season", seasonId,
+                "kills", kills,
+                "matches_played", matchesPlayed,
+                "estimated_rounds", estimatedRounds,
+                "kills_per_round", Math.round(killsPerRound * 1000.0) / 1000.0,
+                "note", "Rounds estimated at 20 per match"
+        ));
+        return response;
+    }
+
+    /**
+     * Get comprehensive player stats.
+     */
+    public Map<String, Object> getPlayerStats(String region, String playerName, String playerTag, String seasonId) {
+        String puuid = resolvePuuid(playerName, playerTag);
+        if (puuid == null) {
+            return errorResponse("Player not found");
+        }
+
+        Map<String, Long> stats = getStatsForSeason(puuid, seasonId);
+        if (stats == null) {
+            return errorResponse("No stats found for player");
+        }
+
+        long kills = stats.getOrDefault("total_kills", 0L);
+        long deaths = stats.getOrDefault("total_deaths", 0L);
+        long assists = stats.getOrDefault("total_assists", 0L);
+        long headshots = stats.getOrDefault("total_headshots", 0L);
+        long bodyshots = stats.getOrDefault("total_bodyshots", 0L);
+        long legshots = stats.getOrDefault("total_legshots", 0L);
+        long totalScore = stats.getOrDefault("total_score", 0L);
+        long totalDamage = stats.getOrDefault("total_damage", 0L);
+        long matchesPlayed = stats.getOrDefault("matches_played", 0L);
+
+        long totalShots = headshots + bodyshots + legshots;
+        double kdRatio = deaths > 0 ? (double) kills / deaths : kills;
+        double hsPercent = totalShots > 0 ? (double) headshots / totalShots * 100 : 0;
+        double avgScore = matchesPlayed > 0 ? (double) totalScore / matchesPlayed : 0;
+        double avgDamage = matchesPlayed > 0 ? (double) totalDamage / matchesPlayed : 0;
+        long estimatedRounds = matchesPlayed * 20;
+        double killsPerRound = estimatedRounds > 0 ? (double) kills / estimatedRounds : 0;
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("player", playerName + "#" + playerTag);
+        data.put("season", seasonId);
+        data.put("matches_played", matchesPlayed);
+        data.put("kills", kills);
+        data.put("deaths", deaths);
+        data.put("assists", assists);
+        data.put("kd_ratio", Math.round(kdRatio * 100.0) / 100.0);
+        data.put("headshots", headshots);
+        data.put("bodyshots", bodyshots);
+        data.put("legshots", legshots);
+        data.put("headshot_percent", Math.round(hsPercent * 100.0) / 100.0);
+        data.put("total_score", totalScore);
+        data.put("avg_combat_score", Math.round(avgScore * 100.0) / 100.0);
+        data.put("total_damage", totalDamage);
+        data.put("avg_damage", Math.round(avgDamage * 100.0) / 100.0);
+        data.put("kills_per_round", Math.round(killsPerRound * 1000.0) / 1000.0);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", 200);
+        response.put("data", data);
+        return response;
+    }
+
+    /**
+     * Helper to get stats for a specific season or all seasons.
+     */
+    private Map<String, Long> getStatsForSeason(String puuid, String seasonId) {
+        if (seasonId == null || seasonId.equalsIgnoreCase("all")) {
+            return dynamoDbService.getPlayerTotalStats(puuid);
+        }
+
+        Optional<Map<String, AttributeValue>> seasonStats = dynamoDbService.getPlayerSeasonStats(puuid, seasonId);
+        if (seasonStats.isEmpty()) {
+            return null;
+        }
+
+        Map<String, Long> stats = new HashMap<>();
+        Map<String, AttributeValue> item = seasonStats.get();
+
+        String[] keys = {"matches_played", "total_kills", "total_deaths", "total_assists",
+                         "total_score", "total_headshots", "total_bodyshots", "total_legshots", "total_damage"};
+
+        for (String key : keys) {
+            if (item.containsKey(key)) {
+                stats.put(key, Long.parseLong(item.get(key).n()));
+            } else {
+                stats.put(key, 0L);
+            }
+        }
+
+        return stats;
+    }
+
+    private Map<String, Object> errorResponse(String message) {
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", 404);
+        response.put("error", message);
+        return response;
+    }
 }

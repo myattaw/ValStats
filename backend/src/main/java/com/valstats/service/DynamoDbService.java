@@ -175,6 +175,7 @@ public class DynamoDbService {
                     .item(item)
                     .conditionExpression("attribute_not_exists(PK) AND attribute_not_exists(SK)")
                     .build());
+
         } catch (ConditionalCheckFailedException e) {
             // Already exists
             LOG.debug("MMR entry already exists for match {} player {}", matchId, puuid);
@@ -214,5 +215,55 @@ public class DynamoDbService {
                 .build());
 
         return response.items();
+    }
+
+    /**
+     * Get player stats for a specific season.
+     */
+    public Optional<Map<String, AttributeValue>> getPlayerSeasonStats(String puuid, String seasonId) {
+        try {
+            GetItemResponse response = dbClient.getItem(GetItemRequest.builder()
+                    .tableName(tableName)
+                    .key(Map.of(
+                            "PK", AttributeValue.fromS("PLAYER#" + puuid),
+                            "SK", AttributeValue.fromS("SEASON#" + seasonId)
+                    ))
+                    .build());
+
+            if (response.hasItem() && !response.item().isEmpty()) {
+                return Optional.of(response.item());
+            }
+        } catch (DynamoDbException e) {
+            LOG.error("Error getting season stats for player {} season {}", puuid, seasonId, e);
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Get aggregated stats across all seasons for a player.
+     */
+    public Map<String, Long> getPlayerTotalStats(String puuid) {
+        List<Map<String, AttributeValue>> seasonStats = getPlayerSeasonStats(puuid);
+
+        Map<String, Long> totals = new HashMap<>();
+        totals.put("matches_played", 0L);
+        totals.put("total_kills", 0L);
+        totals.put("total_deaths", 0L);
+        totals.put("total_assists", 0L);
+        totals.put("total_score", 0L);
+        totals.put("total_headshots", 0L);
+        totals.put("total_bodyshots", 0L);
+        totals.put("total_legshots", 0L);
+        totals.put("total_damage", 0L);
+
+        for (Map<String, AttributeValue> season : seasonStats) {
+            for (String key : totals.keySet()) {
+                if (season.containsKey(key)) {
+                    totals.put(key, totals.get(key) + Long.parseLong(season.get(key).n()));
+                }
+            }
+        }
+
+        return totals;
     }
 }

@@ -62,4 +62,51 @@ public class ValorantController {
         return valorantService.getMatchById(matchid);
     }
 
+    // Player statistics endpoints
+
+    @Get("/stats/{region}/{name}/{tag}")
+    public Map<String, Object> getPlayerStats(
+            @PathVariable String region,
+            @PathVariable String name,
+            @PathVariable String tag,
+            @QueryValue(value = "season", defaultValue = "all") String seasonId) {
+        return valorantService.getPlayerStats(region, name, tag, seasonId);
+    }
+
+    @Get("/kill-ratio/{region}/{name}/{tag}")
+    public Map<String, Object> getKillRatio(
+            @PathVariable String region,
+            @PathVariable String name,
+            @PathVariable String tag,
+            @QueryValue(value = "season", defaultValue = "all") String seasonId) {
+        return valorantService.getKillRatio(region, name, tag, seasonId);
+    }
+
+    @Get("/headshot-percent/{region}/{name}/{tag}")
+    public Map<String, Object> getHeadshotPercent(
+            @PathVariable String region,
+            @PathVariable String name,
+            @PathVariable String tag,
+            @QueryValue(value = "season", defaultValue = "all") String seasonId) {
+        return valorantService.getHeadshotPercent(region, name, tag, seasonId);
+    }
+
+    @Get("/avg-combat-score/{region}/{name}/{tag}")
+    public Map<String, Object> getAvgCombatScore(
+            @PathVariable String region,
+            @PathVariable String name,
+            @PathVariable String tag,
+            @QueryValue(value = "season", defaultValue = "all") String seasonId) {
+        return valorantService.getAvgCombatScore(region, name, tag, seasonId);
+    }
+
+    @Get("/kills-per-round/{region}/{name}/{tag}")
+    public Map<String, Object> getKillsPerRound(
+            @PathVariable String region,
+            @PathVariable String name,
+            @PathVariable String tag,
+            @QueryValue(value = "season", defaultValue = "all") String seasonId) {
+        return valorantService.getKillsPerRound(region, name, tag, seasonId);
+    }
+
 }

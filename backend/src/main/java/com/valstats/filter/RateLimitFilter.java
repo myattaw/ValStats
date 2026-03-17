@@ -18,10 +18,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Per-client rate limiter filter with burst support.
- * Applies to /api/valorant/** endpoints.
- */
 @Filter("/api/valorant/**")
 @Singleton
 public class RateLimitFilter implements HttpServerFilter {

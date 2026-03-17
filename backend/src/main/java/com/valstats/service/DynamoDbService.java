@@ -69,20 +69,27 @@ public class DynamoDbService {
      * Returns matches ordered by game start time (newest first).
      */
     public List<Map<String, AttributeValue>> getStoredMatchesForPlayer(String puuid, int size, int page) {
-        // Query player match markers - these have PK = "PLAYER#<puuid>" and SK starts with "MATCH#"
-        // But the current structure uses PK = "PLAYER#<puuid>#MATCH#<matchId>" which doesn't work for queries
-
-        // Instead, query from the player's processed matches using the marker structure
-        // Markers are stored with: PK = "PLAYER#<puuid>#MATCH#<matchId>", SK = "MARKER"
-        // We need to use a different approach - query matches from MATCH# entries
-
-        // For now, let's query the player's season aggregates to get match IDs
-        // Or use a scan with filter (temporary solution)
-
         try {
-            // Use scan with filter for player match markers (not efficient but works)
-            // TODO: Create a GSI for efficient player-match lookups
-            ScanResponse response = dbClient.scan(ScanRequest.builder()
+            // New efficient schema: PK=PLAYER#<puuid>, SK starts_with MATCH#
+            QueryResponse query = dbClient.query(QueryRequest.builder()
+                    .tableName(tableName)
+                    .keyConditionExpression("PK = :pk AND begins_with(SK, :matchPrefix)")
+                    .expressionAttributeValues(Map.of(
+                            ":pk", AttributeValue.fromS("PLAYER#" + puuid),
+                            ":matchPrefix", AttributeValue.fromS("MATCH#")
+                    ))
+                    .scanIndexForward(false)
+                    .build());
+
+            List<Map<String, AttributeValue>> items = new ArrayList<>(query.items());
+            if (!items.isEmpty()) {
+                int startIndex = Math.max(0, (page - 1) * size);
+                int endIndex = Math.min(startIndex + size, items.size());
+                return startIndex >= items.size() ? Collections.emptyList() : items.subList(startIndex, endIndex);
+            }
+
+            // Backward compatibility fallback for old marker layout
+            ScanResponse fallback = dbClient.scan(ScanRequest.builder()
                     .tableName(tableName)
                     .filterExpression("begins_with(PK, :prefix) AND SK = :marker")
                     .expressionAttributeValues(Map.of(
@@ -91,24 +98,15 @@ public class DynamoDbService {
                     ))
                     .build());
 
-            List<Map<String, AttributeValue>> allMatches = new java.util.ArrayList<>(response.items());
+            List<Map<String, AttributeValue>> allMatches = new ArrayList<>(fallback.items());
+            allMatches.sort((a, b) -> Long.compare(
+                    b.containsKey("gameStart") ? Long.parseLong(b.get("gameStart").n()) : 0L,
+                    a.containsKey("gameStart") ? Long.parseLong(a.get("gameStart").n()) : 0L
+            ));
 
-            // Sort by gameStart descending (newest first)
-            allMatches.sort((a, b) -> {
-                long aStart = a.containsKey("gameStart") ? Long.parseLong(a.get("gameStart").n()) : 0;
-                long bStart = b.containsKey("gameStart") ? Long.parseLong(b.get("gameStart").n()) : 0;
-                return Long.compare(bStart, aStart);
-            });
-
-            // Apply pagination
-            int startIndex = (page - 1) * size;
+            int startIndex = Math.max(0, (page - 1) * size);
             int endIndex = Math.min(startIndex + size, allMatches.size());
-
-            if (startIndex >= allMatches.size()) {
-                return Collections.emptyList();
-            }
-
-            return allMatches.subList(startIndex, endIndex);
+            return startIndex >= allMatches.size() ? Collections.emptyList() : allMatches.subList(startIndex, endIndex);
         } catch (DynamoDbException e) {
             LOG.error("Error getting stored matches for player: {}", puuid, e);
             return Collections.emptyList();
@@ -243,27 +241,94 @@ public class DynamoDbService {
      * Get aggregated stats across all seasons for a player.
      */
     public Map<String, Long> getPlayerTotalStats(String puuid) {
-        List<Map<String, AttributeValue>> seasonStats = getPlayerSeasonStats(puuid);
+        try {
+            GetItemResponse response = dbClient.getItem(GetItemRequest.builder()
+                    .tableName(tableName)
+                    .key(Map.of(
+                            "PK", AttributeValue.fromS("PLAYER#" + puuid),
+                            "SK", AttributeValue.fromS("TOTAL")
+                    ))
+                    .build());
 
-        Map<String, Long> totals = new HashMap<>();
-        totals.put("matches_played", 0L);
-        totals.put("total_kills", 0L);
-        totals.put("total_deaths", 0L);
-        totals.put("total_assists", 0L);
-        totals.put("total_score", 0L);
-        totals.put("total_headshots", 0L);
-        totals.put("total_bodyshots", 0L);
-        totals.put("total_legshots", 0L);
-        totals.put("total_damage", 0L);
-
-        for (Map<String, AttributeValue> season : seasonStats) {
-            for (String key : totals.keySet()) {
-                if (season.containsKey(key)) {
-                    totals.put(key, totals.get(key) + Long.parseLong(season.get(key).n()));
-                }
+            if (!response.hasItem() || response.item().isEmpty()) {
+                return new HashMap<>();
             }
-        }
 
-        return totals;
+            Map<String, AttributeValue> item = response.item();
+            Map<String, Long> stats = new HashMap<>();
+
+            stats.put("matches_played", getLong(item, "matches_played"));
+            stats.put("total_kills", getLong(item, "total_kills"));
+            stats.put("total_deaths", getLong(item, "total_deaths"));
+            stats.put("total_assists", getLong(item, "total_assists"));
+            stats.put("total_score", getLong(item, "total_score"));
+            stats.put("total_headshots", getLong(item, "total_headshots"));
+            stats.put("total_bodyshots", getLong(item, "total_bodyshots"));
+            stats.put("total_legshots", getLong(item, "total_legshots"));
+            stats.put("total_damage", getLong(item, "total_damage"));
+            stats.put("total_rounds", getLong(item, "total_rounds"));
+
+            return stats;
+
+        } catch (Exception e) {
+            LOG.error("Failed to get totals", e);
+            return new HashMap<>();
+        }
     }
+
+    // ADD THIS METHOD
+    public void updatePlayerTotals(
+            String puuid,
+            int kills,
+            int deaths,
+            int assists,
+            int score,
+            int headshots,
+            int bodyshots,
+            int legshots
+    ) {
+        Map<String, AttributeValue> key = Map.of(
+                "PK", AttributeValue.fromS("PLAYER#" + puuid),
+                "SK", AttributeValue.fromS("TOTAL")
+        );
+
+        Map<String, String> names = Map.of(
+                "#mp", "matches_played"
+        );
+
+        Map<String, AttributeValue> values = Map.of(
+                ":one", AttributeValue.fromN("1"),
+                ":kills", AttributeValue.fromN(String.valueOf(kills)),
+                ":deaths", AttributeValue.fromN(String.valueOf(deaths)),
+                ":assists", AttributeValue.fromN(String.valueOf(assists)),
+                ":score", AttributeValue.fromN(String.valueOf(score)),
+                ":hs", AttributeValue.fromN(String.valueOf(headshots)),
+                ":bs", AttributeValue.fromN(String.valueOf(bodyshots)),
+                ":ls", AttributeValue.fromN(String.valueOf(legshots))
+        );
+
+        UpdateItemRequest request = UpdateItemRequest.builder()
+                .tableName(tableName)
+                .key(key)
+                .updateExpression("""
+                ADD #mp :one,
+                    total_kills :kills,
+                    total_deaths :deaths,
+                    total_assists :assists,
+                    total_score :score,
+                    total_headshots :hs,
+                    total_bodyshots :bs,
+                    total_legshots :ls
+            """)
+                .expressionAttributeNames(names)
+                .expressionAttributeValues(values)
+                .build();
+
+        dbClient.updateItem(request);
+    }
+
+    private long getLong(Map<String, AttributeValue> map, String key) {
+        return map.containsKey(key) ? Long.parseLong(map.get(key).n()) : 0L;
+    }
+
 }

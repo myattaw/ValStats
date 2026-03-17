@@ -22,7 +22,7 @@ interface ProfileData {
 }
 
 interface PlayerStats {
-    kd_ratio: number;
+    kd_ratio: number;a
     headshot_percent: number;
     avg_combat_score: number;
     kills_per_round: number;
@@ -224,12 +224,13 @@ export default function App() {
             try {
 
                 const res = await fetch(
-                    `${API_BASE_URL}/stats/${region}/${encodeURIComponent(currentPlayer.name)}/${encodeURIComponent(currentPlayer.tag)}?season=${selectedAct}`
+                    `${API_BASE_URL}/stats/${region}/${encodeURIComponent(currentPlayer.name)}/${encodeURIComponent(currentPlayer.tag)}?seasonId=${selectedAct}`
                 );
 
                 if (!res.ok) return;
 
                 const json = await res.json();
+                console.log("STATS RESPONSE:", json);
                 setStats(json.data);
 
             } catch {}

@@ -16,7 +16,7 @@ import java.util.Optional;
 public class PlayerCacheService {
 
     private static final Logger LOG = LoggerFactory.getLogger(PlayerCacheService.class);
-    private static final long FETCH_COOLDOWN_SECONDS = 1; // 3 minutes
+    private static final long FETCH_COOLDOWN_SECONDS = 180; // 3 minutes
 
     private final DynamoDbClient ddb;
     private final String tableName = "valstats";

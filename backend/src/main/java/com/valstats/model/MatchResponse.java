@@ -1,11 +1,14 @@
 package com.valstats.model;
 
+import com.valstats.model.match.MatchSummary;
 import io.micronaut.core.annotation.Introspected;
 import io.micronaut.serde.annotation.Serdeable;
+
 import java.util.List;
 
 @Introspected
 @Serdeable.Deserializable
 @Serdeable.Serializable
-public record MatchResponse(int status, List<Match> data) {
+public record MatchResponse(int status, List<MatchSummary> data) {
+
 }

@@ -1,12 +1,9 @@
 package com.valstats.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.valstats.client.ValorantApiClient;
-import com.valstats.model.Match;
-import com.valstats.model.MatchResponse;
-import com.valstats.model.assets.Assets;
-import com.valstats.model.player.Player;
-import com.valstats.model.player.Players;
-import com.valstats.model.player.Stats;
+import com.valstats.model.match.Match;
+import io.micronaut.context.annotation.Bean;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,606 +19,645 @@ public class ValorantService {
 
     private final ValorantApiClient valorantApiClient;
     private final PlayerCacheService playerCacheService;
-    private final MatchProcessor matchProcessor;
     private final DynamoDbService dynamoDbService;
+    private final MatchProcessor matchProcessor;
+    private final ObjectMapper objectMapper;
+
     private static final String AUTH_TOKEN = System.getenv("HDEV_KEY");
 
     public ValorantService(
             ValorantApiClient valorantApiClient,
             PlayerCacheService playerCacheService,
+            DynamoDbService dynamoDbService,
             MatchProcessor matchProcessor,
-            DynamoDbService dynamoDbService
+            ObjectMapper objectMapper
     ) {
         this.valorantApiClient = valorantApiClient;
         this.playerCacheService = playerCacheService;
-        this.matchProcessor = matchProcessor;
         this.dynamoDbService = dynamoDbService;
+        this.matchProcessor = matchProcessor;
+        this.objectMapper = objectMapper;
     }
 
-    public MatchResponse getRecentMatches(String region, String playerName, String playerTag, int size, int page) {
-        // First, get or lookup the player's puuid
-        String puuid = resolvePuuid(playerName, playerTag);
+    /* =========================================================
+       MAIN MATCH ENDPOINT
+    ========================================================= */
 
+    public Map<String, Object> getUnifiedMatches(String region, String name, String tag, int size, int page) {
+        String puuid = resolvePuuid(name, tag);
         if (puuid == null) {
-            LOG.warn("Could not resolve puuid for {}#{}", playerName, playerTag);
-            return new MatchResponse(404, Collections.emptyList());
+            return errorResponse("Player not found");
         }
 
-        // Check if we can fetch from the external API
-        if (!playerCacheService.canFetchFromApi(puuid)) {
-            long waitTime = playerCacheService.getSecondsUntilNextFetch(puuid);
-            LOG.info("API cooldown active for recent-matches. {} seconds remaining.", waitTime);
-            return getCachedMatches(puuid, size, page);
+        List<Map<String, AttributeValue>> stored = dynamoDbService.getStoredMatchesForPlayer(puuid, size, page);
+        List<Map<String, AttributeValue>> mmr = dynamoDbService.getMMRHistory(puuid);
+
+        if (!stored.isEmpty()) {
+            return mergeStoredAndMMR(stored, mmr);
         }
 
-        try {
-            MatchResponse rawResponse = valorantApiClient.getRecentMatches(region, playerName, playerTag, size, page, AUTH_TOKEN);
-            MatchResponse filteredResponse = filterMatchesResponse(rawResponse);
+        Map<String, Object> storedApi = valorantApiClient.getStoredMatches(
+                region, name, tag, size, page, "competitive", AUTH_TOKEN
+        );
+        Map<String, Object> mmrApi = valorantApiClient.getMMRHistory(
+                region, name, tag, AUTH_TOKEN
+        );
 
-            // Store new matches in DynamoDB
-            int newMatchCount = 0;
-            for (Match match : filteredResponse.data()) {
-                if (matchProcessor.processMatch(match, puuid)) {
-                    newMatchCount++;
-                }
-            }
-            LOG.info("Stored {} new matches for player {}#{}", newMatchCount, playerName, playerTag);
+        storeMMRHistoryFromResponse(mmrApi, name, tag);
 
-            // Update the last fetch time
-            playerCacheService.updateLastFetchTime(puuid, playerName, playerTag, region);
-
-            return filteredResponse;
-        } catch (Exception e) {
-            LOG.error("Failed to fetch from external API, falling back to database", e);
-            return getCachedMatches(puuid, size, page);
-        }
+        return mergeApiResponses(storedApi, mmrApi);
     }
 
-    @SuppressWarnings("unchecked")
-    public Map<String, Object> getStoredMatches(String region, String playerName, String playerTag, int size, int page) {
-        // Get or lookup the player's puuid
-        String puuid = resolvePuuid(playerName, playerTag);
-
-        if (puuid == null) {
-            // Player doesn't exist in our database, fetch from API
-            LOG.info("Player {}#{} not found in database, fetching from API", playerName, playerTag);
-
-            try {
-                Map<String, Object> apiResponse = valorantApiClient.getStoredMatches(region, playerName, playerTag, size, page, "competitive", AUTH_TOKEN);
-
-                // Extract puuid from account endpoint and store
-                Map<String, Object> accountData = getAccountDetails(playerName, playerTag);
-                if (accountData.containsKey("data")) {
-                    Map<String, Object> data = (Map<String, Object>) accountData.get("data");
-                    String newPuuid = (String) data.get("puuid");
-                    if (newPuuid != null) {
-                        playerCacheService.storePlayerProfile(newPuuid, playerName, playerTag, region);
-                        playerCacheService.updateLastFetchTime(newPuuid, playerName, playerTag, region);
-                    }
-                }
-
-                return apiResponse;
-            } catch (Exception e) {
-                LOG.error("Failed to fetch stored matches for new player", e);
-                Map<String, Object> errorResponse = new HashMap<>();
-                errorResponse.put("status", 500);
-                errorResponse.put("error", "Failed to fetch matches");
-                return errorResponse;
-            }
-        }
-
-        // Player exists, check cooldown
-        if (playerCacheService.canFetchFromApi(puuid)) {
-            try {
-                Map<String, Object> apiResponse = valorantApiClient.getStoredMatches(region, playerName, playerTag, size, page, "competitive", AUTH_TOKEN);
-                playerCacheService.updateLastFetchTime(puuid, playerName, playerTag, region);
-                return apiResponse;
-            } catch (Exception e) {
-                LOG.error("Failed to fetch stored matches from API", e);
-            }
-        } else {
-            long waitTime = playerCacheService.getSecondsUntilNextFetch(puuid);
-            LOG.debug("API cooldown active for stored-matches. {} seconds remaining.", waitTime);
-        }
-
-        // Return from database
-        List<Map<String, AttributeValue>> storedMatches = dynamoDbService.getStoredMatchesForPlayer(puuid, size, page);
-
-        List<Map<String, Object>> matchData = storedMatches.stream()
-                .map(this::convertMatchToResponseFormat)
-                .collect(Collectors.toList());
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("status", 200);
-        response.put("data", matchData);
-        response.put("cached", true);
-
-        return response;
-    }
-
-    public Map<String, Object> getMMRHistory(String region, String playerName, String playerTag) {
-        String puuid = resolvePuuid(playerName, playerTag);
-
-        if (puuid == null) {
-            // Fetch from API and store
-            try {
-                Map<String, Object> apiResponse = valorantApiClient.getMMRHistory(region, playerName, playerTag, AUTH_TOKEN);
-                storeMMRHistoryFromResponse(apiResponse, playerName, playerTag);
-                return apiResponse;
-            } catch (Exception e) {
-                LOG.error("Failed to fetch MMR history for new player", e);
-                Map<String, Object> errorResponse = new HashMap<>();
-                errorResponse.put("status", 500);
-                errorResponse.put("error", "Failed to fetch MMR history");
-                return errorResponse;
-            }
-        }
-
-        // Check cooldown
-        if (playerCacheService.canFetchFromApi(puuid)) {
-            try {
-                Map<String, Object> apiResponse = valorantApiClient.getMMRHistory(region, playerName, playerTag, AUTH_TOKEN);
-                storeMMRHistoryFromResponse(apiResponse, playerName, playerTag);
-                // Don't update fetch time here - let recent-matches handle it
-                return apiResponse;
-            } catch (Exception e) {
-                LOG.error("Failed to fetch MMR history from API", e);
-            }
-        } else {
-            LOG.debug("API cooldown active for mmr-history. Returning cached data.");
-        }
-
-        // Return cached MMR history
-        List<Map<String, AttributeValue>> mmrHistory = dynamoDbService.getMMRHistory(puuid);
-
-        List<Map<String, Object>> historyData = mmrHistory.stream()
-                .map(this::convertMMREntryToResponseFormat)
-                .collect(Collectors.toList());
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("status", 200);
-        response.put("data", historyData);
-        response.put("cached", true);
-
-        return response;
-    }
-
-    @SuppressWarnings("unchecked")
-    private void storeMMRHistoryFromResponse(Map<String, Object> apiResponse, String playerName, String playerTag) {
-        String puuid = resolvePuuid(playerName, playerTag);
-        if (puuid == null || !apiResponse.containsKey("data")) {
-            return;
-        }
-
-        List<Map<String, Object>> entries = (List<Map<String, Object>>) apiResponse.get("data");
-        for (Map<String, Object> entry : entries) {
-            String matchId = (String) entry.get("match_id");
-            Number rr = (Number) entry.getOrDefault("mmr_change_to_last_game", 0);
-            Number mmr = (Number) entry.getOrDefault("elo", 0);
-            String rank = (String) entry.getOrDefault("currenttierpatched", "Unknown");
-            Number timestamp = (Number) entry.getOrDefault("date_raw", System.currentTimeMillis() / 1000);
-
-            if (matchId != null) {
-                dynamoDbService.storeMMREntry(
-                        puuid,
-                        matchId,
-                        rr.intValue(),
-                        mmr.intValue(),
-                        rank,
-                        timestamp.longValue()
-                );
-            }
-        }
-    }
-
-    private String resolvePuuid(String playerName, String playerTag) {
-        // Try to get from cache first
-        Optional<String> cachedPuuid = playerCacheService.getPuuidByNameTag(playerName, playerTag);
-        if (cachedPuuid.isPresent()) {
-            return cachedPuuid.get();
-        }
-
-        // Fetch from API
-        try {
-            Map<String, Object> accountData = getAccountDetails(playerName, playerTag);
-            if (accountData.containsKey("data")) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> data = (Map<String, Object>) accountData.get("data");
-                String puuid = (String) data.get("puuid");
-                String region = (String) data.getOrDefault("region", "na");
-
-                if (puuid != null) {
-                    // Store the profile for future lookups
-                    playerCacheService.storePlayerProfile(puuid, playerName, playerTag, region);
-                    return puuid;
-                }
-            }
-        } catch (Exception e) {
-            LOG.error("Failed to resolve puuid for {}#{}", playerName, playerTag, e);
-        }
-
-        return null;
-    }
-
-    private MatchResponse getCachedMatches(String puuid, int size, int page) {
-        List<Map<String, AttributeValue>> storedMatches = dynamoDbService.getStoredMatchesForPlayer(puuid, size, page);
-
-        // For now, return empty if no cached data (full match reconstruction would be complex)
-        // In production, you'd reconstruct Match objects from stored data
-        if (storedMatches.isEmpty()) {
-            return new MatchResponse(200, Collections.emptyList());
-        }
-
-        // This is a simplified response - full implementation would reconstruct Match objects
-        return new MatchResponse(200, Collections.emptyList());
-    }
-
-    private Map<String, Object> convertMatchToResponseFormat(Map<String, AttributeValue> item) {
-        Map<String, Object> match = new HashMap<>();
-
-        if (item.containsKey("matchId")) {
-            match.put("match_id", item.get("matchId").s());
-        }
-        if (item.containsKey("gameStart")) {
-            match.put("game_start", Long.parseLong(item.get("gameStart").n()));
-        }
-
-        return match;
-    }
-
-    private Map<String, Object> convertMMREntryToResponseFormat(Map<String, AttributeValue> item) {
-        Map<String, Object> entry = new HashMap<>();
-
-        if (item.containsKey("matchId")) {
-            entry.put("match_id", item.get("matchId").s());
-        }
-        if (item.containsKey("rr")) {
-            entry.put("mmr_change_to_last_game", Integer.parseInt(item.get("rr").n()));
-        }
-        if (item.containsKey("mmr")) {
-            entry.put("elo", Integer.parseInt(item.get("mmr").n()));
-        }
-        if (item.containsKey("rank")) {
-            entry.put("currenttierpatched", item.get("rank").s());
-        }
-        if (item.containsKey("timestamp")) {
-            entry.put("date_raw", Long.parseLong(item.get("timestamp").n()));
-        }
-
-        return entry;
-    }
-
-    private MatchResponse filterMatchesResponse(MatchResponse rawResponse) {
-        List<Match> filteredData = rawResponse.data().stream()
-                .map(match -> {
-                    List<Player> filteredPlayers = match.players().all_players().stream()
-                            .map(player -> new Player(
-                                    player.puuid(),
-                                    player.name(),
-                                    player.tag(),
-                                    player.team(),
-                                    player.character(),
-                                    player.currenttier(),
-                                    player.currenttier_patched(),
-                                    new Stats(
-                                            player.stats().score(),
-                                            player.stats().kills(),
-                                            player.stats().deaths(),
-                                            player.stats().assists(),
-                                            player.stats().bodyshots(),
-                                            player.stats().headshots(),
-                                            player.stats().legshots()
-                                    ),
-                                    player.assets() == null ? null : new Assets(player.assets().card() == null ? null :
-                                            new Assets.Card(player.assets().card().small()),
-                                            player.assets().agent() == null ? null : new Assets.Agent(player.assets().agent().small())
-                                    ), player.damage_made()
-                            ))
-                            .collect(Collectors.toList());
-                    // Pass through metadata and teams as well
-                    return new Match(match.metadata(), new Players(filteredPlayers), match.teams());
-                })
-                .collect(Collectors.toList());
-        return new MatchResponse(rawResponse.status(), filteredData);
-    }
+    /* =========================================================
+       ACCOUNT
+    ========================================================= */
 
     public Map<String, Object> getAccountDetails(String name, String tag) {
         return valorantApiClient.getAccount(name, tag, AUTH_TOKEN);
     }
 
-    public Map<String, Object> getMatchById(String matchid) {
-        // Check database first
-        Optional<Map<String, AttributeValue>> cachedMatch = dynamoDbService.getMatchById(matchid);
+    /* =========================================================
+       MATCH DETAILS
+    ========================================================= */
 
-        if (cachedMatch.isPresent()) {
-            Map<String, Object> response = new HashMap<>();
-            response.put("status", 200);
-            response.put("cached", true);
+    public Map<String, Object> getMatchById(String matchId) {
+        Optional<Map<String, AttributeValue>> cached = dynamoDbService.getMatchById(matchId);
 
-            Map<String, Object> matchData = new HashMap<>();
-            Map<String, AttributeValue> item = cachedMatch.get();
+        if (cached.isPresent()) {
+            Map<String, AttributeValue> item = cached.get();
+            List<Map<String, AttributeValue>> players = dynamoDbService.getMatchPlayers(matchId);
 
-            // Build metadata
-            Map<String, Object> metadata = new HashMap<>();
-            if (item.containsKey("matchId")) metadata.put("matchid", item.get("matchId").s());
-            if (item.containsKey("map")) metadata.put("map", item.get("map").s());
-            if (item.containsKey("mode")) metadata.put("mode", item.get("mode").s());
-            if (item.containsKey("gameStart")) metadata.put("game_start", Long.parseLong(item.get("gameStart").n()));
-            if (item.containsKey("gameLength"))
-                metadata.put("game_length", Integer.parseInt(item.get("gameLength").n()));
-
-            matchData.put("metadata", metadata);
-
-            // Get players
-            List<Map<String, AttributeValue>> players = dynamoDbService.getMatchPlayers(matchid);
             List<Map<String, Object>> allPlayers = players.stream()
-                    .map(this::convertPlayerToResponseFormat)
-                    .collect(Collectors.toList());
+                    .map(p -> {
+                        Map<String, Object> stats = new HashMap<>();
+                        stats.put("kills", getInt(p, "kills"));
+                        stats.put("deaths", getInt(p, "deaths"));
+                        stats.put("assists", getInt(p, "assists"));
+                        stats.put("score", getInt(p, "score"));
+                        stats.put("headshots", getInt(p, "headshots"));
+                        stats.put("bodyshots", getInt(p, "bodyshots"));
+                        stats.put("legshots", getInt(p, "legshots"));
+
+                        Map<String, Object> player = new HashMap<>();
+                        player.put("puuid", getString(p, "puuid"));
+                        player.put("name", getString(p, "name"));
+                        player.put("team", getString(p, "team"));
+                        player.put("character", getString(p, "character"));
+                        player.put("stats", stats);
+                        player.put("damage_made", getInt(p, "damage_made"));
+                        return player;
+                    })
+                    .toList();
+
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("matchid", getString(item, "matchId"));
+            metadata.put("map", getString(item, "map"));
+            metadata.put("game_start", getLong(item, "gameStart"));
+            metadata.put("rounds_played",
+                    getInt(item, "redRoundsWon") + getInt(item, "blueRoundsWon"));
 
             Map<String, Object> playersMap = new HashMap<>();
             playersMap.put("all_players", allPlayers);
-            matchData.put("players", playersMap);
 
-            response.put("data", matchData);
+            Map<String, Object> data = new HashMap<>();
+            data.put("metadata", metadata);
+            data.put("players", playersMap);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("status", 200);
+            response.put("cached", true);
+            response.put("data", data);
             return response;
         }
 
-        // Fetch from API
-        return valorantApiClient.getMatchById(matchid, AUTH_TOKEN);
+        return valorantApiClient.getMatchById(matchId, AUTH_TOKEN);
     }
 
-    private Map<String, Object> convertPlayerToResponseFormat(Map<String, AttributeValue> item) {
-        Map<String, Object> player = new HashMap<>();
-
-        if (item.containsKey("puuid")) player.put("puuid", item.get("puuid").s());
-        if (item.containsKey("name")) player.put("name", item.get("name").s());
-        if (item.containsKey("tag")) player.put("tag", item.get("tag").s());
-        if (item.containsKey("team")) player.put("team", item.get("team").s());
-        if (item.containsKey("character")) player.put("character", item.get("character").s());
-        if (item.containsKey("currenttier")) player.put("currenttier", Integer.parseInt(item.get("currenttier").n()));
-
-        Map<String, Object> stats = new HashMap<>();
-        if (item.containsKey("kills")) stats.put("kills", Integer.parseInt(item.get("kills").n()));
-        if (item.containsKey("deaths")) stats.put("deaths", Integer.parseInt(item.get("deaths").n()));
-        if (item.containsKey("assists")) stats.put("assists", Integer.parseInt(item.get("assists").n()));
-        if (item.containsKey("score")) stats.put("score", Integer.parseInt(item.get("score").n()));
-        if (item.containsKey("headshots")) stats.put("headshots", Integer.parseInt(item.get("headshots").n()));
-        if (item.containsKey("bodyshots")) stats.put("bodyshots", Integer.parseInt(item.get("bodyshots").n()));
-        if (item.containsKey("legshots")) stats.put("legshots", Integer.parseInt(item.get("legshots").n()));
-
-        player.put("stats", stats);
-
-        if (item.containsKey("damage_made")) player.put("damage_made", Integer.parseInt(item.get("damage_made").n()));
-
-        return player;
-    }
-
-    /**
-     * Get kill/death ratio for a player.
-     */
-    public Map<String, Object> getKillRatio(String region, String playerName, String playerTag, String seasonId) {
-        String puuid = resolvePuuid(playerName, playerTag);
+    /* =========================================================
+       PLAYER STATS
+    ========================================================= */
+    public Map<String, Object> getPlayerStats(String region, String name, String tag, String seasonId) {
+        String puuid = resolvePuuid(name, tag);
         if (puuid == null) {
             return errorResponse("Player not found");
         }
 
-        Map<String, Long> stats = getStatsForSeason(puuid, seasonId);
-        if (stats == null) {
-            return errorResponse("No stats found for player");
-        }
+        Map<String, Long> stats;
 
-        long kills = stats.getOrDefault("total_kills", 0L);
-        long deaths = stats.getOrDefault("total_deaths", 0L);
-        double kdRatio = deaths > 0 ? (double) kills / deaths : kills;
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("status", 200);
-        response.put("data", Map.of(
-                "player", playerName + "#" + playerTag,
-                "season", seasonId,
-                "kills", kills,
-                "deaths", deaths,
-                "kd_ratio", Math.round(kdRatio * 100.0) / 100.0,
-                "matches_played", stats.getOrDefault("matches_played", 0L)
-        ));
-        return response;
-    }
-
-    /**
-     * Get headshot percentage for a player.
-     */
-    public Map<String, Object> getHeadshotPercent(String region, String playerName, String playerTag, String seasonId) {
-        String puuid = resolvePuuid(playerName, playerTag);
-        if (puuid == null) {
-            return errorResponse("Player not found");
-        }
-
-        Map<String, Long> stats = getStatsForSeason(puuid, seasonId);
-        if (stats == null) {
-            return errorResponse("No stats found for player");
-        }
-
-        long headshots = stats.getOrDefault("total_headshots", 0L);
-        long bodyshots = stats.getOrDefault("total_bodyshots", 0L);
-        long legshots = stats.getOrDefault("total_legshots", 0L);
-        long totalShots = headshots + bodyshots + legshots;
-
-        double hsPercent = totalShots > 0 ? (double) headshots / totalShots * 100 : 0;
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("status", 200);
-        response.put("data", Map.of(
-                "player", playerName + "#" + playerTag,
-                "season", seasonId,
-                "headshots", headshots,
-                "bodyshots", bodyshots,
-                "legshots", legshots,
-                "total_shots", totalShots,
-                "headshot_percent", Math.round(hsPercent * 100.0) / 100.0,
-                "matches_played", stats.getOrDefault("matches_played", 0L)
-        ));
-        return response;
-    }
-
-    /**
-     * Get average combat score for a player.
-     */
-    public Map<String, Object> getAvgCombatScore(String region, String playerName, String playerTag, String seasonId) {
-        String puuid = resolvePuuid(playerName, playerTag);
-        if (puuid == null) {
-            return errorResponse("Player not found");
-        }
-
-        Map<String, Long> stats = getStatsForSeason(puuid, seasonId);
-        if (stats == null) {
-            return errorResponse("No stats found for player");
-        }
-
-        long totalScore = stats.getOrDefault("total_score", 0L);
-        long matchesPlayed = stats.getOrDefault("matches_played", 0L);
-
-        double avgScore = matchesPlayed > 0 ? (double) totalScore / matchesPlayed : 0;
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("status", 200);
-        response.put("data", Map.of(
-                "player", playerName + "#" + playerTag,
-                "season", seasonId,
-                "total_score", totalScore,
-                "matches_played", matchesPlayed,
-                "avg_combat_score", Math.round(avgScore * 100.0) / 100.0
-        ));
-        return response;
-    }
-
-    /**
-     * Get kills per round for a player.
-     * Note: This requires tracking total rounds played, which we'll estimate from matches.
-     */
-    public Map<String, Object> getKillsPerRound(String region, String playerName, String playerTag, String seasonId) {
-        String puuid = resolvePuuid(playerName, playerTag);
-        if (puuid == null) {
-            return errorResponse("Player not found");
-        }
-
-        Map<String, Long> stats = getStatsForSeason(puuid, seasonId);
-        if (stats == null) {
-            return errorResponse("No stats found for player");
-        }
-
-        long kills = stats.getOrDefault("total_kills", 0L);
-        long matchesPlayed = stats.getOrDefault("matches_played", 0L);
-
-        // Estimate rounds: average competitive match is ~20 rounds
-        // For accurate data, we'd need to track total_rounds in the aggregate
-        long estimatedRounds = matchesPlayed * 20;
-
-        double killsPerRound = estimatedRounds > 0 ? (double) kills / estimatedRounds : 0;
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("status", 200);
-        response.put("data", Map.of(
-                "player", playerName + "#" + playerTag,
-                "season", seasonId,
-                "kills", kills,
-                "matches_played", matchesPlayed,
-                "estimated_rounds", estimatedRounds,
-                "kills_per_round", Math.round(killsPerRound * 1000.0) / 1000.0,
-                "note", "Rounds estimated at 20 per match"
-        ));
-        return response;
-    }
-
-    /**
-     * Get comprehensive player stats.
-     */
-    public Map<String, Object> getPlayerStats(String region, String playerName, String playerTag, String seasonId) {
-        String puuid = resolvePuuid(playerName, playerTag);
-        if (puuid == null) {
-            return errorResponse("Player not found");
-        }
-
-        Map<String, Long> stats = getStatsForSeason(puuid, seasonId);
-        if (stats == null) {
-            return errorResponse("No stats found for player");
-        }
-
-        long kills = stats.getOrDefault("total_kills", 0L);
-        long deaths = stats.getOrDefault("total_deaths", 0L);
-        long assists = stats.getOrDefault("total_assists", 0L);
-        long headshots = stats.getOrDefault("total_headshots", 0L);
-        long bodyshots = stats.getOrDefault("total_bodyshots", 0L);
-        long legshots = stats.getOrDefault("total_legshots", 0L);
-        long totalScore = stats.getOrDefault("total_score", 0L);
-        long totalDamage = stats.getOrDefault("total_damage", 0L);
-        long matchesPlayed = stats.getOrDefault("matches_played", 0L);
-
-        long totalShots = headshots + bodyshots + legshots;
-        double kdRatio = deaths > 0 ? (double) kills / deaths : kills;
-        double hsPercent = totalShots > 0 ? (double) headshots / totalShots * 100 : 0;
-        double avgScore = matchesPlayed > 0 ? (double) totalScore / matchesPlayed : 0;
-        double avgDamage = matchesPlayed > 0 ? (double) totalDamage / matchesPlayed : 0;
-        long estimatedRounds = matchesPlayed * 20;
-        double killsPerRound = estimatedRounds > 0 ? (double) kills / estimatedRounds : 0;
-
-        Map<String, Object> data = new HashMap<>();
-        data.put("player", playerName + "#" + playerTag);
-        data.put("season", seasonId);
-        data.put("matches_played", matchesPlayed);
-        data.put("kills", kills);
-        data.put("deaths", deaths);
-        data.put("assists", assists);
-        data.put("kd_ratio", Math.round(kdRatio * 100.0) / 100.0);
-        data.put("headshots", headshots);
-        data.put("bodyshots", bodyshots);
-        data.put("legshots", legshots);
-        data.put("headshot_percent", Math.round(hsPercent * 100.0) / 100.0);
-        data.put("total_score", totalScore);
-        data.put("avg_combat_score", Math.round(avgScore * 100.0) / 100.0);
-        data.put("total_damage", totalDamage);
-        data.put("avg_damage", Math.round(avgDamage * 100.0) / 100.0);
-        data.put("kills_per_round", Math.round(killsPerRound * 1000.0) / 1000.0);
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("status", 200);
-        response.put("data", data);
-        return response;
-    }
-
-    /**
-     * Helper to get stats for a specific season or all seasons.
-     */
-    private Map<String, Long> getStatsForSeason(String puuid, String seasonId) {
         if (seasonId == null || seasonId.equalsIgnoreCase("all")) {
-            return dynamoDbService.getPlayerTotalStats(puuid);
-        }
+            stats = dynamoDbService.getPlayerTotalStats(puuid);
 
-        Optional<Map<String, AttributeValue>> seasonStats = dynamoDbService.getPlayerSeasonStats(puuid, seasonId);
-        if (seasonStats.isEmpty()) {
-            return null;
-        }
+            if (stats.isEmpty() || stats.getOrDefault("matches_played", 0L) == 0) {
+                LOG.info("No cached stats found for player {}. Fetching and processing matches...", puuid);
+                processPlayerMatchesFromAPI(region, name, tag, puuid);
+                stats = dynamoDbService.getPlayerTotalStats(puuid);
 
-        Map<String, Long> stats = new HashMap<>();
-        Map<String, AttributeValue> item = seasonStats.get();
+                if (stats.isEmpty() || stats.getOrDefault("matches_played", 0L) == 0) {
+                    stats = aggregateStatsFromStoredMatchesApi(region, name, tag, "all");
+                }
+            }
+        } else {
+            Optional<Map<String, AttributeValue>> season = dynamoDbService.getPlayerSeasonStats(puuid, seasonId);
 
-        String[] keys = {"matches_played", "total_kills", "total_deaths", "total_assists",
-                         "total_score", "total_headshots", "total_bodyshots", "total_legshots", "total_damage"};
+            if (season.isEmpty()) {
+                LOG.info("No cached stats found for season {}. Fetching and processing matches...", seasonId);
+                processPlayerMatchesFromAPI(region, name, tag, puuid);
+                season = dynamoDbService.getPlayerSeasonStats(puuid, seasonId);
 
-        for (String key : keys) {
-            if (item.containsKey(key)) {
-                stats.put(key, Long.parseLong(item.get(key).n()));
+                if (season.isEmpty()) {
+                    stats = aggregateStatsFromStoredMatchesApi(region, name, tag, seasonId);
+                    if (stats.getOrDefault("matches_played", 0L) == 0) {
+                        return errorResponse("No stats found");
+                    }
+                } else {
+                    stats = readStatsItem(season.get());
+                }
             } else {
-                stats.put(key, 0L);
+                stats = readStatsItem(season.get());
             }
         }
 
+        long kills = stats.getOrDefault("total_kills", 0L);
+        long deaths = stats.getOrDefault("total_deaths", 0L);
+        long matches = stats.getOrDefault("matches_played", 0L);
+        long score = stats.getOrDefault("total_score", 0L);
+        long damage = stats.getOrDefault("total_damage", 0L);
+        long totalRounds = stats.getOrDefault("total_rounds", 0L);
+
+        long head = stats.getOrDefault("total_headshots", 0L);
+        long body = stats.getOrDefault("total_bodyshots", 0L);
+        long leg = stats.getOrDefault("total_legshots", 0L);
+        long totalShots = head + body + leg;
+
+        double kd = deaths > 0 ? (double) kills / deaths : kills;
+        double hs = totalShots > 0 ? (double) head / totalShots * 100 : 0;
+        long rounds = stats.getOrDefault("total_rounds", 0L);
+
+        double acs = rounds > 0 ? (double) score / rounds : 0;
+        double kpr = rounds > 0 ? (double) kills / rounds : 0;
+        double adr = rounds > 0 ? (double) damage / rounds : 0;
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("kd_ratio", round(kd));
+        data.put("headshot_percent", round(hs));
+        data.put("avg_combat_score", round(acs));
+        data.put("kills_per_round", Math.round(kpr * 1000.0) / 1000.0);
+        data.put("adr", Math.round(adr * 100.0) / 100.0);
+
+        return Map.of("status", 200, "data", data);
+    }
+
+    public Map<String, Object> getPlayerAdr(String region, String name, String tag, String seasonId) {
+        Map<String, Object> stats = getPlayerStats(region, name, tag, seasonId);
+        if (!Objects.equals(stats.get("status"), 200)) return stats;
+        Map<String, Object> data = castMap(stats.get("data"));
+        return Map.of("status", 200, "data", Map.of("adr", data.getOrDefault("adr", 0.0)));
+    }
+
+    /* =========================================================
+       MERGE LOGIC
+    ========================================================= */
+
+    private Map<String, Object> mergeStoredAndMMR(
+            List<Map<String, AttributeValue>> stored,
+            List<Map<String, AttributeValue>> mmr
+    ) {
+        Map<String, Map<String, AttributeValue>> mmrMap = mmr.stream()
+                .collect(Collectors.toMap(
+                        m -> getString(m, "matchId"),
+                        m -> m,
+                        (a, b) -> a
+                ));
+
+        List<Map<String, Object>> matches = stored.stream()
+                .map(match -> {
+                    String matchId = getString(match, "matchId");
+                    Map<String, AttributeValue> mmrEntry = mmrMap.get(matchId);
+
+                    int kills = getInt(match, "kills");
+                    int deaths = getInt(match, "deaths");
+                    int assists = getInt(match, "assists");
+                    String kda = kills + "/" + deaths + "/" + assists;
+
+                    int rr = mmrEntry != null ? getInt(mmrEntry, "rr") : 0;
+                    String rank = mmrEntry != null ? getString(mmrEntry, "rank") : "Unranked";
+                    int rankingInTier = mmrEntry != null ? getInt(mmrEntry, "ranking_in_tier") : 0;
+
+                    int blueRoundsWon = getInt(match, "blueRoundsWon");
+                    int redRoundsWon = getInt(match, "redRoundsWon");
+                    String team = getString(match, "team").toLowerCase(Locale.ROOT);
+
+                    int score = "red".equals(team) ? redRoundsWon : blueRoundsWon;
+                    int enemyScore = "red".equals(team) ? blueRoundsWon : redRoundsWon;
+                    int roundsPlayed = redRoundsWon + blueRoundsWon;
+
+                    Map<String, Object> result = new HashMap<>();
+                    result.put("id", matchId);
+                    result.put("map", getString(match, "map"));
+                    result.put("mapId", getString(match, "mapId"));
+                    result.put("result", score > enemyScore ? "Victory" : "Defeat");
+                    result.put("score", score);
+                    result.put("enemy_score", enemyScore);
+                    result.put("kda", kda);
+
+                    String agentName = getString(match, "agentName");
+                    String agentId = getString(match, "agentId");
+
+                    result.put("agent", agentName);
+                    result.put("agentIcon",
+                            "https://media.valorant-api.com/agents/" + agentId + "/displayicon.png"
+                    );
+
+                    result.put("acs", roundsPlayed > 0 ? Math.round((float) getInt(match, "score") / roundsPlayed) : 0);
+                    result.put("timestamp", getString(match, "timestamp"));
+                    result.put("date_raw", getLong(match, "gameStart"));
+                    result.put("rank", rank);
+                    result.put("ranking_in_tier", rankingInTier);
+                    result.put("rrChange", rr);
+                    result.put("rounds_played", roundsPlayed);
+
+                    Map<String, Object> teams = new HashMap<>();
+                    Map<String, Object> red = new HashMap<>();
+                    red.put("rounds_won", redRoundsWon);
+                    Map<String, Object> blue = new HashMap<>();
+                    blue.put("rounds_won", blueRoundsWon);
+                    teams.put("red", red);
+                    teams.put("blue", blue);
+                    result.put("teams", teams);
+
+                    result.put("hasDetails", false);
+                    return result;
+                })
+                .toList();
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", 200);
+        response.put("data", matches);
+        return response;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> mergeApiResponses(
+            Map<String, Object> storedApi,
+            Map<String, Object> mmrApi
+    ) {
+        List<Map<String, Object>> storedMatches =
+                (List<Map<String, Object>>) storedApi.getOrDefault("data", List.of());
+
+        List<Map<String, Object>> mmrList =
+                (List<Map<String, Object>>) mmrApi.getOrDefault("data", List.of());
+
+        Map<String, Map<String, Object>> mmrMap = mmrList.stream()
+                .collect(Collectors.toMap(
+                        m -> Objects.toString(m.get("match_id"), ""),
+                        m -> m,
+                        (a, b) -> a
+                ));
+
+        List<Map<String, Object>> matches = storedMatches.stream()
+                .map(match -> {
+                    Map<String, Object> meta = castMap(match.get("meta"));
+                    Map<String, Object> stats = castMap(match.get("stats"));
+                    Map<String, Object> mapObj = castMap(meta.get("map"));
+                    Map<String, Object> character = castMap(stats.get("character"));
+
+                    String matchId = str(meta.get("id"));
+                    Map<String, Object> mmr = mmrMap.get(matchId);
+
+                    int kills = num(stats.get("kills"));
+                    int deaths = num(stats.get("deaths"));
+                    int assists = num(stats.get("assists"));
+                    String kda = kills + "/" + deaths + "/" + assists;
+
+                    int rr = mmr != null ? num(mmr.get("mmr_change_to_last_game")) : 0;
+                    String rank = mmr != null ? str(mmr.getOrDefault("currenttier_patched", "Unranked")) : "Unranked";
+                    int rankingInTier = mmr != null ? num(mmr.get("currenttier")) : num(stats.get("tier"));
+
+                    String userTeam = str(stats.getOrDefault("team", "blue")).toLowerCase(Locale.ROOT);
+                    int redRounds = extractTeamRounds(match.get("teams"), "red");
+                    int blueRounds = extractTeamRounds(match.get("teams"), "blue");
+                    int score = "red".equals(userTeam) ? redRounds : blueRounds;
+                    int enemyScore = "red".equals(userTeam) ? blueRounds : redRounds;
+                    int roundsPlayed = redRounds + blueRounds;
+                    int acs = roundsPlayed > 0 ? Math.round((float) num(stats.get("score")) / roundsPlayed) : 0;
+
+                    String timestamp = str(
+                            mmr != null && mmr.get("date") != null
+                                    ? mmr.get("date")
+                                    : meta.getOrDefault("started_at", "Unknown")
+                    );
+
+                    String mapId = str(mapObj.get("id"));
+                    String agentId = str(character.get("id"));
+                    String agentIcon = !agentId.isBlank()
+                            ? "https://media.valorant-api.com/agents/" + agentId + "/displayicon.png"
+                            : "";
+
+                    Map<String, Object> result = new HashMap<>();
+                    result.put("id", matchId);
+                    result.put("map", str(mapObj.getOrDefault("name", "Unknown")));
+                    result.put("mapId", mapId);
+                    result.put("result", score > enemyScore ? "Victory" : "Defeat");
+                    result.put("score", score);
+                    result.put("enemy_score", enemyScore);
+                    result.put("kda", kda);
+                    result.put("agent", str(character.getOrDefault("name", "Unknown")));
+                    result.put("agentIcon", agentIcon);
+                    result.put("acs", acs);
+                    result.put("timestamp", timestamp);
+                    result.put("date_raw", mmr != null && mmr.get("date_raw") != null
+                            ? longNum(mmr.get("date_raw"))
+                            : parseDateRaw(meta.get("started_at")));
+                    result.put("rank", rank);
+                    result.put("ranking_in_tier", rankingInTier);
+                    result.put("rrChange", rr);
+                    result.put("rounds_played", roundsPlayed);
+
+                    Map<String, Object> teams = new HashMap<>();
+                    Map<String, Object> red = new HashMap<>();
+                    red.put("rounds_won", redRounds);
+                    red.put("has_won", redRounds > blueRounds);
+                    Map<String, Object> blue = new HashMap<>();
+                    blue.put("rounds_won", blueRounds);
+                    blue.put("has_won", blueRounds > redRounds);
+                    teams.put("red", red);
+                    teams.put("blue", blue);
+                    result.put("teams", teams);
+
+                    result.put("puuid", str(stats.get("puuid")));
+                    result.put("hasDetails", false);
+                    return result;
+                })
+                .sorted((a, b) -> Long.compare(
+                        longNum(b.get("date_raw")),
+                        longNum(a.get("date_raw"))
+                ))
+                .toList();
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", 200);
+        response.put("data", matches);
+        return response;
+    }
+
+    /* =========================================================
+       HELPERS
+    ========================================================= */
+
+    private void processPlayerMatchesFromAPI(String region, String name, String tag, String puuid) {
+        try {
+            if (!playerCacheService.canFetchFromApi(puuid)) {
+                LOG.debug("Skipping external fetch for {} due to cooldown", puuid);
+                return;
+            }
+
+            Map<String, Object> storedApi = valorantApiClient.getStoredMatches(
+                    region, name, tag, 20, 1, "competitive", AUTH_TOKEN
+            );
+
+            List<Map<String, Object>> storedMatches =
+                    (List<Map<String, Object>>) storedApi.getOrDefault("data", List.of());
+
+            int processed = 0;
+            for (Map<String, Object> match : storedMatches) {
+                try {
+                    if (matchProcessor.processStoredMatchSummary(match, puuid)) {
+                        processed++;
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Failed to process stored match summary", e);
+                }
+            }
+
+            playerCacheService.updateLastFetchTime(puuid, name, tag, region);
+            LOG.info("Processed {} stored matches for {}", processed, puuid);
+        } catch (Exception e) {
+            LOG.error("Failed to process matches from API", e);
+        }
+    }
+
+    private Map<String, Long> readStatsItem(Map<String, AttributeValue> item) {
+        Map<String, Long> stats = new HashMap<>();
+        String[] keys = {
+                "matches_played", "total_kills", "total_deaths", "total_assists", "total_score",
+                "total_headshots", "total_bodyshots", "total_legshots", "total_damage", "total_rounds"
+        };
+        for (String key : keys) {
+            stats.put(key, item.containsKey(key) ? Long.parseLong(item.get(key).n()) : 0L);
+        }
         return stats;
     }
 
-    private Map<String, Object> errorResponse(String message) {
+    @SuppressWarnings("unchecked")
+    private Map<String, Long> aggregateStatsFromStoredMatchesApi(String region, String name, String tag, String seasonId) {
+        Map<String, Long> out = new HashMap<>();
+        out.put("matches_played", 0L);
+        out.put("total_kills", 0L);
+        out.put("total_deaths", 0L);
+        out.put("total_assists", 0L);
+        out.put("total_score", 0L);
+        out.put("total_headshots", 0L);
+        out.put("total_bodyshots", 0L);
+        out.put("total_legshots", 0L);
+        out.put("total_damage", 0L);
+        out.put("total_rounds", 0L);
+
+        Map<String, Object> storedApi = valorantApiClient.getStoredMatches(
+                region, name, tag, 20, 1, "competitive", AUTH_TOKEN
+        );
+
+        List<Map<String, Object>> matches =
+                (List<Map<String, Object>>) storedApi.getOrDefault("data", List.of());
+
+        for (Map<String, Object> match : matches) {
+
+            Map<String, Object> meta = castMap(match.get("meta"));
+            Map<String, Object> season = castMap(meta.get("season"));
+
+            String sid = str(season.get("id"));
+            if (!(seasonId == null || seasonId.equalsIgnoreCase("all") || seasonId.equalsIgnoreCase(sid))) {
+                continue;
+            }
+
+            Map<String, Object> stats = castMap(match.get("stats"));
+            Map<String, Object> shots = castMap(stats.get("shots"));
+            Map<String, Object> damage = castMap(stats.get("damage"));
+
+            long kills = num(stats.get("kills"));
+            long deaths = num(stats.get("deaths"));
+            long assists = num(stats.get("assists"));
+            long score = num(stats.get("score"));
+
+            long head = num(shots.get("head"));
+            long body = num(shots.get("body"));
+            long leg = num(shots.get("leg"));
+
+            // ✅ FIX: robust damage extraction
+            long damageMade =
+                    damage.containsKey("made") ? num(damage.get("made")) :
+                            damage.containsKey("dealt") ? num(damage.get("dealt")) :
+                                    num(stats.get("damage_made"));
+
+            // ✅ FIX: robust rounds extraction
+            int redRounds = extractTeamRounds(match.get("teams"), "red");
+            int blueRounds = extractTeamRounds(match.get("teams"), "blue");
+
+            // fallback ONLY if teams missing (NOT fake 20 rounds)
+            if (redRounds == 0 && blueRounds == 0) {
+                redRounds = num(match.get("red_score"));
+                blueRounds = num(match.get("blue_score"));
+            }
+
+            long rounds = redRounds + blueRounds;
+
+            // accumulate
+            out.put("matches_played", out.get("matches_played") + 1);
+            out.put("total_kills", out.get("total_kills") + kills);
+            out.put("total_deaths", out.get("total_deaths") + deaths);
+            out.put("total_assists", out.get("total_assists") + assists);
+            out.put("total_score", out.get("total_score") + score);
+            out.put("total_headshots", out.get("total_headshots") + head);
+            out.put("total_bodyshots", out.get("total_bodyshots") + body);
+            out.put("total_legshots", out.get("total_legshots") + leg);
+            out.put("total_damage", out.get("total_damage") + damageMade);
+            out.put("total_rounds", out.get("total_rounds") + rounds);
+        }
+
+        return out;
+    }
+
+    private Match parseMatchFromApi(Map<String, Object> matchData) {
+        try {
+            // Use ObjectMapper to convert Map to Match object
+            return objectMapper.convertValue(matchData, Match.class);
+        } catch (Exception e) {
+            LOG.warn("Failed to parse match data", e);
+            return null;
+        }
+    }
+
+    private int getInt(Map<String, AttributeValue> map, String key) {
+        return map.containsKey(key) ? Integer.parseInt(map.get(key).n()) : 0;
+    }
+
+    private long getLong(Map<String, AttributeValue> map, String key) {
+        return map.containsKey(key) ? Long.parseLong(map.get(key).n()) : 0L;
+    }
+
+    private String getString(Map<String, AttributeValue> map, String key) {
+        return map.containsKey(key) ? map.get(key).s() : "";
+    }
+
+    private double round(double val) {
+        return Math.round(val * 100.0) / 100.0;
+    }
+
+    private Map<String, Object> errorResponse(String msg) {
         Map<String, Object> response = new HashMap<>();
         response.put("status", 404);
-        response.put("error", message);
+        response.put("error", msg);
         return response;
     }
+
+    @SuppressWarnings("unchecked")
+    private String resolvePuuid(String name, String tag) {
+        Optional<String> cached = playerCacheService.getPuuidByNameTag(name, tag);
+        if (cached.isPresent()) {
+            return cached.get();
+        }
+
+        try {
+            Map<String, Object> account = valorantApiClient.getAccount(name, tag, AUTH_TOKEN);
+            Map<String, Object> data = castMap(account.get("data"));
+
+            if (data.get("puuid") != null) {
+                String puuid = str(data.get("puuid"));
+                String region = str(data.getOrDefault("region", "na"));
+                playerCacheService.storePlayerProfile(puuid, name, tag, region.isBlank() ? "na" : region);
+                return puuid;
+            }
+        } catch (Exception e) {
+            LOG.error("Failed to resolve puuid for {}#{}", name, tag, e);
+        }
+
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void storeMMRHistoryFromResponse(Map<String, Object> apiResponse, String name, String tag) {
+        String puuid = resolvePuuid(name, tag);
+        if (puuid == null) {
+            return;
+        }
+
+        List<Map<String, Object>> entries =
+                (List<Map<String, Object>>) apiResponse.getOrDefault("data", List.of());
+
+        for (Map<String, Object> entry : entries) {
+            String matchId = str(entry.get("match_id"));
+            if (matchId.isBlank()) {
+                continue;
+            }
+
+            dynamoDbService.storeMMREntry(
+                    puuid,
+                    matchId,
+                    num(entry.get("mmr_change_to_last_game")),
+                    num(entry.get("elo")),
+                    str(entry.getOrDefault("currenttier_patched", "Unknown")),
+                    longNum(entry.getOrDefault("date_raw", System.currentTimeMillis() / 1000))
+            );
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> castMap(Object value) {
+        return value instanceof Map<?, ?> ? (Map<String, Object>) value : new HashMap<>();
+    }
+
+    private String str(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private int num(Object value) {
+        return value instanceof Number ? ((Number) value).intValue() : 0;
+    }
+
+    private long longNum(Object value) {
+        return value instanceof Number ? ((Number) value).longValue() : 0L;
+    }
+
+    @SuppressWarnings("unchecked")
+    private int extractTeamRounds(Object teamsObj, String teamName) {
+        if (!(teamsObj instanceof Map<?, ?> teams)) {
+            return 0;
+        }
+
+        Object teamObj = teams.get(teamName);
+        if (teamObj instanceof Number n) {
+            return n.intValue();
+        }
+
+        if (teamObj instanceof Map<?, ?> teamMap) {
+            Object roundsWon = teamMap.get("rounds_won");
+            if (roundsWon instanceof Number n) {
+                return n.intValue();
+            }
+        }
+
+        return 0;
+    }
+
+    private long parseDateRaw(Object startedAt) {
+        if (startedAt == null) {
+            return 0L;
+        }
+
+        try {
+            return java.time.Instant.parse(String.valueOf(startedAt)).getEpochSecond();
+        } catch (Exception ignored) {
+            return 0L;
+        }
+    }
 }
+

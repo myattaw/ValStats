@@ -1,11 +1,7 @@
 package com.valstats.controller;
 
-import com.valstats.model.MatchResponse;
 import com.valstats.service.ValorantService;
-import io.micronaut.http.annotation.Controller;
-import io.micronaut.http.annotation.Get;
-import io.micronaut.http.annotation.PathVariable;
-import io.micronaut.http.annotation.QueryValue;
+import io.micronaut.http.annotation.*;
 
 import java.util.Map;
 
@@ -18,36 +14,15 @@ public class ValorantController {
         this.valorantService = valorantService;
     }
 
-    @Get("/recent-matches/{region}/{name}/{tag}")
-    public MatchResponse getMatches(
+    @Get("/matches/{region}/{name}/{tag}")
+    public Map<String, Object> getMatches(
             @PathVariable String region,
             @PathVariable String name,
             @PathVariable String tag,
-            @QueryValue(value = "size", defaultValue = "10") Integer size,
-            @QueryValue(value = "start", defaultValue = "0") Integer start
-
+            @QueryValue(defaultValue = "10") Integer size,
+            @QueryValue(defaultValue = "1") Integer page
     ) {
-        return valorantService.getRecentMatches(region, name, tag, size, start);
-    }
-
-    @Get("/stored-matches/{region}/{name}/{tag}")
-    public Map<String, Object> getAllMatches(
-            @PathVariable String region,
-            @PathVariable String name,
-            @PathVariable String tag,
-            @QueryValue(value = "size", defaultValue = "10") Integer size,
-            @QueryValue(value = "page", defaultValue = "1") Integer page
-
-    ) {
-        return valorantService.getStoredMatches(region, name, tag, size, page);
-    }
-
-    @Get("/mmr-history/{region}/{name}/{tag}")
-    public Map<String, Object> getMMRHistory(
-            @PathVariable String region,
-            @PathVariable String name,
-            @PathVariable String tag) {
-        return valorantService.getMMRHistory(region, name, tag);
+        return valorantService.getUnifiedMatches(region, name, tag, size, page);
     }
 
     @Get("/account/{name}/{tag}")
@@ -62,51 +37,22 @@ public class ValorantController {
         return valorantService.getMatchById(matchid);
     }
 
-    // Player statistics endpoints
-
     @Get("/stats/{region}/{name}/{tag}")
     public Map<String, Object> getPlayerStats(
             @PathVariable String region,
             @PathVariable String name,
             @PathVariable String tag,
-            @QueryValue(value = "season", defaultValue = "all") String seasonId) {
+            @QueryValue(defaultValue = "all") String seasonId) {
         return valorantService.getPlayerStats(region, name, tag, seasonId);
     }
 
-    @Get("/kill-ratio/{region}/{name}/{tag}")
-    public Map<String, Object> getKillRatio(
+    @Get("/stats/{region}/{name}/{tag}/adr")
+    public Map<String, Object> getPlayerAdr(
             @PathVariable String region,
             @PathVariable String name,
             @PathVariable String tag,
-            @QueryValue(value = "season", defaultValue = "all") String seasonId) {
-        return valorantService.getKillRatio(region, name, tag, seasonId);
-    }
-
-    @Get("/headshot-percent/{region}/{name}/{tag}")
-    public Map<String, Object> getHeadshotPercent(
-            @PathVariable String region,
-            @PathVariable String name,
-            @PathVariable String tag,
-            @QueryValue(value = "season", defaultValue = "all") String seasonId) {
-        return valorantService.getHeadshotPercent(region, name, tag, seasonId);
-    }
-
-    @Get("/avg-combat-score/{region}/{name}/{tag}")
-    public Map<String, Object> getAvgCombatScore(
-            @PathVariable String region,
-            @PathVariable String name,
-            @PathVariable String tag,
-            @QueryValue(value = "season", defaultValue = "all") String seasonId) {
-        return valorantService.getAvgCombatScore(region, name, tag, seasonId);
-    }
-
-    @Get("/kills-per-round/{region}/{name}/{tag}")
-    public Map<String, Object> getKillsPerRound(
-            @PathVariable String region,
-            @PathVariable String name,
-            @PathVariable String tag,
-            @QueryValue(value = "season", defaultValue = "all") String seasonId) {
-        return valorantService.getKillsPerRound(region, name, tag, seasonId);
+            @QueryValue(defaultValue = "all") String seasonId) {
+        return valorantService.getPlayerAdr(region, name, tag, seasonId);
     }
 
 }

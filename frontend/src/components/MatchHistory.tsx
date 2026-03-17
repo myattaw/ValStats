@@ -4,23 +4,18 @@ import {Collapsible, CollapsibleContent, CollapsibleTrigger} from "./ui/collapsi
 import {Match} from './Match/types/matchTypes';
 import {
     API_BASE_URL,
-    buildMmrMap,
     calculateADR,
-    DETAILED_MATCHES_SIZE,
     fetchMatchDetails,
-    fetchMoreMatches,
-    INITIAL_MATCHES_SIZE,
-    processRecentMatches,
-    processStoredMatches
+    INITIAL_MATCHES_SIZE
 } from './Match/utils/matchUtils';
 
 import {MatchSkeleton, TeamDisplay} from './Match/MatchComponents';
 
 export function MatchHistory({
-    puuid,
-    playerName,
-    playerTag
-}: {
+                                 puuid,
+                                 playerName,
+                                 playerTag
+                             }: {
     puuid?: string | null;
     playerName: string;
     playerTag: string;
@@ -42,64 +37,30 @@ export function MatchHistory({
     // Helper functions
     const fetchInitialMatches = async () => {
         setIsInitialLoading(true);
-        setPage(1); // ensure page state reset
+        setPage(1);
 
         try {
-            // Build endpoint segment from playerName/playerTag; fallback to previous segment
-            const hasNameTag = !!(playerName && playerTag);
-            const nameSeg = hasNameTag
-                ? `${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}`
-                : 'rages/alt';
-
-            // Fetch each resource separately so a single failing endpoint doesn't abort everything
-            let recentJson: any = { data: [] };
-            let storedJson: any = { data: [] };
-            let mmrJson: any = { data: [] };
-
-            try {
-                const recentRes = await fetch(`${API_BASE_URL}/recent-matches/na/${nameSeg}?size=${DETAILED_MATCHES_SIZE}`);
-                if (recentRes.ok) recentJson = await recentRes.json();
-                else console.warn('recent-matches fetch returned non-ok status', recentRes.status);
-            } catch (err) {
-                console.warn('recent-matches fetch failed', err);
-            }
-
-            try {
-                const storedRes = await fetch(`${API_BASE_URL}/stored-matches/na/${nameSeg}?size=${INITIAL_MATCHES_SIZE}`);
-                if (storedRes.ok) storedJson = await storedRes.json();
-                else console.warn('stored-matches fetch returned non-ok status', storedRes.status);
-            } catch (err) {
-                console.warn('stored-matches fetch failed', err);
-            }
-
-            try {
-                const mmrRes = await fetch(`${API_BASE_URL}/mmr-history/na/${nameSeg}`);
-                if (mmrRes.ok) mmrJson = await mmrRes.json();
-                else console.warn('mmr-history fetch returned non-ok status', mmrRes.status);
-            } catch (err) {
-                console.warn('mmr-history fetch failed', err);
-            }
-
-            // Build MMR map (will be empty if mmrJson missing)
-            const mmrMap = buildMmrMap(mmrJson?.data || []);
-
-            // Process matches (pass puuid for correct player selection)
-            const recentMatches = processRecentMatches(recentJson?.data || [], mmrMap, mmrJson, puuid);
-            const detailedMatchIds = new Set(recentMatches.map(m => m.id));
-            const storedMatches = processStoredMatches(
-                storedJson?.data || [],
-                mmrMap,
-                detailedMatchIds
+            const res = await fetch(
+                `${API_BASE_URL}/matches/na/${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}?size=${INITIAL_MATCHES_SIZE}&page=1`
             );
 
-            // Combine and sort matches
-            const allMatches = [...recentMatches, ...storedMatches];
-            allMatches.sort((a, b) => b.date_raw - a.date_raw);
+            if (!res.ok) {
+                console.error("Failed to fetch matches:", res.status);
+                setMatches([]);
+                return;
+            }
 
-            setMatches(allMatches);
+            const json = await res.json();
+
+            // ✅ IMPORTANT: backend already returns final match objects
+            const data = json?.data || [];
+
+            // Ensure proper sorting (just in case)
+            data.sort((a: any, b: any) => b.date_raw - a.date_raw);
+
+            setMatches(data);
         } catch (e) {
             console.error("Error fetching matches:", e);
-            // keep fallback (empty) instead of clearing UI aggressively
             setMatches([]);
         } finally {
             setIsInitialLoading(false);
@@ -218,18 +179,27 @@ export function MatchHistory({
         setLoadingMore(true);
         try {
             const nextPage = page + 1;
-            // Pass playerName and playerTag to fetchMoreMatches
-            const newMatches = await fetchMoreMatches(nextPage, playerName, playerTag);
+
+            const res = await fetch(
+                `${API_BASE_URL}/matches/na/${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}?size=${INITIAL_MATCHES_SIZE}&page=${nextPage}`
+            );
+
+            if (!res.ok) return;
+
+            const json = await res.json();
+            const newMatches = json?.data || [];
+
             setMatches(prev => {
                 const existingIds = new Set(prev.map(m => m.id));
-                const uniqueNewMatches = newMatches.filter(m => !existingIds.has(m.id));
-                const combined = [...prev, ...uniqueNewMatches];
+                const unique = newMatches.filter((m: any) => !existingIds.has(m.id));
+                const combined = [...prev, ...unique];
                 combined.sort((a, b) => b.date_raw - a.date_raw);
                 return combined;
             });
+
             setPage(nextPage);
-        } catch (error) {
-            console.error("Failed to load more matches:", error);
+        } catch (err) {
+            console.error("Failed to load more matches:", err);
         } finally {
             setLoadingMore(false);
         }

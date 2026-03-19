@@ -1,4 +1,4 @@
-package com.valstats.service;
+package com.valstats.service.match;
 
 import com.valstats.model.match.Match;
 import com.valstats.model.player.Player;
@@ -70,7 +70,8 @@ public class MatchProcessor {
                 targetPlayer.agent() != null ? targetPlayer.agent().id() : "",
                 targetPlayer.team(),
                 redRounds,
-                blueRounds
+                blueRounds,
+                targetPlayer.currenttier()
         );
 
         return true;
@@ -100,6 +101,8 @@ public class MatchProcessor {
                         damage.containsKey("dealt") ? num(damage.get("dealt")) :
                                 num(stats.get("damage_made"));
 
+        int tier = num(stats.get("tier"));
+
         processPlayerMatch(
                 puuid,
                 seasonId,
@@ -119,7 +122,8 @@ public class MatchProcessor {
                 str(character.get("id")),
                 str(stats.get("team")),
                 redRounds,
-                blueRounds
+                blueRounds,
+                tier
         );
 
         return true;
@@ -141,6 +145,7 @@ public class MatchProcessor {
                 match.metadata().seasonId() != null ? match.metadata().seasonId() : "unknown"
         ));
         item.put("storedAt", AttributeValue.fromS(now));
+
 
         if (match.teams() != null) {
             if (match.teams().red() != null) {
@@ -233,7 +238,8 @@ public class MatchProcessor {
             String agentId,
             String team,
             long redRoundsWon,
-            long blueRoundsWon
+            long blueRoundsWon,
+            int tier
     ) {
         String aggregatePk = "PLAYER#" + puuid;
         String markerSk = String.format("MATCH#%013d#%s", gameStart, matchId);

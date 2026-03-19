@@ -70,43 +70,71 @@ public class DynamoDbService {
      */
     public List<Map<String, AttributeValue>> getStoredMatchesForPlayer(String puuid, int size, int page) {
         try {
-            // New efficient schema: PK=PLAYER#<puuid>, SK starts_with MATCH#
-            QueryResponse query = dbClient.query(QueryRequest.builder()
-                    .tableName(tableName)
-                    .keyConditionExpression("PK = :pk AND begins_with(SK, :matchPrefix)")
-                    .expressionAttributeValues(Map.of(
-                            ":pk", AttributeValue.fromS("PLAYER#" + puuid),
-                            ":matchPrefix", AttributeValue.fromS("MATCH#")
-                    ))
-                    .scanIndexForward(false)
-                    .build());
+            List<Map<String, AttributeValue>> allItems = new ArrayList<>();
+            Map<String, AttributeValue> lastEvaluatedKey = null;
 
-            List<Map<String, AttributeValue>> items = new ArrayList<>(query.items());
-            if (!items.isEmpty()) {
+            do {
+                QueryRequest.Builder builder = QueryRequest.builder()
+                        .tableName(tableName)
+                        .keyConditionExpression("PK = :pk AND begins_with(SK, :matchPrefix)")
+                        .expressionAttributeValues(Map.of(
+                                ":pk", AttributeValue.fromS("PLAYER#" + puuid),
+                                ":matchPrefix", AttributeValue.fromS("MATCH#")
+                        ))
+                        .scanIndexForward(false);
+
+                if (lastEvaluatedKey != null && !lastEvaluatedKey.isEmpty()) {
+                    builder.exclusiveStartKey(lastEvaluatedKey);
+                }
+
+                QueryResponse response = dbClient.query(builder.build());
+                allItems.addAll(response.items());
+                lastEvaluatedKey = response.lastEvaluatedKey();
+
+            } while (lastEvaluatedKey != null && !lastEvaluatedKey.isEmpty());
+
+            if (!allItems.isEmpty()) {
                 int startIndex = Math.max(0, (page - 1) * size);
-                int endIndex = Math.min(startIndex + size, items.size());
-                return startIndex >= items.size() ? Collections.emptyList() : items.subList(startIndex, endIndex);
+                int endIndex = Math.min(startIndex + size, allItems.size());
+                return startIndex >= allItems.size()
+                        ? Collections.emptyList()
+                        : allItems.subList(startIndex, endIndex);
             }
 
-            // Backward compatibility fallback for old marker layout
-            ScanResponse fallback = dbClient.scan(ScanRequest.builder()
-                    .tableName(tableName)
-                    .filterExpression("begins_with(PK, :prefix) AND SK = :marker")
-                    .expressionAttributeValues(Map.of(
-                            ":prefix", AttributeValue.fromS("PLAYER#" + puuid + "#MATCH#"),
-                            ":marker", AttributeValue.fromS("MARKER")
-                    ))
-                    .build());
+            // fallback for old schema
+            List<Map<String, AttributeValue>> fallbackItems = new ArrayList<>();
+            Map<String, AttributeValue> scanLastKey = null;
 
-            List<Map<String, AttributeValue>> allMatches = new ArrayList<>(fallback.items());
-            allMatches.sort((a, b) -> Long.compare(
+            do {
+                ScanRequest.Builder scanBuilder = ScanRequest.builder()
+                        .tableName(tableName)
+                        .filterExpression("begins_with(PK, :prefix) AND SK = :marker")
+                        .expressionAttributeValues(Map.of(
+                                ":prefix", AttributeValue.fromS("PLAYER#" + puuid + "#MATCH#"),
+                                ":marker", AttributeValue.fromS("MARKER")
+                        ));
+
+                if (scanLastKey != null && !scanLastKey.isEmpty()) {
+                    scanBuilder.exclusiveStartKey(scanLastKey);
+                }
+
+                ScanResponse fallback = dbClient.scan(scanBuilder.build());
+                fallbackItems.addAll(fallback.items());
+                scanLastKey = fallback.lastEvaluatedKey();
+
+            } while (scanLastKey != null && !scanLastKey.isEmpty());
+
+            fallbackItems.sort((a, b) -> Long.compare(
                     b.containsKey("gameStart") ? Long.parseLong(b.get("gameStart").n()) : 0L,
                     a.containsKey("gameStart") ? Long.parseLong(a.get("gameStart").n()) : 0L
             ));
 
             int startIndex = Math.max(0, (page - 1) * size);
-            int endIndex = Math.min(startIndex + size, allMatches.size());
-            return startIndex >= allMatches.size() ? Collections.emptyList() : allMatches.subList(startIndex, endIndex);
+            int endIndex = Math.min(startIndex + size, fallbackItems.size());
+            return startIndex >= fallbackItems.size()
+                    ? Collections.emptyList()
+                    : fallbackItems.subList(startIndex, endIndex);
+
         } catch (DynamoDbException e) {
             LOG.error("Error getting stored matches for player: {}", puuid, e);
             return Collections.emptyList();
@@ -139,22 +167,44 @@ public class DynamoDbService {
      * Get all players in a match.
      */
     public List<Map<String, AttributeValue>> getMatchPlayers(String matchId) {
-        QueryResponse response = dbClient.query(QueryRequest.builder()
-                .tableName(tableName)
-                .keyConditionExpression("PK = :pk AND begins_with(SK, :playerPrefix)")
-                .expressionAttributeValues(Map.of(
-                        ":pk", AttributeValue.fromS("MATCH#" + matchId),
-                        ":playerPrefix", AttributeValue.fromS("PLAYER#")
-                ))
-                .build());
+        List<Map<String, AttributeValue>> items = new ArrayList<>();
+        Map<String, AttributeValue> lastEvaluatedKey = null;
 
-        return response.items();
+        do {
+            QueryRequest.Builder builder = QueryRequest.builder()
+                    .tableName(tableName)
+                    .keyConditionExpression("PK = :pk AND begins_with(SK, :playerPrefix)")
+                    .expressionAttributeValues(Map.of(
+                            ":pk", AttributeValue.fromS("MATCH#" + matchId),
+                            ":playerPrefix", AttributeValue.fromS("PLAYER#")
+                    ));
+
+            if (lastEvaluatedKey != null && !lastEvaluatedKey.isEmpty()) {
+                builder.exclusiveStartKey(lastEvaluatedKey);
+            }
+
+            QueryResponse response = dbClient.query(builder.build());
+            items.addAll(response.items());
+            lastEvaluatedKey = response.lastEvaluatedKey();
+
+        } while (lastEvaluatedKey != null && !lastEvaluatedKey.isEmpty());
+
+        return items;
     }
 
     /**
      * Store MMR history entry for a player.
      */
-    public void storeMMREntry(String puuid, String matchId, int rr, int mmr, String rank, long timestamp) {
+    public void storeMMREntry(
+            String puuid,
+            String matchId,
+            int rr,
+            int mmr,
+            int rankingInTier,
+            int currentTier,
+            String rank,
+            long timestamp
+    ){
         String now = Instant.now().toString();
 
         Map<String, AttributeValue> item = new HashMap<>();
@@ -163,6 +213,8 @@ public class DynamoDbService {
         item.put("matchId", AttributeValue.fromS(matchId));
         item.put("rr", AttributeValue.fromN(String.valueOf(rr)));
         item.put("mmr", AttributeValue.fromN(String.valueOf(mmr)));
+        item.put("ranking_in_tier", AttributeValue.fromN(String.valueOf(rankingInTier)));
+        item.put("currenttier", AttributeValue.fromN(String.valueOf(currentTier)));
         item.put("rank", AttributeValue.fromS(rank));
         item.put("timestamp", AttributeValue.fromN(String.valueOf(timestamp)));
         item.put("storedAt", AttributeValue.fromS(now));
@@ -186,17 +238,30 @@ public class DynamoDbService {
      * Get MMR history for a player.
      */
     public List<Map<String, AttributeValue>> getMMRHistory(String puuid) {
-        QueryResponse response = dbClient.query(QueryRequest.builder()
-                .tableName(tableName)
-                .keyConditionExpression("PK = :pk AND begins_with(SK, :mmrPrefix)")
-                .expressionAttributeValues(Map.of(
-                        ":pk", AttributeValue.fromS("PLAYER#" + puuid),
-                        ":mmrPrefix", AttributeValue.fromS("MMR#")
-                ))
-                .scanIndexForward(false) // Newest first
-                .build());
+        List<Map<String, AttributeValue>> items = new ArrayList<>();
+        Map<String, AttributeValue> lastEvaluatedKey = null;
 
-        return response.items();
+        do {
+            QueryRequest.Builder builder = QueryRequest.builder()
+                    .tableName(tableName)
+                    .keyConditionExpression("PK = :pk AND begins_with(SK, :mmrPrefix)")
+                    .expressionAttributeValues(Map.of(
+                            ":pk", AttributeValue.fromS("PLAYER#" + puuid),
+                            ":mmrPrefix", AttributeValue.fromS("MMR#")
+                    ))
+                    .scanIndexForward(false);
+
+            if (lastEvaluatedKey != null && !lastEvaluatedKey.isEmpty()) {
+                builder.exclusiveStartKey(lastEvaluatedKey);
+            }
+
+            QueryResponse response = dbClient.query(builder.build());
+            items.addAll(response.items());
+            lastEvaluatedKey = response.lastEvaluatedKey();
+
+        } while (lastEvaluatedKey != null && !lastEvaluatedKey.isEmpty());
+
+        return items;
     }
 
     /**
@@ -325,6 +390,57 @@ public class DynamoDbService {
                 .build();
 
         dbClient.updateItem(request);
+    }
+
+    /**
+     * Get the last time a player's recently played matches were updated.
+     * Used to enforce the 5-minute cooldown for the matches endpoint.
+     */
+    public Optional<Long> getPlayerLastRecentMatchUpdate(String region, String name, String tag) {
+        try {
+            String pk = String.format("PLAYER_UPDATE#%s#%s#%s", region, name, tag);
+            GetItemResponse response = dbClient.getItem(GetItemRequest.builder()
+                    .tableName(tableName)
+                    .key(Map.of(
+                            "PK", AttributeValue.fromS(pk),
+                            "SK", AttributeValue.fromS("RECENT_MATCHES")
+                    ))
+                    .projectionExpression("updatedAt")
+                    .build());
+
+            if (response.hasItem() && response.item().containsKey("updatedAt")) {
+                return Optional.of(Long.parseLong(response.item().get("updatedAt").n()));
+            }
+        } catch (Exception e) {
+            LOG.debug("Error getting last recent match update time", e);
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Update the timestamp for when a player's recently played matches were last updated.
+     */
+    public void updatePlayerLastRecentMatchUpdate(String region, String name, String tag) {
+        try {
+            String pk = String.format("PLAYER_UPDATE#%s#%s#%s", region, name, tag);
+            long now = System.currentTimeMillis() / 1000;
+
+            dbClient.updateItem(UpdateItemRequest.builder()
+                    .tableName(tableName)
+                    .key(Map.of(
+                            "PK", AttributeValue.fromS(pk),
+                            "SK", AttributeValue.fromS("RECENT_MATCHES")
+                    ))
+                    .updateExpression("SET updatedAt = :now")
+                    .expressionAttributeValues(Map.of(
+                            ":now", AttributeValue.fromN(String.valueOf(now))
+                    ))
+                    .build());
+
+            LOG.debug("Updated recent match timestamp for {}#{} in {}", name, tag, region);
+        } catch (DynamoDbException e) {
+            LOG.error("Failed to update recent match timestamp", e);
+        }
     }
 
     private long getLong(Map<String, AttributeValue> map, String key) {

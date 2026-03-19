@@ -342,7 +342,7 @@ export function MatchHistory({
                                                                 <div
                                                                     className="flex items-center gap-1.5 px-2 py-1 rounded bg-black/30">
                                                                     <img
-                                                                        src={`https://media.valorant-api.com/competitivetiers/03621f52-342b-cf4e-4f86-9350a49c6d04/${match.ranking_in_tier}/smallicon.png`}
+                                                                        src={`https://media.valorant-api.com/competitivetiers/03621f52-342b-cf4e-4f86-9350a49c6d04/${match.rank_tier}/smallicon.png`}
                                                                         alt="Rank Icon"
                                                                         className="w-3 h-3"
                                                                     />

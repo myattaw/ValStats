@@ -1,4 +1,4 @@
-package com.valstats.service;
+package com.valstats.service.player;
 
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;

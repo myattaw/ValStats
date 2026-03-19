@@ -29,6 +29,7 @@ export interface Match {
     date_raw: number;
     rank: string;
     ranking_in_tier: number;
+    rank_tier: number;
     rrChange: number;
     rounds_played: number;
     players?: PlayerStats[];

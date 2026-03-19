@@ -90,7 +90,7 @@ public class RateLimitFilter implements HttpServerFilter {
     public void cleanupStaleLimiters() {
         // Simple cleanup - remove limiters that are at full capacity (inactive)
         limiters.entrySet().removeIf(entry ->
-            entry.getValue().getAvailableTokens() >= BURST_CAPACITY - 0.1
+                entry.getValue().getAvailableTokens() >= BURST_CAPACITY - 0.1
         );
     }
 

@@ -31,4 +31,5 @@ public record Account(int status, Data data) {
             String wide,
             String id
     ) {}
+
 }

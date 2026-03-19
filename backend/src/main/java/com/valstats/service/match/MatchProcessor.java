@@ -270,6 +270,7 @@ public class MatchProcessor {
         markerItem.put("redRoundsWon", AttributeValue.fromN(String.valueOf(redRoundsWon)));
         markerItem.put("blueRoundsWon", AttributeValue.fromN(String.valueOf(blueRoundsWon)));
         markerItem.put("processed_at", AttributeValue.fromS(now));
+        markerItem.put("tier", AttributeValue.fromN(String.valueOf(tier)));
 
         Put putMarker = Put.builder()
                 .tableName(tableName)

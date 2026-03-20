@@ -53,4 +53,13 @@ public interface ValorantApiClient {
             @PathVariable String matchid,
             @Header("Authorization") String authorization
     );
+
+    @Get("/valorant/v2/mmr/{region}/{name}/{tag}")
+    Map<String, Object> getMMR(
+            @PathVariable String region,
+            @PathVariable String name,
+            @PathVariable String tag,
+            @Header("Authorization") String authorization
+    );
+
 }

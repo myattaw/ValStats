@@ -7,10 +7,9 @@ import com.valstats.service.player.PlayerStatsService;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 
 /**
  * Main service for Valorant API operations.
@@ -36,31 +35,70 @@ public class ValorantService {
     private final PlayerCacheService playerCacheService;
     private final ValorantApiClient apiClient;
     private final String apiKey;
+    private final DynamoDbService dynamoDbService;
+
+    private static final Map<String, String> SEASON_MAP = new LinkedHashMap<>();
+
+    static {
+        SEASON_MAP.put("9d85c932-4820-c060-09c3-668636d4df1b", "Episode 11 Act 2");
+        SEASON_MAP.put("3ea2b318-423b-cf86-25da-7cbb0eefbe2d", "Episode 11 Act 1");
+        SEASON_MAP.put("4c4b8cff-43eb-13d3-8f14-96b783c90cd2", "Episode 10 Act 6");
+        SEASON_MAP.put("5adc33fa-4f30-2899-f131-6fba64c5dd3a", "Episode 10 Act 5");
+        SEASON_MAP.put("ac12e9b3-47e6-9599-8fa1-0bb473e5efc7", "Episode 10 Act 4");
+        SEASON_MAP.put("aef237a0-494d-3a14-a1c8-ec8de84e309c", "Episode 10 Act 3");
+        SEASON_MAP.put("16118998-4705-5813-86dd-0292a2439d90", "Episode 10 Act 2");
+        SEASON_MAP.put("476b0893-4c2e-abd6-c5fe-708facff0772", "Episode 10 Act 1");
+        SEASON_MAP.put("dcde7346-4085-de4f-c463-2489ed47983b", "Episode 9 Act 3");
+        SEASON_MAP.put("292f58db-4c17-89a7-b1c0-ba988f0e9d98", "Episode 9 Act 2");
+        SEASON_MAP.put("52ca6698-41c1-e7de-4008-8994d2221209", "Episode 9 Act 1");
+        SEASON_MAP.put("4539cac3-47ae-90e5-3d01-b3812ca3274e", "Episode 8 Act 3");
+        SEASON_MAP.put("22d10d66-4d2a-a340-6c54-408c7bd53807", "Episode 8 Act 2");
+        SEASON_MAP.put("ec876e6c-43e8-fa63-ffc1-2e8d4db25525", "Episode 8 Act 1");
+        SEASON_MAP.put("4401f9fd-4170-2e4c-4bc3-f3b4d7d150d1", "Episode 7 Act 3");
+        SEASON_MAP.put("03dfd004-45d4-ebfd-ab0a-948ce780dac4", "Episode 7 Act 2");
+        SEASON_MAP.put("0981a882-4e7d-371a-70c4-c3b4f46c504a", "Episode 7 Act 1");
+        SEASON_MAP.put("2de5423b-4aad-02ad-8d9b-c0a931958861", "Episode 6 Act 3");
+        SEASON_MAP.put("34093c29-4306-43de-452f-3f944bde22be", "Episode 6 Act 2");
+        SEASON_MAP.put("9c91a445-4f78-1baa-a3ea-8f8aadf4914d", "Episode 6 Act 1");
+        SEASON_MAP.put("aca29595-40e4-01f5-3f35-b1b3d304c96e", "Episode 5 Act 3");
+        SEASON_MAP.put("7a85de9a-4032-61a9-61d8-f4aa2b4a84b6", "Episode 5 Act 2");
+        SEASON_MAP.put("67e373c7-48f7-b422-641b-079ace30b427", "Episode 5 Act 1");
+        SEASON_MAP.put("3e47230a-463c-a301-eb7d-67bb60357d4f", "Episode 4 Act 3");
+        SEASON_MAP.put("d929bc38-4ab6-7da4-94f0-ee84f8ac141e", "Episode 4 Act 2");
+    }
 
     public ValorantService(
             MatchDataService matchDataService,
             PlayerStatsService playerStatsService,
             PlayerCacheService playerCacheService,
-            ValorantApiClient apiClient
-    ) {
+            ValorantApiClient apiClient,
+            DynamoDbService dynamoDbService) {
         this.matchDataService = matchDataService;
         this.playerStatsService = playerStatsService;
         this.playerCacheService = playerCacheService;
         this.apiClient = apiClient;
         this.apiKey = System.getenv("HDEV_KEY");
+        this.dynamoDbService = dynamoDbService;
     }
 
     /**
      * Get match history for a player with pagination.
      * Delegates to MatchDataService which handles caching strategy.
      */
-    public Map<String, Object> getUnifiedMatches(String region, String name, String tag, int size, int page) {
+    public Map<String, Object> getUnifiedMatches(
+            String region,
+            String name,
+            String tag,
+            int size,
+            int page,
+            String act
+    ){
         String puuid = resolvePuuid(name, tag, region);
         if (puuid == null) {
             return errorResponse("Player not found");
         }
 
-        return matchDataService.getPlayerMatches(puuid, region, name, tag, size, page);
+        return matchDataService.getPlayerMatches(puuid, region, name, tag, size, page, act);
     }
 
     /**
@@ -102,6 +140,50 @@ public class ValorantService {
         }
 
         return playerStatsService.getPlayerAdr(puuid, region, name, tag, seasonId);
+    }
+
+    public List<Map<String, String>> getAvailableActs(String region, String name, String tag) {
+
+        String puuid = resolvePuuid(name, tag, region);
+        if (puuid == null) return List.of();
+
+        List<Map<String, AttributeValue>> items =
+                dynamoDbService.getStoredMatchesForPlayer(puuid, 1000, 1);
+
+        // seasonId -> latest game timestamp
+        Map<String, Long> seasonLatestGame = new HashMap<>();
+
+        for (Map<String, AttributeValue> item : items) {
+            String sk = item.get("SK").s();
+
+            // only match records
+            if (!sk.contains("#MATCH#")) continue;
+
+            // SK format:
+            // SEASON#<seasonId>#MATCH#<timestamp>#<matchId>
+            String[] parts = sk.split("#");
+            if (parts.length < 4) continue;
+
+            String seasonId = parts[1];
+
+            long gameStart;
+            try {
+                gameStart = Long.parseLong(parts[3]);
+            } catch (Exception e) {
+                continue; // skip bad data
+            }
+
+            seasonLatestGame.merge(seasonId, gameStart, Math::max);
+        }
+
+        // sort by latest match (descending)
+        return seasonLatestGame.entrySet().stream()
+                .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
+                .map(entry -> Map.of(
+                        "value", entry.getKey(),
+                        "label", SEASON_MAP.get(entry.getKey())
+                ))
+                .toList();
     }
 
     /**

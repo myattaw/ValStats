@@ -40,35 +40,54 @@ public class MatchDataService {
      * Get match history for a player.
      * Strategy: Check cache first, then API if needed
      */
-    public Map<String, Object> getPlayerMatches(String puuid, String region, String name, String tag, int size, int page) {
-        // Try to get from cache first
-        List<Map<String, AttributeValue>> cachedMatches = dynamoDbService.getStoredMatchesForPlayer(puuid, size, page);
-        List<Map<String, AttributeValue>> cachedMMR = dynamoDbService.getMMRHistory(puuid);
+    public Map<String, Object> getPlayerMatches(
+            String puuid,
+            String region,
+            String name,
+            String tag,
+            int size,
+            int page,
+            String act
+    ) {
+        // 1. Check if player has ANY cached matches
+        boolean hasAnyMatches = !dynamoDbService
+                .getStoredMatchesForPlayer(puuid, 1, 1)
+                .isEmpty();
 
-        if (!cachedMatches.isEmpty()) {
-            LOG.debug("Returning cached matches for player {}", puuid);
-            return responseFormatter.formatCachedMatches(cachedMatches, cachedMMR);
+        // 2. If not cached → backfill
+        if (!hasAnyMatches) {
+            LOG.info("First-time load for player {}. Backfilling...", puuid);
+
+            Map<String, Object> storedMatches =
+                    apiClient.getStoredMatches(region, name, tag, 1000, 1, "competitive", apiKey);
+
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> matches =
+                    (List<Map<String, Object>>) storedMatches.getOrDefault("data", Collections.emptyList());
+
+            for (Map<String, Object> match : matches) {
+                matchProcessor.processStoredMatchSummary(match, puuid);
+            }
+
+            Map<String, Object> mmrHistory =
+                    apiClient.getMMRHistory(region, name, tag, apiKey);
+
+            cacheMMRHistory(puuid, mmrHistory);
         }
 
-        // Cache miss - fetch from API
-        LOG.info("Cache miss for player {}. Fetching from API...", puuid);
-        // apiClient.getStoredMatches() is a lazy load method that can load up to 1000 matches.
-        Map<String, Object> storedMatches = apiClient.getStoredMatches(region, name, tag, 1000, page, "competitive", apiKey);
+        // 3. Now ALWAYS query from DynamoDB
+        List<Map<String, AttributeValue>> cachedMatches;
 
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> matches = (List<Map<String, Object>>) storedMatches.getOrDefault("data", Collections.emptyList());
-
-        for (Map<String, Object> match : matches) {
-            matchProcessor.processStoredMatchSummary(match, puuid);
+        if (act != null && !"all".equals(act)) {
+            cachedMatches = dynamoDbService.getMatchesBySeason(puuid, act, size, page);
+        } else {
+            cachedMatches = dynamoDbService.getStoredMatchesForPlayer(puuid, size, page);
         }
 
+        List<Map<String, AttributeValue>> cachedMMR =
+                dynamoDbService.getMMRHistory(puuid);
 
-        Map<String, Object> mmrHistory = apiClient.getMMRHistory(region, name, tag, apiKey);
-
-        // Cache the MMR history for future use
-        cacheMMRHistory(puuid, mmrHistory);
-
-        return responseFormatter.formatApiMatches(storedMatches, mmrHistory);
+        return responseFormatter.formatCachedMatches(cachedMatches, cachedMMR);
     }
 
     /**

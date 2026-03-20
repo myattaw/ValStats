@@ -20,9 +20,10 @@ public class ValorantController {
             @PathVariable String name,
             @PathVariable String tag,
             @QueryValue(defaultValue = "10") Integer size,
-            @QueryValue(defaultValue = "1") Integer page
+            @QueryValue(defaultValue = "1") Integer page,
+            @QueryValue(defaultValue = "all") String act
     ) {
-        return valorantService.getUnifiedMatches(region, name, tag, size, page);
+        return valorantService.getUnifiedMatches(region, name, tag, size, page, act);
     }
 
     @Get("/account/{name}/{tag}")
@@ -53,6 +54,15 @@ public class ValorantController {
             @PathVariable String tag,
             @QueryValue(defaultValue = "all") String seasonId) {
         return valorantService.getPlayerAdr(region, name, tag, seasonId);
+    }
+
+    @Get("/acts/{region}/{name}/{tag}")
+    public Object getActs(
+            @PathVariable String region,
+            @PathVariable String name,
+            @PathVariable String tag
+    ) {
+        return valorantService.getAvailableActs(region, name, tag);
     }
 
 }

@@ -14,11 +14,13 @@ import {MatchSkeleton, TeamDisplay} from './Match/MatchComponents';
 export function MatchHistory({
                                  puuid,
                                  playerName,
-                                 playerTag
+                                 playerTag,
+                                 selectedAct
                              }: {
     puuid?: string | null;
     playerName: string;
     playerTag: string;
+    selectedAct: string;
 }) {
     const [expandedMatch, setExpandedMatch] = useState<string | null>(null);
     const [loadingMatchId, setLoadingMatchId] = useState<string | null>(null);
@@ -30,9 +32,10 @@ export function MatchHistory({
 
     // Fetch initial match data
     useEffect(() => {
-        setPage(1); // Reset page on puuid / player change
+        setMatches([]);
+        setPage(1);
         fetchInitialMatches();
-    }, [puuid, playerName, playerTag]); // <- run when player changes
+    }, [puuid, playerName, playerTag, selectedAct]);
 
     // Helper functions
     const fetchInitialMatches = async () => {
@@ -41,7 +44,7 @@ export function MatchHistory({
 
         try {
             const res = await fetch(
-                `${API_BASE_URL}/matches/na/${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}?size=${INITIAL_MATCHES_SIZE}&page=1`
+                `${API_BASE_URL}/matches/na/${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}?size=${INITIAL_MATCHES_SIZE}&page=1&act=${selectedAct}`
             );
 
             if (!res.ok) {

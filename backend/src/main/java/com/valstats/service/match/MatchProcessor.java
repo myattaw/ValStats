@@ -241,57 +241,104 @@ public class MatchProcessor {
             long blueRoundsWon,
             int tier
     ) {
-        String aggregatePk = "PLAYER#" + puuid;
-        String markerSk = String.format("MATCH#%013d#%s", gameStart, matchId);
-        String seasonSk = "SEASON#" + seasonId;
-        String totalSk = "TOTAL";
+        String pk = "PLAYER#" + puuid;
+        String sk = String.format("SEASON#%s#MATCH#%013d#%s", seasonId, gameStart, matchId);
         String now = Instant.now().toString();
         long roundsPlayed = redRoundsWon + blueRoundsWon;
 
-        Map<String, AttributeValue> markerItem = new HashMap<>();
-        markerItem.put("PK", AttributeValue.fromS(aggregatePk));
-        markerItem.put("SK", AttributeValue.fromS(markerSk));
-        markerItem.put("matchId", AttributeValue.fromS(matchId));
-        markerItem.put("gameStart", AttributeValue.fromN(String.valueOf(gameStart)));
-        markerItem.put("seasonId", AttributeValue.fromS(seasonId));
-        markerItem.put("map", AttributeValue.fromS(map == null ? "" : map));
-        markerItem.put("mapId", AttributeValue.fromS(mapId == null ? "" : mapId));
-        markerItem.put("agentName", AttributeValue.fromS(agentName == null ? "" : agentName));
-        markerItem.put("agentId", AttributeValue.fromS(agentId == null ? "" : agentId));
-        markerItem.put("team", AttributeValue.fromS(team == null ? "" : team));
-        markerItem.put("kills", AttributeValue.fromN(String.valueOf(kills)));
-        markerItem.put("deaths", AttributeValue.fromN(String.valueOf(deaths)));
-        markerItem.put("assists", AttributeValue.fromN(String.valueOf(assists)));
-        markerItem.put("score", AttributeValue.fromN(String.valueOf(score)));
-        markerItem.put("headshots", AttributeValue.fromN(String.valueOf(headshots)));
-        markerItem.put("bodyshots", AttributeValue.fromN(String.valueOf(bodyshots)));
-        markerItem.put("legshots", AttributeValue.fromN(String.valueOf(legshots)));
-        markerItem.put("damage_made", AttributeValue.fromN(String.valueOf(damageMade)));
-        markerItem.put("redRoundsWon", AttributeValue.fromN(String.valueOf(redRoundsWon)));
-        markerItem.put("blueRoundsWon", AttributeValue.fromN(String.valueOf(blueRoundsWon)));
-        markerItem.put("processed_at", AttributeValue.fromS(now));
-        markerItem.put("tier", AttributeValue.fromN(String.valueOf(tier)));
+        // =========================
+        // 1. CREATE MARKER (IDEMPOTENCY GUARD)
+        // =========================
+        Map<String, AttributeValue> marker = new HashMap<>();
+        marker.put("PK", AttributeValue.fromS(pk));
+        marker.put("SK", AttributeValue.fromS(sk));
+        marker.put("matchId", AttributeValue.fromS(matchId));
+        marker.put("gameStart", AttributeValue.fromN(String.valueOf(gameStart)));
+        marker.put("seasonId", AttributeValue.fromS(seasonId));
+        marker.put("map", AttributeValue.fromS(nullSafe(map)));
+        marker.put("mapId", AttributeValue.fromS(nullSafe(mapId)));
+        marker.put("agentName", AttributeValue.fromS(nullSafe(agentName)));
+        marker.put("agentId", AttributeValue.fromS(nullSafe(agentId)));
+        marker.put("team", AttributeValue.fromS(nullSafe(team)));
+        marker.put("kills", AttributeValue.fromN(String.valueOf(kills)));
+        marker.put("deaths", AttributeValue.fromN(String.valueOf(deaths)));
+        marker.put("assists", AttributeValue.fromN(String.valueOf(assists)));
+        marker.put("score", AttributeValue.fromN(String.valueOf(score)));
+        marker.put("headshots", AttributeValue.fromN(String.valueOf(headshots)));
+        marker.put("bodyshots", AttributeValue.fromN(String.valueOf(bodyshots)));
+        marker.put("legshots", AttributeValue.fromN(String.valueOf(legshots)));
+        marker.put("damage_made", AttributeValue.fromN(String.valueOf(damageMade)));
+        marker.put("redRoundsWon", AttributeValue.fromN(String.valueOf(redRoundsWon)));
+        marker.put("blueRoundsWon", AttributeValue.fromN(String.valueOf(blueRoundsWon)));
+        marker.put("tier", AttributeValue.fromN(String.valueOf(tier)));
+        marker.put("processed_at", AttributeValue.fromS(now));
 
-        Put putMarker = Put.builder()
-                .tableName(tableName)
-                .item(markerItem)
-                .conditionExpression("attribute_not_exists(PK) AND attribute_not_exists(SK)")
-                .build();
+        try {
+            ddb.putItem(PutItemRequest.builder()
+                    .tableName(tableName)
+                    .item(marker)
+                    .conditionExpression("attribute_not_exists(SK)") // ONLY SK matters
+                    .build());
 
-        Map<String, AttributeValue> v = new HashMap<>();
-        v.put(":zero", AttributeValue.fromN("0"));
-        v.put(":one", AttributeValue.fromN("1"));
-        v.put(":kills", AttributeValue.fromN(Long.toString(kills)));
-        v.put(":deaths", AttributeValue.fromN(Long.toString(deaths)));
-        v.put(":assists", AttributeValue.fromN(Long.toString(assists)));
-        v.put(":score", AttributeValue.fromN(Long.toString(score)));
-        v.put(":head", AttributeValue.fromN(Long.toString(headshots)));
-        v.put(":body", AttributeValue.fromN(Long.toString(bodyshots)));
-        v.put(":leg", AttributeValue.fromN(Long.toString(legshots)));
-        v.put(":damage", AttributeValue.fromN(Long.toString(damageMade)));
-        v.put(":rounds", AttributeValue.fromN(Long.toString(roundsPlayed)));
-        v.put(":matchId", AttributeValue.fromS(matchId));
-        v.put(":now", AttributeValue.fromS(now));
+        } catch (ConditionalCheckFailedException e) {
+            // ✅ Already processed → SAFE EXIT
+            LOG.debug("Match {} already processed for {}", matchId, puuid);
+            return;
+        } catch (DynamoDbException e) {
+            LOG.error("Failed to write marker for match {}", matchId, e);
+            return; // do NOT continue if marker fails
+        }
+
+        // =========================
+        // 2. UPDATE SEASON AGGREGATE
+        // =========================
+        updateAggregate(pk, "SEASON#" + seasonId,
+                kills, deaths, assists, score,
+                headshots, bodyshots, legshots,
+                damageMade, roundsPlayed, matchId, now
+        );
+
+        // =========================
+        // 3. UPDATE TOTAL AGGREGATE
+        // =========================
+        updateAggregate(pk, "TOTAL",
+                kills, deaths, assists, score,
+                headshots, bodyshots, legshots,
+                damageMade, roundsPlayed, matchId, now
+        );
+
+        LOG.debug("Processed match {} for player {}", matchId, puuid);
+    }
+
+    private void updateAggregate(
+            String pk,
+            String sk,
+            long kills,
+            long deaths,
+            long assists,
+            long score,
+            long headshots,
+            long bodyshots,
+            long legshots,
+            long damage,
+            long rounds,
+            String matchId,
+            String now
+    ) {
+        Map<String, AttributeValue> values = new HashMap<>();
+        values.put(":zero", AttributeValue.fromN("0"));
+        values.put(":one", AttributeValue.fromN("1"));
+        values.put(":kills", AttributeValue.fromN(String.valueOf(kills)));
+        values.put(":deaths", AttributeValue.fromN(String.valueOf(deaths)));
+        values.put(":assists", AttributeValue.fromN(String.valueOf(assists)));
+        values.put(":score", AttributeValue.fromN(String.valueOf(score)));
+        values.put(":head", AttributeValue.fromN(String.valueOf(headshots)));
+        values.put(":body", AttributeValue.fromN(String.valueOf(bodyshots)));
+        values.put(":leg", AttributeValue.fromN(String.valueOf(legshots)));
+        values.put(":damage", AttributeValue.fromN(String.valueOf(damage)));
+        values.put(":rounds", AttributeValue.fromN(String.valueOf(rounds)));
+        values.put(":matchId", AttributeValue.fromS(matchId));
+        values.put(":now", AttributeValue.fromS(now));
 
         String updateExpr =
                 "SET matches_played = if_not_exists(matches_played, :zero) + :one, " +
@@ -306,41 +353,19 @@ public class MatchProcessor {
                         "total_rounds = if_not_exists(total_rounds, :zero) + :rounds, " +
                         "lastProcessedMatchId = :matchId, updatedAt = :now";
 
-        Update seasonUpdate = Update.builder()
-                .tableName(tableName)
-                .key(Map.of(
-                        "PK", AttributeValue.fromS(aggregatePk),
-                        "SK", AttributeValue.fromS(seasonSk)
-                ))
-                .updateExpression(updateExpr)
-                .expressionAttributeValues(v)
-                .build();
-
-        Update totalUpdate = Update.builder()
-                .tableName(tableName)
-                .key(Map.of(
-                        "PK", AttributeValue.fromS(aggregatePk),
-                        "SK", AttributeValue.fromS(totalSk)
-                ))
-                .updateExpression(updateExpr)
-                .expressionAttributeValues(v)
-                .build();
-
-        TransactWriteItemsRequest tx = TransactWriteItemsRequest.builder()
-                .transactItems(
-                        TransactWriteItem.builder().put(putMarker).build(),
-                        TransactWriteItem.builder().update(seasonUpdate).build(),
-                        TransactWriteItem.builder().update(totalUpdate).build()
-                )
-                .build();
-
         try {
-            ddb.transactWriteItems(tx);
-            LOG.debug("Processed match {} for player {}", matchId, puuid);
-        } catch (TransactionCanceledException e) {
-            LOG.debug("Match {} already processed", matchId);
+            ddb.updateItem(UpdateItemRequest.builder()
+                    .tableName(tableName)
+                    .key(Map.of(
+                            "PK", AttributeValue.fromS(pk),
+                            "SK", AttributeValue.fromS(sk)
+                    ))
+                    .updateExpression(updateExpr)
+                    .expressionAttributeValues(values)
+                    .build());
+
         } catch (DynamoDbException e) {
-            LOG.error("Failed to process match {} for player {}", matchId, puuid, e);
+            LOG.error("Failed to update aggregate {} for {}", sk, pk, e);
         }
     }
 

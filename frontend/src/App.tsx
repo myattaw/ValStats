@@ -22,7 +22,7 @@ interface ProfileData {
 }
 
 interface PlayerStats {
-    kd_ratio: number;a
+    kd_ratio: number;
     headshot_percent: number;
     avg_combat_score: number;
     kills_per_round: number;
@@ -460,6 +460,9 @@ export default function App() {
                                 <ActSelector
                                     selectedAct={selectedAct}
                                     onActChange={setSelectedAct}
+                                    region={region}
+                                    name={currentPlayer.name}
+                                    tag={currentPlayer.tag}
                                 />
 
                             </div>
@@ -478,6 +481,7 @@ export default function App() {
                                 puuid={profile.puuid}
                                 playerName={currentPlayer.name}
                                 playerTag={currentPlayer.tag}
+                                selectedAct={selectedAct}
                             />
 
                         )}

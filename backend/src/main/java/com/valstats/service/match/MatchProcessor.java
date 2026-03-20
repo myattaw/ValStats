@@ -273,6 +273,9 @@ public class MatchProcessor {
         marker.put("tier", AttributeValue.fromN(String.valueOf(tier)));
         marker.put("processed_at", AttributeValue.fromS(now));
 
+        marker.put("GSI1PK", AttributeValue.fromS("PLAYER#" + puuid));
+        marker.put("GSI1SK", AttributeValue.fromN(String.valueOf(gameStart)));
+
         try {
             ddb.putItem(PutItemRequest.builder()
                     .tableName(tableName)

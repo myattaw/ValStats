@@ -153,6 +153,28 @@ public class DynamoDbService {
         }
     }
 
+    public QueryResponse getMatchesFromGSI(
+            String puuid,
+            int size,
+            Map<String, AttributeValue> lastKey
+    ) {
+        QueryRequest.Builder builder = QueryRequest.builder()
+                .tableName(tableName)
+                .indexName("GSI1") // 🔥 THIS FIXES EVERYTHING
+                .keyConditionExpression("GSI1PK = :pk")
+                .expressionAttributeValues(Map.of(
+                        ":pk", AttributeValue.fromS("PLAYER#" + puuid)
+                ))
+                .scanIndexForward(false) // newest first
+                .limit(size);
+
+        if (lastKey != null && !lastKey.isEmpty()) {
+            builder.exclusiveStartKey(lastKey);
+        }
+
+        return dbClient.query(builder.build());
+    }
+
     /**
      * Get full match data by match ID.
      */

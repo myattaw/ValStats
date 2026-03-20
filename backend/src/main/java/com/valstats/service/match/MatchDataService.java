@@ -6,6 +6,7 @@ import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
 
 import java.util.*;
 
@@ -46,15 +47,18 @@ public class MatchDataService {
             String name,
             String tag,
             int size,
-            int page,
+            int page, // (ignored for GSI, kept for compatibility)
             String act
     ) {
-        // 1. Check if player has ANY cached matches
-        boolean hasAnyMatches = !dynamoDbService
-                .getStoredMatchesForPlayer(puuid, 1, 1)
-                .isEmpty();
+        // =========================
+        // 1. CHECK CACHE (FIXED)
+        // =========================
+        QueryResponse check = dynamoDbService.getMatchesFromGSI(puuid, 1, null);
+        boolean hasAnyMatches = !check.items().isEmpty();
 
-        // 2. If not cached → backfill
+        // =========================
+        // 2. BACKFILL IF EMPTY
+        // =========================
         if (!hasAnyMatches) {
             LOG.info("First-time load for player {}. Backfilling...", puuid);
 
@@ -75,19 +79,68 @@ public class MatchDataService {
             cacheMMRHistory(puuid, mmrHistory);
         }
 
-        // 3. Now ALWAYS query from DynamoDB
+        // =========================
+        // 3. FETCH MATCHES
+        // =========================
         List<Map<String, AttributeValue>> cachedMatches;
+        Map<String, AttributeValue> lastKey = null;
 
         if (act != null && !"all".equals(act)) {
+            // ✅ SEASON FILTER (old logic still OK)
             cachedMatches = dynamoDbService.getMatchesBySeason(puuid, act, size, page);
+
         } else {
-            cachedMatches = dynamoDbService.getStoredMatchesForPlayer(puuid, size, page);
+            // 🔥 GSI QUERY (correct ordering)
+            QueryResponse response = dynamoDbService.getMatchesFromGSI(
+                    puuid,
+                    size,
+                    null // TODO: replace with cursor later
+            );
+
+            cachedMatches = response.items();
+            lastKey = response.lastEvaluatedKey();
         }
 
+        // =========================
+        // 4. FETCH MMR
+        // =========================
         List<Map<String, AttributeValue>> cachedMMR =
                 dynamoDbService.getMMRHistory(puuid);
 
-        return responseFormatter.formatCachedMatches(cachedMatches, cachedMMR);
+        // =========================
+        // 5. FORMAT RESPONSE
+        // =========================
+        Map<String, Object> result =
+                responseFormatter.formatCachedMatches(cachedMatches, cachedMMR);
+
+        // 🔥 IMPORTANT: return cursor for frontend
+        if (lastKey != null && !lastKey.isEmpty()) {
+            Map<String, Object> safeLastKey = convertLastKey(lastKey);
+
+            if (safeLastKey != null) {
+                result.put("lastKey", safeLastKey);
+            }
+        }
+
+        return result;
+    }
+
+    private Map<String, Object> convertLastKey(Map<String, AttributeValue> lastKey) {
+        if (lastKey == null || lastKey.isEmpty()) return null;
+
+        Map<String, Object> result = new HashMap<>();
+
+        for (Map.Entry<String, AttributeValue> entry : lastKey.entrySet()) {
+            AttributeValue val = entry.getValue();
+
+            if (val.s() != null) {
+                result.put(entry.getKey(), val.s());
+            } else if (val.n() != null) {
+                result.put(entry.getKey(), Long.parseLong(val.n()));
+            }
+        }
+
+        return result;
     }
 
     /**

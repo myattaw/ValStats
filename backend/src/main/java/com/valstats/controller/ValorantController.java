@@ -65,4 +65,14 @@ public class ValorantController {
         return valorantService.getAvailableActs(region, name, tag);
     }
 
+    @Get("/mmr/{region}/{name}/{tag}")
+    public Map<String, Object> getPlayerMMR(
+            @PathVariable String region,
+            @PathVariable String name,
+            @PathVariable String tag,
+            @QueryValue(defaultValue = "all") String seasonId
+    ) {
+        return valorantService.getPlayerMMR(region, name, tag, seasonId);
+    }
+
 }

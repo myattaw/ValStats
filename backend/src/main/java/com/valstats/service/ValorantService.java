@@ -38,6 +38,7 @@ public class ValorantService {
     private final DynamoDbService dynamoDbService;
 
     private static final Map<String, String> SEASON_MAP = new LinkedHashMap<>();
+    private static final Map<String, String> SEASON_TO_HENRIK = new HashMap<>();
 
     static {
         SEASON_MAP.put("9d85c932-4820-c060-09c3-668636d4df1b", "Episode 11 Act 2");
@@ -65,6 +66,39 @@ public class ValorantService {
         SEASON_MAP.put("67e373c7-48f7-b422-641b-079ace30b427", "Episode 5 Act 1");
         SEASON_MAP.put("3e47230a-463c-a301-eb7d-67bb60357d4f", "Episode 4 Act 3");
         SEASON_MAP.put("d929bc38-4ab6-7da4-94f0-ee84f8ac141e", "Episode 4 Act 2");
+
+        SEASON_TO_HENRIK.put("9d85c932-4820-c060-09c3-668636d4df1b", "e11a2");
+        SEASON_TO_HENRIK.put("3ea2b318-423b-cf86-25da-7cbb0eefbe2d", "e11a1");
+
+        SEASON_TO_HENRIK.put("4c4b8cff-43eb-13d3-8f14-96b783c90cd2", "e10a6");
+        SEASON_TO_HENRIK.put("5adc33fa-4f30-2899-f131-6fba64c5dd3a", "e10a5");
+        SEASON_TO_HENRIK.put("ac12e9b3-47e6-9599-8fa1-0bb473e5efc7", "e10a4");
+        SEASON_TO_HENRIK.put("aef237a0-494d-3a14-a1c8-ec8de84e309c", "e10a3");
+        SEASON_TO_HENRIK.put("16118998-4705-5813-86dd-0292a2439d90", "e10a2");
+        SEASON_TO_HENRIK.put("476b0893-4c2e-abd6-c5fe-708facff0772", "e10a1");
+
+        SEASON_TO_HENRIK.put("dcde7346-4085-de4f-c463-2489ed47983b", "e9a3");
+        SEASON_TO_HENRIK.put("292f58db-4c17-89a7-b1c0-ba988f0e9d98", "e9a2");
+        SEASON_TO_HENRIK.put("52ca6698-41c1-e7de-4008-8994d2221209", "e9a1");
+
+        SEASON_TO_HENRIK.put("4539cac3-47ae-90e5-3d01-b3812ca3274e", "e8a3");
+        SEASON_TO_HENRIK.put("22d10d66-4d2a-a340-6c54-408c7bd53807", "e8a2");
+        SEASON_TO_HENRIK.put("ec876e6c-43e8-fa63-ffc1-2e8d4db25525", "e8a1");
+
+        SEASON_TO_HENRIK.put("4401f9fd-4170-2e4c-4bc3-f3b4d7d150d1", "e7a3");
+        SEASON_TO_HENRIK.put("03dfd004-45d4-ebfd-ab0a-948ce780dac4", "e7a2");
+        SEASON_TO_HENRIK.put("0981a882-4e7d-371a-70c4-c3b4f46c504a", "e7a1");
+
+        SEASON_TO_HENRIK.put("2de5423b-4aad-02ad-8d9b-c0a931958861", "e6a3");
+        SEASON_TO_HENRIK.put("34093c29-4306-43de-452f-3f944bde22be", "e6a2");
+        SEASON_TO_HENRIK.put("9c91a445-4f78-1baa-a3ea-8f8aadf4914d", "e6a1");
+
+        SEASON_TO_HENRIK.put("aca29595-40e4-01f5-3f35-b1b3d304c96e", "e5a3");
+        SEASON_TO_HENRIK.put("7a85de9a-4032-61a9-61d8-f4aa2b4a84b6", "e5a2");
+        SEASON_TO_HENRIK.put("67e373c7-48f7-b422-641b-079ace30b427", "e5a1");
+
+        SEASON_TO_HENRIK.put("3e47230a-463c-a301-eb7d-67bb60357d4f", "e4a3");
+        SEASON_TO_HENRIK.put("d929bc38-4ab6-7da4-94f0-ee84f8ac141e", "e4a2");
     }
 
     public ValorantService(
@@ -72,7 +106,8 @@ public class ValorantService {
             PlayerStatsService playerStatsService,
             PlayerCacheService playerCacheService,
             ValorantApiClient apiClient,
-            DynamoDbService dynamoDbService) {
+            DynamoDbService dynamoDbService
+    ) {
         this.matchDataService = matchDataService;
         this.playerStatsService = playerStatsService;
         this.playerCacheService = playerCacheService;
@@ -92,7 +127,7 @@ public class ValorantService {
             int size,
             int page,
             String act
-    ){
+    ) {
         String puuid = resolvePuuid(name, tag, region);
         if (puuid == null) {
             return errorResponse("Player not found");
@@ -143,24 +178,22 @@ public class ValorantService {
     }
 
     public List<Map<String, String>> getAvailableActs(String region, String name, String tag) {
-
         String puuid = resolvePuuid(name, tag, region);
         if (puuid == null) return List.of();
 
         List<Map<String, AttributeValue>> items =
                 dynamoDbService.getStoredMatchesForPlayer(puuid, 1000, 1);
 
-        // seasonId -> latest game timestamp
         Map<String, Long> seasonLatestGame = new HashMap<>();
 
         for (Map<String, AttributeValue> item : items) {
-            String sk = item.get("SK").s();
+            AttributeValue skAttr = item.get("SK");
+            if (skAttr == null || skAttr.s() == null) continue;
 
-            // only match records
+            String sk = skAttr.s();
+
             if (!sk.contains("#MATCH#")) continue;
 
-            // SK format:
-            // SEASON#<seasonId>#MATCH#<timestamp>#<matchId>
             String[] parts = sk.split("#");
             if (parts.length < 4) continue;
 
@@ -170,20 +203,89 @@ public class ValorantService {
             try {
                 gameStart = Long.parseLong(parts[3]);
             } catch (Exception e) {
-                continue; // skip bad data
+                continue;
             }
 
             seasonLatestGame.merge(seasonId, gameStart, Math::max);
         }
 
-        // sort by latest match (descending)
         return seasonLatestGame.entrySet().stream()
                 .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
                 .map(entry -> Map.of(
                         "value", entry.getKey(),
-                        "label", SEASON_MAP.get(entry.getKey())
+                        "label", SEASON_MAP.getOrDefault(entry.getKey(), entry.getKey())
                 ))
                 .toList();
+    }
+
+    /**
+     * Returns MMR data. If seasonId is a Riot season UUID, this adds:
+     * - selected_season_key
+     * - selected_season
+     *
+     * So the frontend can use act-specific rank/winrate cleanly.
+     */
+    public Map<String, Object> getPlayerMMR(String region, String name, String tag, String seasonId) {
+        try {
+            Map<String, Object> mmrResponse = apiClient.getMMR(region, name, tag, apiKey);
+
+            if (mmrResponse == null) {
+                return errorResponse("MMR response was null");
+            }
+
+            Object dataObj = mmrResponse.get("data");
+            if (!(dataObj instanceof Map<?, ?> rawData)) {
+                return mmrResponse;
+            }
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> data = (Map<String, Object>) rawData;
+
+            Object bySeasonObj = data.get("by_season");
+            if (!(bySeasonObj instanceof Map<?, ?> rawBySeason)) {
+                return mmrResponse;
+            }
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> bySeason = (Map<String, Object>) rawBySeason;
+
+            if (seasonId != null && !seasonId.isBlank() && !"all".equalsIgnoreCase(seasonId)) {
+                String henrikSeasonKey = mapToHenrikSeason(seasonId);
+
+                if (henrikSeasonKey != null) {
+                    data.put("selected_season_key", henrikSeasonKey);
+                    data.put("selected_season", bySeason.get(henrikSeasonKey));
+
+                    Object selectedSeasonObj = bySeason.get(henrikSeasonKey);
+                    if (selectedSeasonObj instanceof Map<?, ?> rawSelectedSeason) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> selectedSeason = (Map<String, Object>) rawSelectedSeason;
+
+                        Object finalRank = selectedSeason.get("final_rank");
+                        Object finalRankPatched = selectedSeason.get("final_rank_patched");
+
+                        if (finalRank != null) {
+                            data.put("selected_rank_tier", finalRank);
+                        }
+                        if (finalRankPatched != null) {
+                            data.put("selected_rank_name", finalRankPatched);
+                        }
+                    }
+                } else {
+                    data.put("selected_season_key", null);
+                    data.put("selected_season", null);
+                }
+            } else {
+                data.put("selected_season_key", null);
+                data.put("selected_season", null);
+            }
+
+            return mmrResponse;
+
+        } catch (Exception e) {
+            LOG.error("Failed to get MMR for {}#{}", name, tag, e);
+            return errorResponse("Failed to load MMR");
+        }
     }
 
     /**
@@ -207,12 +309,16 @@ public class ValorantService {
 
         try {
             Map<String, Object> account = apiClient.getAccount(name, tag, apiKey);
+
             @SuppressWarnings("unchecked")
-            Map<String, Object> data = (Map<String, Object>) account.getOrDefault("data", new HashMap<>());
+            Map<String, Object> data =
+                    (Map<String, Object>) account.getOrDefault("data", new HashMap<>());
 
             if (data.get("puuid") != null) {
                 String puuid = String.valueOf(data.get("puuid"));
-                String playerRegion = String.valueOf(data.getOrDefault("region", region != null ? region : "na"));
+                String playerRegion = String.valueOf(
+                        data.getOrDefault("region", region != null ? region : "na")
+                );
                 playerCacheService.storePlayerProfile(puuid, name, tag, playerRegion);
                 return puuid;
             }
@@ -223,6 +329,10 @@ public class ValorantService {
         return null;
     }
 
+    private String mapToHenrikSeason(String seasonId) {
+        return SEASON_TO_HENRIK.get(seasonId);
+    }
+
     private Map<String, Object> errorResponse(String msg) {
         Map<String, Object> response = new HashMap<>();
         response.put("status", 404);
@@ -230,4 +340,3 @@ public class ValorantService {
         return response;
     }
 }
-

@@ -4,7 +4,7 @@ import { StatsOverview } from './components/StatsOverview';
 import { MatchHistory } from './components/MatchHistory';
 import { ActSelector } from './components/ActSelector';
 import { Skeleton } from './components/ui/skeleton';
-import { API_BASE_URL } from "./components/Match/utils/matchUtils";
+import { API_BASE_URL, ACT_MAP } from "./components/Match/utils/matchUtils";
 import { PlayerSearch } from './components/PlayerSearch';
 
 /* ===============================
@@ -90,9 +90,7 @@ const CircularProgress: React.FC<{ percentage: number; size?: number; stroke?: n
 
     return (
         <div style={{ width: size, height: size }} className="flex items-center justify-center">
-
             <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-
                 <defs>
                     <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%">
                         <stop offset="0%" stopColor="#4a7cff" />
@@ -101,7 +99,6 @@ const CircularProgress: React.FC<{ percentage: number; size?: number; stroke?: n
                 </defs>
 
                 <g transform={`translate(${size / 2}, ${size / 2}) rotate(180)`}>
-
                     <circle
                         cx={0}
                         cy={0}
@@ -111,7 +108,6 @@ const CircularProgress: React.FC<{ percentage: number; size?: number; stroke?: n
                         fill="transparent"
                         strokeDasharray={`${halfCirc} ${circumference}`}
                     />
-
                     <circle
                         cx={0}
                         cy={0}
@@ -122,7 +118,6 @@ const CircularProgress: React.FC<{ percentage: number; size?: number; stroke?: n
                         strokeDasharray={`${halfCirc} ${circumference}`}
                         strokeDashoffset={offset}
                     />
-
                 </g>
 
                 <text
@@ -135,9 +130,7 @@ const CircularProgress: React.FC<{ percentage: number; size?: number; stroke?: n
                 >
                     {clamped.toFixed(1).replace(/\.0$/, '')}%
                 </text>
-
             </svg>
-
         </div>
     );
 };
@@ -155,64 +148,49 @@ export default function App() {
 
     const [profile, setProfile] = React.useState<ProfileData | null>(null);
     const [stats, setStats] = React.useState<PlayerStats | null>(null);
+    const [mmr, setMmr] = React.useState<any>(null); // ✅ FIX
 
     const [selectedAct, setSelectedAct] = React.useState('all');
     const [searchError, setSearchError] = React.useState<string | null>(null);
 
     const showHeaderSearch = currentPlayer !== null;
 
-    /* =========================================
-       Load player from URL
-    ========================================= */
-
+    /* Load from URL */
     React.useEffect(() => {
         const fromUrl = parsePlayerFromUrl();
-        if (fromUrl) {
-            setCurrentPlayer(fromUrl);
-        }
+        if (fromUrl) setCurrentPlayer(fromUrl);
     }, []);
 
-    /* =========================================
-       Fetch Profile
-    ========================================= */
-
+    /* Fetch Profile */
     React.useEffect(() => {
 
         if (!currentPlayer) return;
 
         const fetchProfile = async () => {
-
             setProfile(null);
             setSearchError(null);
 
             try {
-
                 const res = await fetch(
                     `${API_BASE_URL}/account/${encodeURIComponent(currentPlayer.name)}/${encodeURIComponent(currentPlayer.tag)}`
                 );
 
-                if (!res.ok) throw new Error("Player not found");
+                if (!res.ok) throw new Error();
 
                 const json = await res.json();
                 setProfile(json.data);
 
             } catch {
-
                 setSearchError("Player not found");
                 setProfile(null);
-
             }
-
         };
 
         fetchProfile();
 
     }, [currentPlayer]);
 
-    /* =========================================
-       Fetch Stats
-    ========================================= */
-
+    /* Fetch Stats */
     React.useEffect(() => {
 
         if (!currentPlayer) return;
@@ -222,7 +200,6 @@ export default function App() {
             setStats(null);
 
             try {
-
                 const res = await fetch(
                     `${API_BASE_URL}/stats/${region}/${encodeURIComponent(currentPlayer.name)}/${encodeURIComponent(currentPlayer.tag)}?seasonId=${selectedAct}`
                 );
@@ -230,7 +207,6 @@ export default function App() {
                 if (!res.ok) return;
 
                 const json = await res.json();
-                console.log("STATS RESPONSE:", json);
                 setStats(json.data);
 
             } catch {}
@@ -241,16 +217,38 @@ export default function App() {
 
     }, [currentPlayer, selectedAct]);
 
-    /* =========================================
-       Search
-    ========================================= */
+    /* ✅ Fetch MMR */
+    React.useEffect(() => {
 
+        if (!currentPlayer) return;
+
+        const fetchMMR = async () => {
+
+            setMmr(null);
+
+            try {
+                const res = await fetch(
+                    `${API_BASE_URL}/mmr/${region}/${encodeURIComponent(currentPlayer.name)}/${encodeURIComponent(currentPlayer.tag)}`
+                );
+
+                if (!res.ok) return;
+
+                const json = await res.json();
+                setMmr(json.data);
+
+            } catch {}
+
+        };
+
+        fetchMMR();
+
+    }, [currentPlayer, selectedAct]); // ✅ ADD selectedAct
+
+    /* Search */
     const handleSearch = (e: React.FormEvent) => {
-
         e.preventDefault();
 
         const parsed = parsePlayerQuery(searchQuery);
-
         if (!parsed) {
             setSearchError("Invalid format. Use Player#Tag");
             return;
@@ -260,136 +258,110 @@ export default function App() {
         setSearchQuery('');
         setSearchError(null);
 
-        const newPath = `/id/${encodeURIComponent(parsed.name)}_${encodeURIComponent(parsed.tag)}`;
-        window.history.pushState(null, '', newPath);
-
+        window.history.pushState(null, '', `/id/${parsed.name}_${parsed.tag}`);
     };
 
     const handleLandingSearch = (query: string) => {
-
         const parsed = parsePlayerQuery(query);
-
         if (!parsed) {
             setSearchError("Invalid format. Use Player#Tag");
             return;
         }
 
         setCurrentPlayer(parsed);
-        setSearchError(null);
-
-        const newPath = `/id/${encodeURIComponent(parsed.name)}_${encodeURIComponent(parsed.tag)}`;
-        window.history.pushState(null, '', newPath);
-
+        window.history.pushState(null, '', `/id/${parsed.name}_${parsed.tag}`);
     };
-
-    /* =========================================
-       Derived
-    ========================================= */
 
     const isProfileLoading = currentPlayer !== null && profile === null && !searchError;
 
     const defaultTierId = "03621f52-342b-cf4e-4f86-9350a49c6d04";
-    const profileAny = profile as any || {};
 
-    const peakTierIdx = profileAny.peak_tier_index ?? profileAny.peak_tier ?? 27;
-    const currentTierIdx = profileAny.current_tier_index ?? profileAny.currenttier ?? 27;
+    const seasonData = mmr?.by_season;
+
+// ✅ map UUID -> Henrik key
+    const henrikAct = selectedAct !== "all" ? ACT_MAP[selectedAct] : null;
+
+// ✅ CURRENT RANK (per act)
+    let currentTierIdx = 0;
+
+    if (henrikAct && seasonData?.[henrikAct]) {
+        currentTierIdx = seasonData[henrikAct].final_rank;
+    } else {
+        currentTierIdx = mmr?.current_data?.currenttier ?? 0;
+    }
+
+// ✅ PEAK RANK (global)
+    const peakTierIdx = mmr?.highest_rank?.tier ?? 0;
+
+// ✅ ICONS
+    const currentIconUrl =
+        henrikAct && seasonData?.[henrikAct]
+            ? `https://media.valorant-api.com/competitivetiers/${defaultTierId}/${currentTierIdx}/smallicon.png`
+            : mmr?.current_data?.images?.small;
 
     const peakIconUrl =
-        `https://media.valorant-api.com/competitivetiers/${defaultTierId}/${peakTierIdx}/smallicon.png`;
+        peakTierIdx > 0
+            ? `https://media.valorant-api.com/competitivetiers/${defaultTierId}/${peakTierIdx}/smallicon.png`
+            : null;
 
-    const currentIconUrl =
-        `https://media.valorant-api.com/competitivetiers/${defaultTierId}/${currentTierIdx}/smallicon.png`;
+// ✅ WINRATE (per act)
+    let winrate = 0;
 
-    const winrate =
-        profileAny.winrate ??
-        profileAny.wl?.winrate ??
-        56.3;
+    if (henrikAct && seasonData?.[henrikAct]) {
+        const season = seasonData[henrikAct];
 
-    /* =========================================
-       UI
-    ========================================= */
+        if (season.number_of_games > 0) {
+            winrate = (season.wins / season.number_of_games) * 100;
+        }
+    } else if (seasonData) {
+        let totalWins = 0;
+        let totalGames = 0;
 
+        Object.values(seasonData).forEach((s: any) => {
+            totalWins += s.wins || 0;
+            totalGames += s.number_of_games || 0;
+        });
+
+        if (totalGames > 0) {
+            winrate = (totalWins / totalGames) * 100;
+        }
+    }
+
+    /* UI */
     return (
-
         <div className="min-h-screen bg-[#0a0a0a] text-white">
 
-            {/* HEADER */}
-
             <header className="border-b border-[#1a1a1a] bg-[#0f0f0f]">
-
                 <div className="max-w-7xl mx-auto px-6 py-4">
-
                     <div className="flex items-center justify-between">
-
                         <div className="flex items-center gap-3">
                             <Target className="w-8 h-8 text-[#4a7cff]" />
                             <h1>VALSTATS.COM</h1>
                         </div>
 
                         {showHeaderSearch && (
-
                             <form onSubmit={handleSearch} className="flex items-center gap-2">
-
-                                <div className="relative">
-
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-
-                                    <input
-                                        value={searchQuery}
-                                        onChange={(e) => {
-                                            setSearchQuery(e.target.value);
-                                            setSearchError(null);
-                                        }}
-                                        placeholder="Search player (Name#Tag)"
-                                        className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg pl-10 pr-4 py-2 w-64"
-                                    />
-
-                                </div>
-
-                                <button
-                                    type="submit"
-                                    className="px-4 py-2 bg-[#4a7cff] rounded-lg"
-                                >
-                                    Search
-                                </button>
-
+                                <input
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    placeholder="Search player (Name#Tag)"
+                                    className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-4 py-2 w-64"
+                                />
+                                <button className="px-4 py-2 bg-[#4a7cff] rounded-lg">Search</button>
                             </form>
-
                         )}
-
                     </div>
-
-                    {searchError && (
-                        <div className="mt-2 text-[#f87171] text-sm">
-                            {searchError}
-                        </div>
-                    )}
-
                 </div>
-
             </header>
-
-            {/* CONTENT */}
 
             <main className="max-w-7xl mx-auto px-6 py-8">
 
                 {!currentPlayer && (
-
-                    <div className="flex justify-center">
-
-                        <div className="w-full max-w-3xl">
-                            <PlayerSearch onSearch={handleLandingSearch} />
-                        </div>
-
-                    </div>
-
+                    <PlayerSearch onSearch={handleLandingSearch} />
                 )}
 
                 {currentPlayer && (
-
                     <div className="space-y-6">
-
-                        {/* Profile */}
 
                         <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-lg p-6">
 
@@ -400,52 +372,45 @@ export default function App() {
                                     <div className="w-16 h-16 rounded-lg overflow-hidden">
 
                                         {isProfileLoading ? (
-
                                             <Skeleton className="w-16 h-16 rounded-lg bg-[#2a2a2a]" />
-
                                         ) : profile?.card?.small ? (
-
                                             <img
                                                 src={profile.card.small}
                                                 alt={profile.name}
                                                 className="w-16 h-16 object-cover"
                                             />
-
                                         ) : null}
 
                                     </div>
 
                                     <div>
-
-                                        {isProfileLoading ? (
-
-                                            <Skeleton className="h-6 w-32 bg-[#2a2a2a]" />
-
-                                        ) : (
-
-                                            <>
-                                                <h2>{profile?.name}</h2>
-                                                <p className="text-gray-400">#{profile?.tag}</p>
-                                            </>
-
-                                        )}
-
+                                        <h2>{profile?.name}</h2>
+                                        <p className="text-gray-400">#{profile?.tag}</p>
                                     </div>
 
                                 </div>
 
                                 <div className="flex items-center gap-8">
 
+                                    {/* Peak Rank */}
                                     <div className="text-center">
                                         <div className="text-gray-400 mb-2">Peak Rank</div>
-                                        <img src={peakIconUrl} className="w-16 h-16" />
+                                        {peakIconUrl && (
+                                            <img src={peakIconUrl} className="w-16 h-16" />
+                                        )}
                                     </div>
 
+                                    {/* Current Rank */}
                                     <div className="text-center">
-                                        <div className="text-gray-400 mb-2">Current Rank</div>
-                                        <img src={currentIconUrl} className="w-16 h-16" />
+                                        <div className="text-gray-400 mb-2">
+                                            {selectedAct === "all" ? "Current Rank" : "Act Rank"}
+                                        </div>
+                                        {currentIconUrl && (
+                                            <img src={currentIconUrl} className="w-16 h-16" />
+                                        )}
                                     </div>
 
+                                    {/* Winrate */}
                                     <div className="text-center">
                                         <div className="text-gray-400 mb-2">Winrate</div>
                                         <CircularProgress percentage={Number(winrate)} />
@@ -455,8 +420,8 @@ export default function App() {
 
                             </div>
 
+                            {/* ✅ ACT SELECTOR BACK */}
                             <div className="border-t border-[#1a1a1a] pt-4">
-
                                 <ActSelector
                                     selectedAct={selectedAct}
                                     onActChange={setSelectedAct}
@@ -464,36 +429,26 @@ export default function App() {
                                     name={currentPlayer.name}
                                     tag={currentPlayer.tag}
                                 />
-
                             </div>
 
                         </div>
 
-                        {/* Stats */}
-
                         <StatsOverview stats={stats} />
 
-                        {/* Matches */}
-
                         {profile?.puuid && (
-
                             <MatchHistory
                                 puuid={profile.puuid}
                                 playerName={currentPlayer.name}
                                 playerTag={currentPlayer.tag}
                                 selectedAct={selectedAct}
                             />
-
                         )}
 
                     </div>
-
                 )}
 
             </main>
 
         </div>
-
     );
-
 }

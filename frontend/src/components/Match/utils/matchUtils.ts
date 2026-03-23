@@ -1,4 +1,4 @@
-export const API_BASE_URL = "http://localhost:63252/api/valorant";
+export const API_BASE_URL = "http://localhost:62460/api/valorant";
 
 export const INITIAL_MATCHES_SIZE = 15;
 export const LOAD_MORE_SIZE = 10;

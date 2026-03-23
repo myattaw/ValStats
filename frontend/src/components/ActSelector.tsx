@@ -50,7 +50,7 @@ export function ActSelector({
 
                 const data = await res.json();
 
-// ✅ SORT ACTS HERE
+                // ✅ SORT ACTS HERE
                 const sorted = data.sort((a: Act, b: Act) => {
                     const parse = (val: string) => {
                         const match = val.match(/e(\d+)a(\d+)/);
@@ -97,7 +97,7 @@ export function ActSelector({
     }, [region, name, tag]);
 
     return (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 py-2">
             <div className="flex items-center gap-2 text-gray-400">
                 <Calendar className="w-4 h-4"/>
                 <span className="text-sm">Act Filter:</span>

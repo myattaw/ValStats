@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Search, Target } from 'lucide-react';
+import { Target } from 'lucide-react';
 import { StatsOverview } from './components/StatsOverview';
 import { MatchHistory } from './components/MatchHistory';
 import { ActSelector } from './components/ActSelector';
@@ -80,56 +80,49 @@ const CircularProgress: React.FC<{ percentage: number; size?: number; stroke?: n
                                                                                                 stroke = 8
                                                                                             }) => {
 
+    const gradientId = React.useId();
+
     const clamped = Math.max(0, Math.min(100, Number(percentage) || 0));
+    const safePercentage = Math.min(99.9, clamped);
+
     const radius = (size - stroke) / 2;
     const circumference = 2 * Math.PI * radius;
-    const halfCirc = circumference / 2;
-    const offset = halfCirc * (1 - clamped / 100);
+    const offset = circumference * (1 - safePercentage / 100);
 
-    const fontSize = Math.max(12, Math.round(size * 0.20));
+    const fontSize = Math.max(9, Math.round(size * 0.32));
 
     return (
         <div style={{ width: size, height: size }} className="flex items-center justify-center">
             <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
                 <defs>
-                    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
                         <stop offset="0%" stopColor="#4a7cff" />
                         <stop offset="100%" stopColor="#2d5acc" />
                     </linearGradient>
                 </defs>
 
-                <g transform={`translate(${size / 2}, ${size / 2}) rotate(180)`}>
+                <g transform={`translate(${size / 2}, ${size / 2}) rotate(-90)`}>
                     <circle
                         cx={0}
                         cy={0}
                         r={radius}
-                        stroke="#111"
+                        stroke="#1f1f1f"
                         strokeWidth={stroke}
                         fill="transparent"
-                        strokeDasharray={`${halfCirc} ${circumference}`}
                     />
                     <circle
                         cx={0}
                         cy={0}
                         r={radius}
-                        stroke="url(#grad)"
+                        stroke={`url(#${gradientId})`}
                         strokeWidth={stroke}
                         fill="transparent"
-                        strokeDasharray={`${halfCirc} ${circumference}`}
+                        strokeDasharray={circumference}
                         strokeDashoffset={offset}
+                        strokeLinecap="round"
                     />
                 </g>
 
-                <text
-                    x="50%"
-                    y={size * 0.72}
-                    dominantBaseline="middle"
-                    textAnchor="middle"
-                    fontSize={fontSize}
-                    fill="#fff"
-                >
-                    {clamped.toFixed(1).replace(/\.0$/, '')}%
-                </text>
             </svg>
         </div>
     );
@@ -148,12 +141,39 @@ export default function App() {
 
     const [profile, setProfile] = React.useState<ProfileData | null>(null);
     const [stats, setStats] = React.useState<PlayerStats | null>(null);
-    const [mmr, setMmr] = React.useState<any>(null); // ✅ FIX
+    const [mmr, setMmr] = React.useState<any>(null);
 
     const [selectedAct, setSelectedAct] = React.useState('all');
     const [searchError, setSearchError] = React.useState<string | null>(null);
 
     const showHeaderSearch = currentPlayer !== null;
+
+    const StatItem: React.FC<{
+        label: string;
+        value?: React.ReactNode;
+        children?: React.ReactNode;
+    }> = ({ label, value, children }) => {
+        return (
+            <div className="flex items-center gap-3 rounded-md border border-[#1a1a1a] bg-[#0b0b0b] px-4 py-3 min-w-[200px]">
+
+                <div className="flex items-center justify-center w-10 h-10 shrink-0">
+                    {children}
+                </div>
+
+                <div className="leading-tight">
+                    <div className="text-[10px] uppercase tracking-wide text-gray-400">
+                        {label}
+                    </div>
+                    {value && (
+                        <div className="text-sm text-gray-200 font-medium whitespace-nowrap">
+                            {value}
+                        </div>
+                    )}
+                </div>
+
+            </div>
+        );
+    };
 
     /* Load from URL */
     React.useEffect(() => {
@@ -290,6 +310,8 @@ export default function App() {
         currentTierIdx = mmr?.current_data?.currenttier ?? 0;
     }
 
+
+
 // ✅ PEAK RANK (global)
     const peakTierIdx = mmr?.highest_rank?.tier ?? 0;
 
@@ -304,7 +326,16 @@ export default function App() {
             ? `https://media.valorant-api.com/competitivetiers/${defaultTierId}/${peakTierIdx}/smallicon.png`
             : null;
 
-// ✅ WINRATE (per act)
+
+    // Human-readable names (prevents the icons looking "floating" with no context)
+    const currentRankName =
+        (henrikAct && seasonData?.[henrikAct]?.final_rank_patched) ||
+        mmr?.current_data?.currenttierpatched ||
+        'Unranked';
+
+    const peakRankName = mmr?.highest_rank?.patched_tier || 'Unranked';
+
+    // ✅ WINRATE (per act)
     let winrate = 0;
 
     if (henrikAct && seasonData?.[henrikAct]) {
@@ -328,11 +359,13 @@ export default function App() {
     }
 
     /* UI */
+    const isMmrLoading = currentPlayer !== null && mmr === null;
+
     return (
         <div className="min-h-screen bg-[#0a0a0a] text-white">
 
             <header className="border-b border-[#1a1a1a] bg-[#0f0f0f]">
-                <div className="max-w-7xl mx-auto px-6 py-4">
+                <div className="max-w-7xl mx-auto px-6 py-2">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                             <Target className="w-8 h-8 text-[#4a7cff]" />
@@ -365,63 +398,124 @@ export default function App() {
 
                         <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-lg p-6">
 
-                            <div className="flex items-center justify-between mb-6">
+                            <div className="flex flex-col gap-4">
 
-                                <div className="flex items-center gap-4">
+                                {/* TOP ROW */}
+                                <div className="flex items-center justify-between w-full">
 
-                                    <div className="w-16 h-16 rounded-lg overflow-hidden">
+                                    {/* LEFT: PLAYER */}
+                                    <div className="flex items-center gap-4">
 
-                                        {isProfileLoading ? (
-                                            <Skeleton className="w-16 h-16 rounded-lg bg-[#2a2a2a]" />
-                                        ) : profile?.card?.small ? (
-                                            <img
-                                                src={profile.card.small}
-                                                alt={profile.name}
-                                                className="w-16 h-16 object-cover"
-                                            />
-                                        ) : null}
+                                        <div className="w-16 h-16 rounded-lg overflow-hidden">
+                                            {isProfileLoading ? (
+                                                <Skeleton className="w-16 h-16 rounded-lg bg-[#2a2a2a]" />
+                                            ) : profile?.card?.small ? (
+                                                <img
+                                                    src={profile.card.small}
+                                                    alt={profile.name}
+                                                    className="w-16 h-16 object-cover"
+                                                />
+                                            ) : null}
+                                        </div>
 
+                                        <div>
+                                            <h2 className="text-lg font-semibold">{profile?.name}</h2>
+                                            <p className="text-gray-400 text-sm">#{profile?.tag}</p>
+                                        </div>
                                     </div>
 
-                                    <div>
-                                        <h2>{profile?.name}</h2>
-                                        <p className="text-gray-400">#{profile?.tag}</p>
+                                    {/* RIGHT: STATS */}
+                                    <div className="hidden md:flex items-center gap-4">
+
+                                        <StatItem label="Peak" value={!isMmrLoading ? peakRankName : undefined}>
+                                            {isMmrLoading ? (
+                                                <Skeleton className="w-7 h-7 rounded-md bg-[#2a2a2a]" />
+                                            ) : peakIconUrl ? (
+                                                <img
+                                                    src={peakIconUrl}
+                                                    alt={peakRankName}
+                                                    className="w-7 h-7 object-contain"
+                                                />
+                                            ) : (
+                                                <div className="text-xs text-gray-500" aria-label="No peak rank">—</div>
+                                            )}
+                                        </StatItem>
+
+                                        <StatItem
+                                            label={selectedAct === 'all' ? 'Current' : 'Act'}
+                                            value={!isMmrLoading ? currentRankName : undefined}
+                                        >
+                                            {isMmrLoading ? (
+                                                <Skeleton className="w-7 h-7 rounded-md bg-[#2a2a2a]" />
+                                            ) : currentIconUrl ? (
+                                                <img
+                                                    src={currentIconUrl}
+                                                    alt={currentRankName}
+                                                    className="w-7 h-7 object-contain"
+                                                />
+                                            ) : (
+                                                <div className="text-xs text-gray-500">—</div>
+                                            )}
+                                        </StatItem>
+
+                                        <StatItem
+                                            label="Winrate"
+                                            value={!isMmrLoading ? `${Number(winrate).toFixed(0)}%` : undefined}
+                                        >
+                                            {isMmrLoading ? (
+                                                <Skeleton className="w-7 h-7 rounded-full bg-[#2a2a2a]" />
+                                            ) : (
+                                                <CircularProgress percentage={Number(winrate)} size={34} stroke={5} />
+                                            )}
+                                        </StatItem>
+
                                     </div>
 
                                 </div>
 
-                                <div className="flex items-center gap-8">
+                                {/* MOBILE STATS */}
+                                <div className="flex md:hidden flex-wrap items-center gap-3">
 
-                                    {/* Peak Rank */}
-                                    <div className="text-center">
-                                        <div className="text-gray-400 mb-2">Peak Rank</div>
-                                        {peakIconUrl && (
-                                            <img src={peakIconUrl} className="w-16 h-16" />
+                                    <StatItem label="Peak" value={!isMmrLoading ? peakRankName : undefined}>
+                                        {isMmrLoading ? (
+                                            <Skeleton className="w-7 h-7 rounded-md bg-[#2a2a2a]" />
+                                        ) : peakIconUrl ? (
+                                            <img src={peakIconUrl} className="w-7 h-7 object-contain" />
+                                        ) : (
+                                            <div className="text-xs text-gray-500">—</div>
                                         )}
-                                    </div>
+                                    </StatItem>
 
-                                    {/* Current Rank */}
-                                    <div className="text-center">
-                                        <div className="text-gray-400 mb-2">
-                                            {selectedAct === "all" ? "Current Rank" : "Act Rank"}
-                                        </div>
-                                        {currentIconUrl && (
-                                            <img src={currentIconUrl} className="w-16 h-16" />
+                                    <StatItem
+                                        label={selectedAct === 'all' ? 'Current' : 'Act'}
+                                        value={!isMmrLoading ? currentRankName : undefined}
+                                    >
+                                        {isMmrLoading ? (
+                                            <Skeleton className="w-7 h-7 rounded-md bg-[#2a2a2a]" />
+                                        ) : currentIconUrl ? (
+                                            <img src={currentIconUrl} className="w-7 h-7 object-contain" />
+                                        ) : (
+                                            <div className="text-xs text-gray-500">—</div>
                                         )}
-                                    </div>
+                                    </StatItem>
 
-                                    {/* Winrate */}
-                                    <div className="text-center">
-                                        <div className="text-gray-400 mb-2">Winrate</div>
-                                        <CircularProgress percentage={Number(winrate)} />
-                                    </div>
+                                    <StatItem
+                                        label="Winrate"
+                                        value={!isMmrLoading ? `${Number(winrate).toFixed(0)}%` : undefined}
+                                    >
+                                        {isMmrLoading ? (
+                                            <Skeleton className="w-7 h-7 rounded-full bg-[#2a2a2a]" />
+                                        ) : (
+                                            <CircularProgress percentage={Number(winrate)} size={34} stroke={5} />
+                                        )}
+                                    </StatItem>
 
                                 </div>
 
                             </div>
 
-                            {/* ✅ ACT SELECTOR BACK */}
-                            <div className="border-t border-[#1a1a1a] pt-4">
+                            {/* ACT SELECTOR */}
+                            <div className="border-t border-[#1a1a1a] pt-6 mt-4">
                                 <ActSelector
                                     selectedAct={selectedAct}
                                     onActChange={setSelectedAct}
@@ -432,6 +526,7 @@ export default function App() {
                             </div>
 
                         </div>
+
 
                         <StatsOverview stats={stats} />
 

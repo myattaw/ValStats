@@ -16,7 +16,7 @@ interface Act {
 
 interface ActSelectorProps {
     selectedAct: string;
-    onActChange: (act: string) => void;
+    onActChange: (id: string, label: string) => void;
     region: string;
     name: string;
     tag: string;
@@ -31,7 +31,7 @@ export function ActSelector({
                             }: ActSelectorProps) {
 
     const [acts, setActs] = useState<Act[]>([
-        { value: 'all', label: 'All Acts' }
+        { value: 'all', label: 'Current' } // cleaner than "All Acts"
     ]);
 
     // Fetch acts dynamically
@@ -44,13 +44,10 @@ export function ActSelector({
                     `${API_BASE_URL}/acts/${region}/${name}/${tag}`
                 );
 
-                if (!res.ok) {
-                    throw new Error("Failed to fetch acts");
-                }
+                if (!res.ok) throw new Error("Failed to fetch acts");
 
                 const data = await res.json();
 
-                // ✅ SORT ACTS HERE
                 const sorted = data.sort((a: Act, b: Act) => {
                     const parse = (val: string) => {
                         const match = val.match(/e(\d+)a(\d+)/);
@@ -62,7 +59,6 @@ export function ActSelector({
                     const A = parse(a.value);
                     const B = parse(b.value);
 
-                    // newest first
                     if (A.episode !== B.episode) {
                         return B.episode - A.episode;
                     }
@@ -72,7 +68,7 @@ export function ActSelector({
 
                 if (!cancelled) {
                     setActs([
-                        { value: 'all', label: 'All Acts' },
+                        { value: 'all', label: 'Current' },
                         ...sorted
                     ]);
                 }
@@ -91,21 +87,32 @@ export function ActSelector({
         };
     }, [region, name, tag]);
 
-    // Reset to "all" when player changes
+    // Reset to default when player changes
     useEffect(() => {
-        onActChange('all');
+        onActChange('all', 'Current');
     }, [region, name, tag]);
 
     return (
         <div className="flex items-center gap-3 py-2">
             <div className="flex items-center gap-2 text-gray-400">
-                <Calendar className="w-4 h-4"/>
+                <Calendar className="w-4 h-4" />
                 <span className="text-sm">Act Filter:</span>
             </div>
 
-            <Select value={selectedAct} onValueChange={onActChange}>
-                <SelectTrigger className="w-[180px] bg-[#1a1a1a] border-[#2a2a2a] text-white hover:bg-[#242424] focus:ring-[#4a7cff] focus:ring-offset-0">
-                    <SelectValue placeholder="Select Act" />
+            <Select
+                value={selectedAct}
+                onValueChange={(value) => {
+                    const selected = acts.find(a => a.value === value);
+                    onActChange(value, selected?.label || "Current");
+                }}
+            >
+                <SelectTrigger
+                    className="w-[180px] text-sm bg-[#1a1a1a] border-[#2a2a2a] text-white hover:bg-[#242424] focus:ring-[#4a7cff] focus:ring-offset-0"
+                >
+                    <SelectValue
+                        placeholder="Select Act"
+                        className="truncate text-sm"
+                    />
                 </SelectTrigger>
 
                 <SelectContent className="bg-[#1a1a1a] border-[#2a2a2a]">
@@ -113,7 +120,7 @@ export function ActSelector({
                         <SelectItem
                             key={act.value}
                             value={act.value}
-                            className="text-white hover:bg-[#242424] focus:bg-[#242424] focus:text-white"
+                            className="text-sm text-white hover:bg-[#242424] focus:bg-[#242424] focus:text-white"
                         >
                             {act.label}
                         </SelectItem>

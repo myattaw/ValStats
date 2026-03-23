@@ -143,7 +143,14 @@ export default function App() {
     const [stats, setStats] = React.useState<PlayerStats | null>(null);
     const [mmr, setMmr] = React.useState<any>(null);
 
-    const [selectedAct, setSelectedAct] = React.useState('all');
+    const [selectedAct, setSelectedAct] = React.useState<{
+        id: string;
+        label: string;
+    }>({
+        id: "all",
+        label: "Current"
+    });
+
     const [searchError, setSearchError] = React.useState<string | null>(null);
 
     const showHeaderSearch = currentPlayer !== null;
@@ -221,7 +228,7 @@ export default function App() {
 
             try {
                 const res = await fetch(
-                    `${API_BASE_URL}/stats/${region}/${encodeURIComponent(currentPlayer.name)}/${encodeURIComponent(currentPlayer.tag)}?seasonId=${selectedAct}`
+                    `${API_BASE_URL}/stats/${region}/${encodeURIComponent(currentPlayer.name)}/${encodeURIComponent(currentPlayer.tag)}?seasonId=${selectedAct.id}`
                 );
 
                 if (!res.ok) return;
@@ -235,7 +242,7 @@ export default function App() {
 
         fetchStats();
 
-    }, [currentPlayer, selectedAct]);
+    }, [currentPlayer, selectedAct.id]);
 
     /* ✅ Fetch MMR */
     React.useEffect(() => {
@@ -262,7 +269,15 @@ export default function App() {
 
         fetchMMR();
 
-    }, [currentPlayer, selectedAct]); // ✅ ADD selectedAct
+    }, [currentPlayer, selectedAct.id]); // ✅ ADD selectedAct
+
+    const shortenLabel = (label: string) => {
+        const match = label.match(/Episode\s*(\d+)\s*Act\s*(\d+)/i);
+        if (match) {
+            return `E${match[1]} A${match[2]}`;
+        }
+        return label;
+    };
 
     /* Search */
     const handleSearch = (e: React.FormEvent) => {
@@ -299,7 +314,7 @@ export default function App() {
     const seasonData = mmr?.by_season;
 
 // ✅ map UUID -> Henrik key
-    const henrikAct = selectedAct !== "all" ? ACT_MAP[selectedAct] : null;
+    const henrikAct = selectedAct.id !== "all" ? ACT_MAP[selectedAct.id] : null;
 
 // ✅ CURRENT RANK (per act)
     let currentTierIdx = 0;
@@ -442,7 +457,7 @@ export default function App() {
                                         </StatItem>
 
                                         <StatItem
-                                            label={selectedAct === 'all' ? 'Current' : 'Act'}
+                                            label={shortenLabel(selectedAct.label)}
                                             value={!isMmrLoading ? currentRankName : undefined}
                                         >
                                             {isMmrLoading ? (
@@ -487,7 +502,7 @@ export default function App() {
                                     </StatItem>
 
                                     <StatItem
-                                        label={selectedAct === 'all' ? 'Current' : 'Act'}
+                                        label={shortenLabel(selectedAct.label)}
                                         value={!isMmrLoading ? currentRankName : undefined}
                                     >
                                         {isMmrLoading ? (
@@ -517,8 +532,10 @@ export default function App() {
                             {/* ACT SELECTOR */}
                             <div className="border-t border-[#1a1a1a] pt-6 mt-4">
                                 <ActSelector
-                                    selectedAct={selectedAct}
-                                    onActChange={setSelectedAct}
+                                    selectedAct={selectedAct.id}
+                                    onActChange={(id, label) => {
+                                        setSelectedAct({ id, label });
+                                    }}
                                     region={region}
                                     name={currentPlayer.name}
                                     tag={currentPlayer.tag}
@@ -535,7 +552,7 @@ export default function App() {
                                 puuid={profile.puuid}
                                 playerName={currentPlayer.name}
                                 playerTag={currentPlayer.tag}
-                                selectedAct={selectedAct}
+                                selectedAct={selectedAct.id}
                             />
                         )}
 

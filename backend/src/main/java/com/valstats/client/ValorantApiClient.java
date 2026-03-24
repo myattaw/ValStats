@@ -22,6 +22,17 @@ public interface ValorantApiClient {
             @Header("Authorization") String authorization
     );
 
+    @Get("/valorant/v3/matches/{region}/{name}/{tag}")
+    Map<String, Object> getMatches(
+            String region,
+            String name,
+            String tag,
+            @QueryValue int size,
+            @QueryValue int start,
+            @QueryValue String mode,
+            @Header("Authorization") String apiKey
+    );
+
     @Get("/valorant/v1/stored-matches/{region}/{name}/{tag}")
     Map<String, Object> getStoredMatches(
             @PathVariable String region,

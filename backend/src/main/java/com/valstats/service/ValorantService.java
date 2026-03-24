@@ -40,6 +40,7 @@ public class ValorantService {
     private static final Map<String, String> SEASON_MAP = new LinkedHashMap<>();
     private static final Map<String, String> SEASON_TO_HENRIK = new HashMap<>();
 
+    //TODO: automatically generate these later
     static {
         SEASON_MAP.put("9d85c932-4820-c060-09c3-668636d4df1b", "Episode 11 Act 2");
         SEASON_MAP.put("3ea2b318-423b-cf86-25da-7cbb0eefbe2d", "Episode 11 Act 1");
@@ -294,15 +295,6 @@ public class ValorantService {
             LOG.error("Failed to get MMR for {}#{}", name, tag, e);
             return errorResponse("Failed to load MMR");
         }
-    }
-
-    /**
-     * Update recently played matches for a player.
-     * This enforces a 5-minute cooldown to avoid excessive API calls.
-     */
-    public Map<String, Object> updateRecentMatches(String region, String name, String tag) {
-        matchDataService.updateRecentMatches(region, name, tag);
-        return Map.of("status", 200, "message", "Recently played matches updated");
     }
 
     /**

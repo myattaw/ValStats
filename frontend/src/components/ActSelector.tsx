@@ -6,7 +6,8 @@ import {
     SelectItem,
     SelectTrigger,
     SelectValue,
-} from './ui/select';
+} from "./ui/select";
+
 import { API_BASE_URL } from "./Match/utils/matchUtils";
 
 interface Act {
@@ -115,7 +116,7 @@ export function ActSelector({
                     />
                 </SelectTrigger>
 
-                <SelectContent className="bg-[#1a1a1a] border-[#2a2a2a]">
+                <SelectContent compact className="bg-[#1a1a1a] border-[#2a2a2a]">
                     {acts.map((act) => (
                         <SelectItem
                             key={act.value}

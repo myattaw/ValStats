@@ -1,5 +1,6 @@
 package com.valstats.service.match;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.valstats.client.ValorantApiClient;
 import com.valstats.service.DynamoDbService;
 import jakarta.inject.Singleton;
@@ -47,20 +48,17 @@ public class MatchDataService {
             String name,
             String tag,
             int size,
-            int page, // (ignored for GSI, kept for compatibility)
+            String lastKeyJson,
             String act
     ) {
-        // =========================
-        // 1. CHECK CACHE (FIXED)
-        // =========================
-        QueryResponse check = dynamoDbService.getMatchesFromGSI(puuid, 1, null);
-        boolean hasAnyMatches = !check.items().isEmpty();
+        // 🔥 Check how many matches we actually have
+        QueryResponse check = dynamoDbService.getMatchesFromGSI(puuid, 50, null);
+        int currentCount = check.items().size();
 
-        // =========================
-        // 2. BACKFILL IF EMPTY
-        // =========================
-        if (!hasAnyMatches) {
-            LOG.info("First-time load for player {}. Backfilling...", puuid);
+        boolean needsBackfill = currentCount < 50;
+
+        if (needsBackfill) {
+            LOG.info("Backfilling matches for player {} (currently {} matches)...", puuid, currentCount);
 
             Map<String, Object> storedMatches =
                     apiClient.getStoredMatches(region, name, tag, 1000, 1, "competitive", apiKey);
@@ -73,53 +71,58 @@ public class MatchDataService {
                 matchProcessor.processStoredMatchSummary(match, puuid);
             }
 
+            // ✅ Always refresh MMR during backfill
             Map<String, Object> mmrHistory =
                     apiClient.getMMRHistory(region, name, tag, apiKey);
 
             cacheMMRHistory(puuid, mmrHistory);
         }
 
-        // =========================
-        // 3. FETCH MATCHES
-        // =========================
         List<Map<String, AttributeValue>> cachedMatches;
-        Map<String, AttributeValue> lastKey = null;
+        Map<String, AttributeValue> responseLastKey = null;
 
-        if (act != null && !"all".equals(act)) {
-            // ✅ SEASON FILTER (old logic still OK)
-            cachedMatches = dynamoDbService.getMatchesBySeason(puuid, act, size, page);
-
+        if (act != null && !"all".equalsIgnoreCase(act)) {
+            // season mode (still not cursor-based yet)
+            cachedMatches = dynamoDbService.getMatchesBySeason(puuid, act, size, 1);
         } else {
-            // 🔥 GSI QUERY (correct ordering)
+            Map<String, AttributeValue> exclusiveStartKey = parseLastKey(lastKeyJson);
+
             QueryResponse response = dynamoDbService.getMatchesFromGSI(
                     puuid,
                     size,
-                    null // TODO: replace with cursor later
+                    exclusiveStartKey
             );
 
             cachedMatches = response.items();
-            lastKey = response.lastEvaluatedKey();
+            responseLastKey = response.lastEvaluatedKey();
         }
 
-        // =========================
-        // 4. FETCH MMR
-        // =========================
+        // ✅ Ensure MMR exists even if backfill didn't run
         List<Map<String, AttributeValue>> cachedMMR =
                 dynamoDbService.getMMRHistory(puuid);
 
-        // =========================
-        // 5. FORMAT RESPONSE
-        // =========================
+        if (cachedMMR.isEmpty()) {
+            LOG.info("MMR cache empty for {}. Fetching...", puuid);
+
+            Map<String, Object> mmrHistory =
+                    apiClient.getMMRHistory(region, name, tag, apiKey);
+
+            cacheMMRHistory(puuid, mmrHistory);
+
+            cachedMMR = dynamoDbService.getMMRHistory(puuid);
+        }
+
         Map<String, Object> result =
                 responseFormatter.formatCachedMatches(cachedMatches, cachedMMR);
 
-        // 🔥 IMPORTANT: return cursor for frontend
-        if (lastKey != null && !lastKey.isEmpty()) {
-            Map<String, Object> safeLastKey = convertLastKey(lastKey);
-
-            if (safeLastKey != null) {
-                result.put("lastKey", safeLastKey);
-            }
+        if (act != null && !"all".equalsIgnoreCase(act)) {
+            result.put("lastKey", null);
+        } else {
+            result.put("lastKey",
+                    (responseLastKey != null && !responseLastKey.isEmpty())
+                            ? convertLastKey(responseLastKey)
+                            : null
+            );
         }
 
         return result;
@@ -141,6 +144,37 @@ public class MatchDataService {
         }
 
         return result;
+    }
+
+    private Map<String, AttributeValue> parseLastKey(String json) {
+        if (json == null || json.isBlank()) return null;
+
+        try {
+            String decoded = java.net.URLDecoder.decode(json, java.nio.charset.StandardCharsets.UTF_8);
+
+            Map<String, Object> map = new ObjectMapper().readValue(
+                    decoded,
+                    new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {}
+            );
+
+            Map<String, AttributeValue> result = new HashMap<>();
+
+            for (Map.Entry<String, Object> entry : map.entrySet()) {
+                Object val = entry.getValue();
+
+                if (val instanceof Number) {
+                    result.put(entry.getKey(), AttributeValue.fromN(val.toString()));
+                } else {
+                    result.put(entry.getKey(), AttributeValue.fromS(val.toString()));
+                }
+            }
+
+            return result;
+
+        } catch (Exception e) {
+            LOG.error("Failed to parse lastKey: {}", json, e);
+            return null;
+        }
     }
 
     /**

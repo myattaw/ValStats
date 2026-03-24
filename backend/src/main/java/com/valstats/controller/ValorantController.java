@@ -4,6 +4,7 @@ import com.valstats.service.ValorantService;
 import io.micronaut.http.annotation.*;
 
 import java.util.Map;
+import java.util.Optional;
 
 @Controller("/api/valorant")
 public class ValorantController {
@@ -20,10 +21,17 @@ public class ValorantController {
             @PathVariable String name,
             @PathVariable String tag,
             @QueryValue(defaultValue = "10") Integer size,
-            @QueryValue(defaultValue = "1") Integer page,
+            @QueryValue Optional<String> lastKey, // ✅ NEW
             @QueryValue(defaultValue = "all") String act
     ) {
-        return valorantService.getUnifiedMatches(region, name, tag, size, page, act);
+        return valorantService.getUnifiedMatches(
+                region,
+                name,
+                tag,
+                size,
+                lastKey.orElse(null),
+                act
+        );
     }
 
     @Get("/account/{name}/{tag}")

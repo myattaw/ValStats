@@ -125,7 +125,7 @@ public class ValorantService {
             String name,
             String tag,
             int size,
-            int page,
+            String lastKey,
             String act
     ) {
         String puuid = resolvePuuid(name, tag, region);
@@ -133,7 +133,15 @@ public class ValorantService {
             return errorResponse("Player not found");
         }
 
-        return matchDataService.getPlayerMatches(puuid, region, name, tag, size, page, act);
+        return matchDataService.getPlayerMatches(
+                puuid,
+                region,
+                name,
+                tag,
+                size,
+                lastKey,
+                act
+        );
     }
 
     /**

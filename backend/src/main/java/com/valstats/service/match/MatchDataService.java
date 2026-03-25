@@ -19,6 +19,8 @@ import java.util.*;
 public class MatchDataService {
 
     private static final Logger LOG = LoggerFactory.getLogger(MatchDataService.class);
+    private static final int STORED_MATCH_PAGE_SIZE = 50;
+    private static final int MAX_STORED_MATCH_PAGES = 200;
 
     private final DynamoDbService dynamoDbService;
     private final ValorantApiClient apiClient;
@@ -52,7 +54,6 @@ public class MatchDataService {
             String lastKeyJson,
             String act
     ) {
-        // 🔥 Check how many matches we actually have
         QueryResponse check = dynamoDbService.getMatchesFromGSI(puuid, 50, null);
         int currentCount = check.items().size();
 
@@ -64,22 +65,13 @@ public class MatchDataService {
         if (currentCount == 0) {
             LOG.info("Initial backfill for {}", puuid);
 
-            Map<String, Object> storedMatches =
-                    apiClient.getStoredMatches(region, name, tag, 1000, 1, "competitive", apiKey);
-
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> matches =
-                    (List<Map<String, Object>>) storedMatches.getOrDefault("data", Collections.emptyList());
-
-            for (Map<String, Object> match : matches) {
-                matchProcessor.processStoredMatchSummary(match, puuid);
-            }
+            syncStoredMatches(puuid, region, name, tag, STORED_MATCH_PAGE_SIZE);
 
             didSync = true;
 
         } else {
             // =========================
-            // 🔥 INCREMENTAL SYNC (5 min cooldown)
+            // 🔥 INCREMENTAL SYNC (stored-matches now)
             // =========================
             Optional<Long> lastUpdateTime =
                     dynamoDbService.getPlayerLastRecentMatchUpdate(region, name, tag);
@@ -87,10 +79,10 @@ public class MatchDataService {
             long now = System.currentTimeMillis() / 1000;
             long lastUpdate = lastUpdateTime.orElse(0L);
 
-            if (now - lastUpdate > 300) { // 5 minutes
-                LOG.info("Running incremental sync for {}#{}", name, tag);
+            if (now - lastUpdate > 300) {
+                LOG.info("Running stored-match sync for {}#{}", name, tag);
 
-                syncNewMatches(puuid, region, name, tag);
+                syncStoredMatches(puuid, region, name, tag, STORED_MATCH_PAGE_SIZE);
 
                 dynamoDbService.updatePlayerLastRecentMatchUpdate(region, name, tag);
                 didSync = true;
@@ -101,13 +93,12 @@ public class MatchDataService {
         }
 
         // =========================
-        // 🔥 FETCH MATCHES (GSI PAGINATION)
+        // 🔥 FETCH MATCHES (unchanged)
         // =========================
         List<Map<String, AttributeValue>> cachedMatches;
         Map<String, AttributeValue> responseLastKey = null;
 
         if (act != null && !"all".equalsIgnoreCase(act)) {
-            // season mode (still offset-based for now)
             cachedMatches = dynamoDbService.getMatchesBySeason(puuid, act, size, 1);
         } else {
             Map<String, AttributeValue> exclusiveStartKey = parseLastKey(lastKeyJson);
@@ -123,7 +114,7 @@ public class MatchDataService {
         }
 
         // =========================
-        // 🔥 ENSURE MMR IS FRESH
+        // 🔥 ENSURE MMR IS FRESH (unchanged)
         // =========================
         List<Map<String, AttributeValue>> cachedMMR =
                 dynamoDbService.getMMRHistory(puuid);
@@ -131,16 +122,20 @@ public class MatchDataService {
         if (cachedMMR.isEmpty() || didSync) {
             LOG.info("Refreshing MMR for {}", puuid);
 
-            Map<String, Object> mmrHistory =
-                    apiClient.getMMRHistory(region, name, tag, apiKey);
+            try {
+                Map<String, Object> mmrHistory =
+                        apiClient.getMMRHistory(region, name, tag, apiKey);
 
-            cacheMMRHistory(puuid, mmrHistory);
+                cacheMMRHistory(puuid, mmrHistory);
+            } catch (Exception e) {
+                LOG.warn("MMR refresh failed for {}#{}. Returning matches without fresh MMR.", name, tag, e);
+            }
 
             cachedMMR = dynamoDbService.getMMRHistory(puuid);
         }
 
         // =========================
-        // 🔥 FORMAT RESPONSE
+        // 🔥 FORMAT RESPONSE (unchanged)
         // =========================
         Map<String, Object> result =
                 responseFormatter.formatCachedMatches(cachedMatches, cachedMMR);
@@ -297,7 +292,7 @@ public class MatchDataService {
 
                 // 🔥 NEW MATCH
                 LOG.info("Storing NEW match {}", matchId);
-                matchProcessor.processStoredMatchSummary(match, puuid);
+                matchProcessor.processRecentMatchSummary(match, puuid);
             }
 
             // stop if no more matches available
@@ -312,12 +307,122 @@ public class MatchDataService {
         LOG.info("Incremental sync complete for {}#{}", name, tag);
     }
 
+    public void syncStoredMatches(String puuid, String region, String name, String tag, int batchSize) {
+
+        LOG.info("Starting stored-match sync for {}#{}", name, tag);
+
+        // 🔥 Get latest stored timestamp
+        QueryResponse latest = dynamoDbService.getMatchesFromGSI(puuid, 1, null);
+
+        long latestTimestamp = 0;
+
+        if (!latest.items().isEmpty()) {
+            latestTimestamp = Long.parseLong(
+                    latest.items().get(0).get("gameStart").n()
+            );
+        }
+
+        LOG.info("Latest stored timestamp: {}", latestTimestamp);
+
+        int page = 1;
+        boolean foundExisting = false;
+        int processed = 0;
+        int skipped = 0;
+        String previousFirstMatchId = null;
+
+        while (!foundExisting && page <= MAX_STORED_MATCH_PAGES) {
+
+            Map<String, Object> response;
+            try {
+                response = apiClient.getStoredMatches(region, name, tag, batchSize, page, "competitive", apiKey);
+            } catch (Exception e) {
+                LOG.error("Failed stored-match request page={} size={} for {}#{}", page, batchSize, name, tag, e);
+                break;
+            }
+
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> matches =
+                    (List<Map<String, Object>>) response.getOrDefault("data", Collections.emptyList());
+
+            if (matches.isEmpty()) {
+                LOG.info("Stored-match sync reached end at page {} for {}#{}", page, name, tag);
+                break;
+            }
+
+            String currentFirstMatchId = extractStoredMatchId(matches.get(0));
+            if (previousFirstMatchId != null && previousFirstMatchId.equals(currentFirstMatchId)) {
+                LOG.warn("Stored-match API repeated page data at page {} for {}#{}. Stopping to avoid loop.", page, name, tag);
+                break;
+            }
+            previousFirstMatchId = currentFirstMatchId;
+
+            for (Map<String, Object> match : matches) {
+
+                Map<String, Object> meta = (Map<String, Object>) match.get("meta");
+
+                if (meta == null) {
+                    skipped++;
+                    continue;
+                }
+
+                Object tsObj = meta.get("started_at");
+                String matchId = Objects.toString(meta.get("id"), "");
+
+                if (tsObj == null || matchId.isBlank()) {
+                    skipped++;
+                    continue;
+                }
+
+                long matchTimestamp = parseTimestamp(tsObj);
+                if (matchTimestamp < 0) {
+                    skipped++;
+                    continue;
+                }
+
+                if (latestTimestamp > 0 && matchTimestamp <= latestTimestamp) {
+                    foundExisting = true;
+                    break;
+                }
+
+                if (matchProcessor.processStoredMatchSummary(match, puuid)) {
+                    processed++;
+                } else {
+                    skipped++;
+                }
+            }
+
+            if (matches.size() < batchSize) {
+                LOG.info("Stored-match sync reached final partial page {} for {}#{}", page, name, tag);
+                break;
+            }
+
+            page++;
+        }
+
+        if (page > MAX_STORED_MATCH_PAGES) {
+            LOG.warn("Stored-match sync hit safety page cap ({}) for {}#{}", MAX_STORED_MATCH_PAGES, name, tag);
+        }
+
+        LOG.info("Stored-match sync complete for {}#{} (processed={}, skipped={}, pages={})", name, tag, processed, skipped, page - 1);
+    }
+
     /**
      * Cache MMR history from API response
      */
     private void cacheMMRHistory(String puuid, Map<String, Object> apiResponse) {
+        if (apiResponse == null) {
+            LOG.debug("MMR response is null for {}", puuid);
+            return;
+        }
+
+        Object dataObj = apiResponse.get("data");
+        if (!(dataObj instanceof List<?> rawEntries)) {
+            LOG.debug("MMR response has no data list for {}", puuid);
+            return;
+        }
+
         @SuppressWarnings("unchecked")
-        List<Map<String, Object>> entries = (List<Map<String, Object>>) apiResponse.getOrDefault("data", Collections.emptyList());
+        List<Map<String, Object>> entries = (List<Map<String, Object>>) (List<?>) rawEntries;
 
         for (Map<String, Object> entry : entries) {
             String matchId = Objects.toString(entry.getOrDefault("match_id", ""), "");
@@ -345,6 +450,37 @@ public class MatchDataService {
 
     private long getLong(Object value) {
         return value instanceof Number ? ((Number) value).longValue() : 0L;
+    }
+
+    private long parseTimestamp(Object startedAt) {
+        if (startedAt == null) {
+            return -1L;
+        }
+
+        if (startedAt instanceof Number n) {
+            return n.longValue();
+        }
+
+        try {
+            return java.time.Instant.parse(startedAt.toString()).getEpochSecond();
+        } catch (Exception e) {
+            LOG.debug("Failed to parse started_at timestamp: {}", startedAt);
+            return -1L;
+        }
+    }
+
+    private String extractStoredMatchId(Map<String, Object> match) {
+        if (match == null) {
+            return "";
+        }
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> meta = (Map<String, Object>) match.get("meta");
+        if (meta == null) {
+            return "";
+        }
+
+        return Objects.toString(meta.get("id"), "");
     }
 
 }

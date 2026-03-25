@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
+import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -171,9 +172,11 @@ public class MatchResponseFormatter {
         );
 
         result.put("acs", roundsPlayed > 0 ? Math.round((float) getInt(match, "score") / roundsPlayed) : 0);
-        result.put("timestamp", getString(match, "timestamp"));
         result.put("date_raw", getLong(match, "gameStart"));
-
+        long ts = getLong(match, "gameStart");
+        result.put("timestamp", ts > 0
+                ? Instant.ofEpochSecond(ts).toString()
+                : "");
 
         int rankTier = 0;
 
@@ -199,6 +202,7 @@ public class MatchResponseFormatter {
         result.put("ranking_in_tier", rankingInTier);
         result.put("rrChange", rr);
         result.put("rounds_played", roundsPlayed);
+        result.put("adr", Math.round(getDouble(match, "adr")));
 
         Map<String, Object> teams = new HashMap<>();
         Map<String, Object> red = new HashMap<>();
@@ -364,6 +368,12 @@ public class MatchResponseFormatter {
 
     private int getInt(Map<String, AttributeValue> map, String key) {
         return map.containsKey(key) ? Integer.parseInt(map.get(key).n()) : 0;
+    }
+
+    private double getDouble(Map<String, AttributeValue> map, String key) {
+        return map.containsKey(key)
+                ? Double.parseDouble(map.get(key).n())
+                : 0.0;
     }
 
     private long getLong(Map<String, AttributeValue> map, String key) {

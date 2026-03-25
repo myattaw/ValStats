@@ -9,7 +9,9 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.*;
 
 import java.time.Instant;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Singleton
@@ -22,59 +24,6 @@ public class MatchProcessor {
 
     public MatchProcessor(DynamoDbClient ddb) {
         this.ddb = ddb;
-    }
-
-    public boolean processMatch(Match match, String puuid) {
-        String matchId = match.metadata().matchId();
-        String seasonId = match.metadata().seasonId() != null ? match.metadata().seasonId() : "unknown";
-        String now = Instant.now().toString();
-
-        Player targetPlayer = match.players().all_players().stream()
-                .filter(p -> p.puuid().equals(puuid))
-                .findFirst()
-                .orElse(null);
-
-        if (targetPlayer == null) {
-            LOG.warn("Player {} not found in match {}", puuid, matchId);
-            return false;
-        }
-
-        if (!storeMatchData(match, now)) {
-            return false;
-        }
-
-        int redRounds = match.teams() != null && match.teams().red() != null
-                ? match.teams().red().rounds_won()
-                : 0;
-
-        int blueRounds = match.teams() != null && match.teams().blue() != null
-                ? match.teams().blue().rounds_won()
-                : 0;
-
-        processPlayerMatch(
-                puuid,
-                seasonId,
-                matchId,
-                targetPlayer.stats().kills(),
-                targetPlayer.stats().deaths(),
-                targetPlayer.stats().headshots(),
-                targetPlayer.stats().bodyshots(),
-                targetPlayer.stats().legshots(),
-                targetPlayer.stats().score(),
-                targetPlayer.stats().assists(),
-                targetPlayer.damage_made(),
-                match.metadata().gameStart(),
-                match.metadata().map(),
-                "",
-                targetPlayer.agent() != null ? targetPlayer.agent().name() : "",
-                targetPlayer.agent() != null ? targetPlayer.agent().id() : "",
-                targetPlayer.team(),
-                redRounds,
-                blueRounds,
-                targetPlayer.currenttier()
-        );
-
-        return true;
     }
 
     @SuppressWarnings("unchecked")
@@ -129,94 +78,111 @@ public class MatchProcessor {
         return true;
     }
 
-    private boolean storeMatchData(Match match, String now) {
-        String matchId = match.metadata().matchId();
-        String matchPk = "MATCH#" + matchId;
+    @SuppressWarnings("unchecked")
+    public boolean processRecentMatchSummary(Map<String, Object> match, String puuid) {
 
-        Map<String, AttributeValue> item = new HashMap<>();
-        item.put("PK", AttributeValue.fromS(matchPk));
-        item.put("SK", AttributeValue.fromS("METADATA"));
-        item.put("matchId", AttributeValue.fromS(matchId));
-        item.put("map", AttributeValue.fromS(nullSafe(match.metadata().map())));
-        item.put("mode", AttributeValue.fromS(nullSafe(match.metadata().mode())));
-        item.put("gameStart", AttributeValue.fromN(String.valueOf(match.metadata().gameStart())));
-        item.put("gameLength", AttributeValue.fromN(String.valueOf(match.metadata().gameLength())));
-        item.put("seasonId", AttributeValue.fromS(
-                match.metadata().seasonId() != null ? match.metadata().seasonId() : "unknown"
-        ));
-        item.put("storedAt", AttributeValue.fromS(now));
+        Map<String, Object> metadata = asMap(match.get("metadata"));
+        Map<String, Object> players = asMap(match.get("players"));
 
-
-        if (match.teams() != null) {
-            if (match.teams().red() != null) {
-                item.put("redRoundsWon", AttributeValue.fromN(String.valueOf(match.teams().red().rounds_won())));
-                item.put("redRoundsLost", AttributeValue.fromN(String.valueOf(match.teams().red().rounds_lost())));
-            }
-            if (match.teams().blue() != null) {
-                item.put("blueRoundsWon", AttributeValue.fromN(String.valueOf(match.teams().blue().rounds_won())));
-                item.put("blueRoundsLost", AttributeValue.fromN(String.valueOf(match.teams().blue().rounds_lost())));
-            }
-        }
-
-        try {
-            ddb.putItem(PutItemRequest.builder()
-                    .tableName(tableName)
-                    .item(item)
-                    .conditionExpression("attribute_not_exists(PK) AND attribute_not_exists(SK)")
-                    .build());
-
-            storeMatchPlayers(match, now);
-            return true;
-
-        } catch (ConditionalCheckFailedException e) {
-            LOG.debug("Match {} already exists in database", matchId);
-            return false;
-        } catch (DynamoDbException e) {
-            LOG.error("Failed to store match metadata for {}", matchId, e);
+        if (metadata.isEmpty() || players.isEmpty()) {
+            LOG.warn("Invalid V3 match: {}", match);
             return false;
         }
-    }
 
-    private void storeMatchPlayers(Match match, String now) {
-        String matchId = match.metadata().matchId();
+        String matchId = str(metadata.get("matchid"));
+        Object tsObj = metadata.get("game_start");
 
-        for (Player player : match.players().all_players()) {
-            Map<String, AttributeValue> item = new HashMap<>();
-            item.put("PK", AttributeValue.fromS("MATCH#" + matchId));
-            item.put("SK", AttributeValue.fromS("PLAYER#" + player.puuid()));
-            item.put("puuid", AttributeValue.fromS(nullSafe(player.puuid())));
-            item.put("name", AttributeValue.fromS(nullSafe(player.name())));
-            item.put("tag", AttributeValue.fromS(nullSafe(player.tag())));
-            item.put("team", AttributeValue.fromS(nullSafe(player.team())));
+        if (matchId.isBlank() || tsObj == null) {
+            LOG.warn("Invalid metadata: {}", metadata);
+            return false;
+        }
 
-            item.put("agentName", AttributeValue.fromS(
-                    player.agent() != null ? player.agent().name() : ""
-            ));
+        long gameStart = ((Number) tsObj).longValue();
 
-            item.put("agentId", AttributeValue.fromS(
-                    player.agent() != null ? player.agent().id() : ""
-            ));
+        // =========================
+        // 🔥 FIND PLAYER
+        // =========================
+        List<Map<String, Object>> allPlayers =
+                (List<Map<String, Object>>) players.getOrDefault("all_players", Collections.emptyList());
 
-            item.put("currenttier", AttributeValue.fromN(String.valueOf(player.currenttier())));
-            item.put("kills", AttributeValue.fromN(String.valueOf(player.stats().kills())));
-            item.put("deaths", AttributeValue.fromN(String.valueOf(player.stats().deaths())));
-            item.put("assists", AttributeValue.fromN(String.valueOf(player.stats().assists())));
-            item.put("score", AttributeValue.fromN(String.valueOf(player.stats().score())));
-            item.put("headshots", AttributeValue.fromN(String.valueOf(player.stats().headshots())));
-            item.put("bodyshots", AttributeValue.fromN(String.valueOf(player.stats().bodyshots())));
-            item.put("legshots", AttributeValue.fromN(String.valueOf(player.stats().legshots())));
-            item.put("damage_made", AttributeValue.fromN(String.valueOf(player.damage_made())));
-            item.put("storedAt", AttributeValue.fromS(now));
+        Map<String, Object> player = null;
 
-            try {
-                ddb.putItem(PutItemRequest.builder()
-                        .tableName(tableName)
-                        .item(item)
-                        .build());
-            } catch (DynamoDbException e) {
-                LOG.error("Failed to store player {} for match {}", player.puuid(), matchId, e);
+        for (Map<String, Object> p : allPlayers) {
+            if (puuid.equals(p.get("puuid"))) {
+                player = p;
+                break;
             }
         }
+
+        if (player == null) {
+            LOG.warn("Player {} not found in match {}", puuid, matchId);
+            return false;
+        }
+
+        // =========================
+        // 🔥 PLAYER STATS
+        // =========================
+        Map<String, Object> stats = asMap(player.get("stats"));
+
+        int kills = num(stats.get("kills"));
+        int deaths = num(stats.get("deaths"));
+        int assists = num(stats.get("assists"));
+        int score = num(stats.get("score"));
+
+        int headshots = num(stats.get("headshots"));
+        int bodyshots = num(stats.get("bodyshots"));
+        int legshots = num(stats.get("legshots"));
+
+        long damage = num(player.get("damage_made"));
+
+        String agent = str(player.get("character"));
+        String team = str(player.get("team"));
+
+        int tier = num(player.get("currenttier"));
+
+        // =========================
+        // 🔥 TEAM DATA
+        // =========================
+        Map<String, Object> teams = asMap(match.get("teams"));
+
+        int redRounds = num(asMap(teams.get("red")).get("rounds_won"));
+        int blueRounds = num(asMap(teams.get("blue")).get("rounds_won"));
+
+        // =========================
+        // 🔥 MAP + SEASON
+        // =========================
+        String map = str(metadata.get("map"));
+        String seasonId = str(metadata.get("season_id"));
+
+        // =========================
+        // 🔥 STORE MATCH
+        // =========================
+        processPlayerMatch(
+                puuid,
+                seasonId,
+                matchId,
+                kills,
+                deaths,
+                headshots,
+                bodyshots,
+                legshots,
+                score,
+                assists,
+                damage,
+                gameStart,
+                map,
+                "",
+                agent,
+                "",
+                team,
+                redRounds,
+                blueRounds,
+                tier
+        );
+
+        LOG.debug("Processed V3 match {} with real stats", matchId);
+
+        return true;
     }
 
     public void processPlayerMatch(
@@ -245,6 +211,7 @@ public class MatchProcessor {
         String sk = String.format("SEASON#%s#MATCH#%013d#%s", seasonId, gameStart, matchId);
         String now = Instant.now().toString();
         long roundsPlayed = redRoundsWon + blueRoundsWon;
+        double adr = roundsPlayed > 0 ? (double) damageMade / roundsPlayed : 0.0;
 
         // =========================
         // 1. CREATE MARKER (IDEMPOTENCY GUARD)
@@ -268,6 +235,8 @@ public class MatchProcessor {
         marker.put("bodyshots", AttributeValue.fromN(String.valueOf(bodyshots)));
         marker.put("legshots", AttributeValue.fromN(String.valueOf(legshots)));
         marker.put("damage_made", AttributeValue.fromN(String.valueOf(damageMade)));
+        marker.put("rounds_played", AttributeValue.fromN(String.valueOf(roundsPlayed)));
+        marker.put("adr", AttributeValue.fromN(String.valueOf(adr)));
         marker.put("redRoundsWon", AttributeValue.fromN(String.valueOf(redRoundsWon)));
         marker.put("blueRoundsWon", AttributeValue.fromN(String.valueOf(blueRoundsWon)));
         marker.put("tier", AttributeValue.fromN(String.valueOf(tier)));

@@ -99,10 +99,6 @@ export function MatchHistory({
         fetchInitialMatches();
     }, [puuid, playerName, playerTag, selectedAct, fetchInitialMatches]);
 
-    const calculateADRForMatch = (match: Match): number => {
-        return calculateADR(match, puuid);
-    };
-
     const renderMatchTeams = (match: Match) => {
         if (!match.players) return null;
 
@@ -130,8 +126,17 @@ export function MatchHistory({
             .filter((p) => p.team?.toLowerCase() === bottomTeamName)
             .sort((a, b) => b.score - a.score);
 
-        const topLabel = teams?.[topTeamName]?.has_won ? "Victory" : "Defeat";
-        const bottomLabel = teams?.[bottomTeamName]?.has_won ? "Victory" : "Defeat";
+        const redRounds = teams?.red?.rounds_won ?? 0;
+        const blueRounds = teams?.blue?.rounds_won ?? 0;
+
+        const redWon = redRounds > blueRounds;
+        const blueWon = blueRounds > redRounds;
+
+        const topLabel =
+            (topTeamName === "red" ? redWon : blueWon) ? "Victory" : "Defeat";
+
+        const bottomLabel =
+            (bottomTeamName === "red" ? redWon : blueWon) ? "Victory" : "Defeat";
 
         return (
             <>
@@ -367,7 +372,7 @@ export function MatchHistory({
                                                                 <span className="text-gray-400">ACS: {match.acs}</span>
                                                                 <span className="text-gray-400">•</span>
                                                                 <span className="text-gray-400">
-                                                                    ADR: {calculateADRForMatch(match)}
+                                                                    ADR: {match.adr}
                                                                 </span>
                                                             </div>
                                                         </div>
@@ -376,7 +381,10 @@ export function MatchHistory({
                                                     <div className="flex items-center gap-4">
                                                         <div className="flex items-center gap-2 text-gray-400">
                                                             <Clock className="w-4 h-4" />
-                                                            <span>{match.timestamp}</span>
+                                                            <span>{match.date_raw
+                                                                  ? new Date(match.date_raw * 1000).toLocaleString()
+                                                                  : "Unknown"}
+                                                            </span>
                                                         </div>
 
                                                         {loadingMatchId === match.id ? (

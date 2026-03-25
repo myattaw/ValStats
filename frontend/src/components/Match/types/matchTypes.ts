@@ -25,6 +25,7 @@ export interface Match {
     kda: string;
     agent: string;
     acs: number;
+    adr?: number;
     timestamp: string;
     date_raw: number;
     rank: string;

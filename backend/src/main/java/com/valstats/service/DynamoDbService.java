@@ -175,6 +175,29 @@ public class DynamoDbService {
         return dbClient.query(builder.build());
     }
 
+    public QueryResponse getMatchesBySeasonPaginated(
+            String puuid,
+            String act,
+            int limit,
+            Map<String, AttributeValue> exclusiveStartKey
+    ) {
+        QueryRequest.Builder builder = QueryRequest.builder()
+                .tableName(tableName)
+                .keyConditionExpression("PK = :pk AND begins_with(SK, :seasonPrefix)")
+                .expressionAttributeValues(Map.of(
+                        ":pk", AttributeValue.fromS("PLAYER#" + puuid),
+                        ":seasonPrefix", AttributeValue.fromS("SEASON#" + act)
+                ))
+                .limit(limit)
+                .scanIndexForward(false); // newest first
+
+        if (exclusiveStartKey != null) {
+            builder.exclusiveStartKey(exclusiveStartKey);
+        }
+
+        return dbClient.query(builder.build());
+    }
+
     /**
      * Get full match data by match ID.
      */

@@ -21,6 +21,7 @@ public class MatchDataService {
     private static final Logger LOG = LoggerFactory.getLogger(MatchDataService.class);
     private static final int STORED_MATCH_PAGE_SIZE = 50;
     private static final int MAX_STORED_MATCH_PAGES = 200;
+    private static final int INITIAL_BACKFILL_THRESHOLD = 100;
 
     private final DynamoDbService dynamoDbService;
     private final ValorantApiClient apiClient;
@@ -60,18 +61,26 @@ public class MatchDataService {
         boolean didSync = false;
 
         // =========================
-        // 🔥 INITIAL BACKFILL
+        // INITIAL BACKFILL / TOP-UP
         // =========================
-        if (currentCount == 0) {
-            LOG.info("Initial backfill for {}", puuid);
+        if (currentCount < INITIAL_BACKFILL_THRESHOLD) {
+            LOG.info("Initial backfill/top-up for {} (currentCount={})", puuid, currentCount);
 
-            syncStoredMatches(puuid, region, name, tag, STORED_MATCH_PAGE_SIZE);
+            syncStoredMatches(
+                    puuid,
+                    region,
+                    name,
+                    tag,
+                    STORED_MATCH_PAGE_SIZE,
+                    true
+            );
 
+            dynamoDbService.updatePlayerLastRecentMatchUpdate(region, name, tag);
             didSync = true;
 
         } else {
             // =========================
-            // 🔥 INCREMENTAL SYNC (stored-matches now)
+            // INCREMENTAL SYNC
             // =========================
             Optional<Long> lastUpdateTime =
                     dynamoDbService.getPlayerLastRecentMatchUpdate(region, name, tag);
@@ -82,27 +91,42 @@ public class MatchDataService {
             if (now - lastUpdate > 300) {
                 LOG.info("Running stored-match sync for {}#{}", name, tag);
 
-                syncStoredMatches(puuid, region, name, tag, STORED_MATCH_PAGE_SIZE);
+                syncStoredMatches(
+                        puuid,
+                        region,
+                        name,
+                        tag,
+                        STORED_MATCH_PAGE_SIZE,
+                        false
+                );
 
                 dynamoDbService.updatePlayerLastRecentMatchUpdate(region, name, tag);
                 didSync = true;
-
             } else {
                 LOG.debug("Skipping sync (cooldown active) for {}#{}", name, tag);
             }
         }
 
         // =========================
-        // 🔥 FETCH MATCHES (unchanged)
+        // FETCH MATCHES
         // =========================
         List<Map<String, AttributeValue>> cachedMatches;
         Map<String, AttributeValue> responseLastKey = null;
 
-        if (act != null && !"all".equalsIgnoreCase(act)) {
-            cachedMatches = dynamoDbService.getMatchesBySeason(puuid, act, size, 1);
-        } else {
-            Map<String, AttributeValue> exclusiveStartKey = parseLastKey(lastKeyJson);
+        Map<String, AttributeValue> exclusiveStartKey = parseLastKey(lastKeyJson);
 
+        if (act != null && !"all".equalsIgnoreCase(act)) {
+            QueryResponse response = dynamoDbService.getMatchesBySeasonPaginated(
+                    puuid,
+                    act,
+                    size,
+                    exclusiveStartKey
+            );
+
+            cachedMatches = response.items();
+            responseLastKey = response.lastEvaluatedKey();
+
+        } else {
             QueryResponse response = dynamoDbService.getMatchesFromGSI(
                     puuid,
                     size,
@@ -114,7 +138,7 @@ public class MatchDataService {
         }
 
         // =========================
-        // 🔥 ENSURE MMR IS FRESH (unchanged)
+        // ENSURE MMR IS FRESH
         // =========================
         List<Map<String, AttributeValue>> cachedMMR =
                 dynamoDbService.getMMRHistory(puuid);
@@ -135,20 +159,17 @@ public class MatchDataService {
         }
 
         // =========================
-        // 🔥 FORMAT RESPONSE (unchanged)
+        // FORMAT RESPONSE
         // =========================
         Map<String, Object> result =
                 responseFormatter.formatCachedMatches(cachedMatches, cachedMMR);
 
-        if (act != null && !"all".equalsIgnoreCase(act)) {
-            result.put("lastKey", null);
-        } else {
-            result.put("lastKey",
-                    (responseLastKey != null && !responseLastKey.isEmpty())
-                            ? convertLastKey(responseLastKey)
-                            : null
-            );
-        }
+        result.put(
+                "lastKey",
+                (responseLastKey != null && !responseLastKey.isEmpty())
+                        ? convertLastKey(responseLastKey)
+                        : null
+        );
 
         return result;
     }
@@ -307,34 +328,44 @@ public class MatchDataService {
         LOG.info("Incremental sync complete for {}#{}", name, tag);
     }
 
-    public void syncStoredMatches(String puuid, String region, String name, String tag, int batchSize) {
+    public void syncStoredMatches(
+            String puuid,
+            String region,
+            String name,
+            String tag,
+            int batchSize,
+            boolean isInitialBackfill
+    ) {
+        LOG.info("Starting stored-match sync for {}#{} (initialBackfill={})", name, tag, isInitialBackfill);
 
-        LOG.info("Starting stored-match sync for {}#{}", name, tag);
-
-        // 🔥 Get latest stored timestamp
         QueryResponse latest = dynamoDbService.getMatchesFromGSI(puuid, 1, null);
 
         long latestTimestamp = 0;
-
-        if (!latest.items().isEmpty()) {
-            latestTimestamp = Long.parseLong(
-                    latest.items().get(0).get("gameStart").n()
-            );
+        if (!latest.items().isEmpty() && latest.items().get(0).containsKey("gameStart")) {
+            latestTimestamp = Long.parseLong(latest.items().get(0).get("gameStart").n());
         }
 
         LOG.info("Latest stored timestamp: {}", latestTimestamp);
 
         int page = 1;
+        int pagesFetched = 0;
         boolean foundExisting = false;
         int processed = 0;
         int skipped = 0;
         String previousFirstMatchId = null;
 
         while (!foundExisting && page <= MAX_STORED_MATCH_PAGES) {
-
             Map<String, Object> response;
             try {
-                response = apiClient.getStoredMatches(region, name, tag, batchSize, page, "competitive", apiKey);
+                response = apiClient.getStoredMatches(
+                        region,
+                        name,
+                        tag,
+                        batchSize,
+                        page,
+                        "competitive",
+                        apiKey
+                );
             } catch (Exception e) {
                 LOG.error("Failed stored-match request page={} size={} for {}#{}", page, batchSize, name, tag, e);
                 break;
@@ -349,6 +380,8 @@ public class MatchDataService {
                 break;
             }
 
+            pagesFetched++;
+
             String currentFirstMatchId = extractStoredMatchId(matches.get(0));
             if (previousFirstMatchId != null && previousFirstMatchId.equals(currentFirstMatchId)) {
                 LOG.warn("Stored-match API repeated page data at page {} for {}#{}. Stopping to avoid loop.", page, name, tag);
@@ -357,7 +390,7 @@ public class MatchDataService {
             previousFirstMatchId = currentFirstMatchId;
 
             for (Map<String, Object> match : matches) {
-
+                @SuppressWarnings("unchecked")
                 Map<String, Object> meta = (Map<String, Object>) match.get("meta");
 
                 if (meta == null) {
@@ -379,7 +412,8 @@ public class MatchDataService {
                     continue;
                 }
 
-                if (latestTimestamp > 0 && matchTimestamp <= latestTimestamp) {
+                // Only stop on existing timestamps during incremental sync
+                if (!isInitialBackfill && latestTimestamp > 0 && matchTimestamp <= latestTimestamp) {
                     foundExisting = true;
                     break;
                 }
@@ -403,7 +437,10 @@ public class MatchDataService {
             LOG.warn("Stored-match sync hit safety page cap ({}) for {}#{}", MAX_STORED_MATCH_PAGES, name, tag);
         }
 
-        LOG.info("Stored-match sync complete for {}#{} (processed={}, skipped={}, pages={})", name, tag, processed, skipped, page - 1);
+        LOG.info(
+                "Stored-match sync complete for {}#{} (initialBackfill={}, processed={}, skipped={}, pages={})",
+                name, tag, isInitialBackfill, processed, skipped, pagesFetched
+        );
     }
 
     /**

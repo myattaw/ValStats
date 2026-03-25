@@ -72,13 +72,9 @@ export function MatchHistory({
             setMatches(data);
 
             // Season mode is still not cursor-paginated on the backend, so don't show load-more there.
-            if (isSeasonMode) {
-                setLastKey(null);
-                setHasMore(false);
-            } else {
-                setLastKey(json?.lastKey ?? null);
-                setHasMore(!!json?.lastKey);
-            }
+            setLastKey(json?.lastKey ?? null);
+            setHasMore(!!json?.lastKey);
+
         } catch (e) {
             console.error("Error fetching matches:", e);
             setMatches([]);
@@ -185,7 +181,7 @@ export function MatchHistory({
     };
 
     const handleLoadMore = async () => {
-        if (isSeasonMode || !lastKey || loadingMore) return;
+        if (!lastKey || loadingMore) return;
 
         setLoadingMore(true);
 
@@ -243,7 +239,7 @@ export function MatchHistory({
         }
     };
 
-    const canShowLoadMore = !isInitialLoading && !isSeasonMode && hasMore;
+    const canShowLoadMore = !isInitialLoading && hasMore;
 
     return (
         <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-lg overflow-hidden">

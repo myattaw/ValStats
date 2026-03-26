@@ -1,7 +1,7 @@
 package com.valstats.model.player;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.valstats.model.assets.Assets;
-import com.valstats.model.assets.Agent;
 import io.micronaut.core.annotation.Introspected;
 import io.micronaut.serde.annotation.Serdeable;
 
@@ -13,7 +13,7 @@ public record Player(
         String name,
         String tag,
         String team,
-        Agent agent,
+        @JsonProperty("character") String character,
         int currenttier,
         String currenttier_patched,
         Stats stats,

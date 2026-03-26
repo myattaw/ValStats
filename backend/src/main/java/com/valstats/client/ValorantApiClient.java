@@ -1,6 +1,7 @@
 package com.valstats.client;
 
-import com.valstats.model.MatchResponse;
+import com.valstats.model.match.RecentMatchesResponse;
+import com.valstats.model.stored.StoredMatchesResponse;
 import io.micronaut.http.annotation.Get;
 import io.micronaut.http.annotation.Header;
 import io.micronaut.http.annotation.PathVariable;
@@ -13,17 +14,7 @@ import java.util.Map;
 public interface ValorantApiClient {
 
     @Get("/valorant/v3/matches/{region}/{name}/{tag}")
-    MatchResponse getRecentMatches(
-            @PathVariable String region,
-            @PathVariable String name,
-            @PathVariable String tag,
-            @QueryValue(value = "size", defaultValue = "10") Integer size, // <- Micronaut query param
-            @QueryValue(value = "start", defaultValue = "1") Integer start,
-            @Header("Authorization") String authorization
-    );
-
-    @Get("/valorant/v3/matches/{region}/{name}/{tag}")
-    Map<String, Object> getMatches(
+    RecentMatchesResponse getMatches(
             String region,
             String name,
             String tag,
@@ -34,7 +25,7 @@ public interface ValorantApiClient {
     );
 
     @Get("/valorant/v1/stored-matches/{region}/{name}/{tag}")
-    Map<String, Object> getStoredMatches(
+    StoredMatchesResponse getStoredMatches(
             @PathVariable String region,
             @PathVariable String name,
             @PathVariable String tag,

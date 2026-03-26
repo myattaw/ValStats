@@ -1,6 +1,7 @@
 package com.valstats.service.player;
 
 import com.valstats.client.ValorantApiClient;
+import com.valstats.model.stored.StoredMatchesResponse;
 import com.valstats.service.DynamoDbService;
 import com.valstats.service.match.MatchProcessor;
 import jakarta.inject.Singleton;
@@ -16,6 +17,7 @@ import java.util.*;
  */
 @Singleton
 public class PlayerStatsService {
+
     private static final Logger LOG = LoggerFactory.getLogger(PlayerStatsService.class);
 
     private final DynamoDbService dynamoDbService;
@@ -76,16 +78,15 @@ public class PlayerStatsService {
      */
     private void loadPlayerMatchesFromAPI(String region, String name, String tag, String puuid) {
         try {
-            Map<String, Object> storedApi = apiClient.getStoredMatches(
+            StoredMatchesResponse storedApi = apiClient.getStoredMatches(
                     region, name, tag, 20, 1, "competitive", apiKey
             );
 
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> storedMatches =
-                    (List<Map<String, Object>>) storedApi.getOrDefault("data", List.of());
+            List<StoredMatchesResponse.StoredMatch> storedMatches =
+                    storedApi != null && storedApi.data() != null ? storedApi.data() : List.of();
 
             int processed = 0;
-            for (Map<String, Object> match : storedMatches) {
+            for (StoredMatchesResponse.StoredMatch match : storedMatches) {
                 try {
                     if (matchProcessor.processStoredMatchSummary(match, puuid)) {
                         processed++;

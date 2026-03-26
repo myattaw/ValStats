@@ -1,7 +1,6 @@
 package com.valstats.service.match;
 
-import com.valstats.model.match.Match;
-import com.valstats.model.player.Player;
+import com.valstats.model.stored.StoredMatchesResponse;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,9 +8,7 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.*;
 
 import java.time.Instant;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 @Singleton
@@ -26,161 +23,58 @@ public class MatchProcessor {
         this.ddb = ddb;
     }
 
-    @SuppressWarnings("unchecked")
-    public boolean processStoredMatchSummary(Map<String, Object> match, String puuid) {
-        Map<String, Object> meta = asMap(match.get("meta"));
-        Map<String, Object> stats = asMap(match.get("stats"));
-        Map<String, Object> season = asMap(meta.get("season"));
-        Map<String, Object> shots = asMap(stats.get("shots"));
-        Map<String, Object> damage = asMap(stats.get("damage"));
-        Map<String, Object> mapObj = asMap(meta.get("map"));
-        Map<String, Object> character = asMap(stats.get("character"));
+    public boolean processStoredMatchSummary(StoredMatchesResponse.StoredMatch match, String puuid) {
+        if (match == null || match.meta() == null || match.stats() == null) {
+            return false;
+        }
 
-        String matchId = str(meta.get("id"));
+        StoredMatchesResponse.Meta meta = match.meta();
+        StoredMatchesResponse.Stats stats = match.stats();
+        StoredMatchesResponse.Season season = meta.season();
+        StoredMatchesResponse.Shots shots = stats.shots();
+        StoredMatchesResponse.Damage damage = stats.damage();
+        StoredMatchesResponse.MapInfo mapObj = meta.map();
+        StoredMatchesResponse.Character character = stats.character();
+
+        String matchId = str(meta.id());
         if (matchId.isBlank()) {
             return false;
         }
 
-        String seasonId = str(season.getOrDefault("id", "unknown"));
-        int redRounds = extractTeamRounds(match.get("teams"), "red");
-        int blueRounds = extractTeamRounds(match.get("teams"), "blue");
+        String seasonId = season != null ? str(season.id()) : "unknown";
+        if (seasonId.isBlank()) {
+            seasonId = "unknown";
+        }
 
-        long damageMade =
-                damage.containsKey("made") ? num(damage.get("made")) :
-                        damage.containsKey("dealt") ? num(damage.get("dealt")) :
-                                num(stats.get("damage_made"));
+        int redRounds = extractTeamRounds(match.teams(), "red");
+        int blueRounds = extractTeamRounds(match.teams(), "blue");
 
-        int tier = num(stats.get("tier"));
+        long damageMade = damage != null ? damage.dealt() : 0L;
+
+        int tier = stats.tier();
 
         processPlayerMatch(
                 puuid,
                 seasonId,
                 matchId,
-                num(stats.get("kills")),
-                num(stats.get("deaths")),
-                num(shots.get("head")),
-                num(shots.get("body")),
-                num(shots.get("leg")),
-                num(stats.get("score")),
-                num(stats.get("assists")),
+                stats.kills(),
+                stats.deaths(),
+                shots != null ? shots.head() : 0,
+                shots != null ? shots.body() : 0,
+                shots != null ? shots.leg() : 0,
+                stats.score(),
+                stats.assists(),
                 damageMade,
-                parseDateRaw(meta.get("started_at")),
-                str(mapObj.get("name")),
-                str(mapObj.get("id")),
-                str(character.get("name")),
-                str(character.get("id")),
-                str(stats.get("team")),
+                parseDateRaw(meta.startedAt()),
+                mapObj != null ? str(mapObj.name()) : "",
+                mapObj != null ? str(mapObj.id()) : "",
+                character != null ? str(character.name()) : "",
+                character != null ? str(character.id()) : "",
+                str(stats.team()),
                 redRounds,
                 blueRounds,
                 tier
         );
-
-        return true;
-    }
-
-    @SuppressWarnings("unchecked")
-    public boolean processRecentMatchSummary(Map<String, Object> match, String puuid) {
-
-        Map<String, Object> metadata = asMap(match.get("metadata"));
-        Map<String, Object> players = asMap(match.get("players"));
-
-        if (metadata.isEmpty() || players.isEmpty()) {
-            LOG.warn("Invalid V3 match: {}", match);
-            return false;
-        }
-
-        String matchId = str(metadata.get("matchid"));
-        Object tsObj = metadata.get("game_start");
-
-        if (matchId.isBlank() || tsObj == null) {
-            LOG.warn("Invalid metadata: {}", metadata);
-            return false;
-        }
-
-        long gameStart = ((Number) tsObj).longValue();
-
-        // =========================
-        // 🔥 FIND PLAYER
-        // =========================
-        List<Map<String, Object>> allPlayers =
-                (List<Map<String, Object>>) players.getOrDefault("all_players", Collections.emptyList());
-
-        Map<String, Object> player = null;
-
-        for (Map<String, Object> p : allPlayers) {
-            if (puuid.equals(p.get("puuid"))) {
-                player = p;
-                break;
-            }
-        }
-
-        if (player == null) {
-            LOG.warn("Player {} not found in match {}", puuid, matchId);
-            return false;
-        }
-
-        // =========================
-        // 🔥 PLAYER STATS
-        // =========================
-        Map<String, Object> stats = asMap(player.get("stats"));
-
-        int kills = num(stats.get("kills"));
-        int deaths = num(stats.get("deaths"));
-        int assists = num(stats.get("assists"));
-        int score = num(stats.get("score"));
-
-        int headshots = num(stats.get("headshots"));
-        int bodyshots = num(stats.get("bodyshots"));
-        int legshots = num(stats.get("legshots"));
-
-        long damage = num(player.get("damage_made"));
-
-        String agent = str(player.get("character"));
-        String team = str(player.get("team"));
-
-        int tier = num(player.get("currenttier"));
-
-        // =========================
-        // 🔥 TEAM DATA
-        // =========================
-        Map<String, Object> teams = asMap(match.get("teams"));
-
-        int redRounds = num(asMap(teams.get("red")).get("rounds_won"));
-        int blueRounds = num(asMap(teams.get("blue")).get("rounds_won"));
-
-        // =========================
-        // 🔥 MAP + SEASON
-        // =========================
-        String map = str(metadata.get("map"));
-        String seasonId = str(metadata.get("season_id"));
-
-        // =========================
-        // 🔥 STORE MATCH
-        // =========================
-        processPlayerMatch(
-                puuid,
-                seasonId,
-                matchId,
-                kills,
-                deaths,
-                headshots,
-                bodyshots,
-                legshots,
-                score,
-                assists,
-                damage,
-                gameStart,
-                map,
-                "",
-                agent,
-                "",
-                team,
-                redRounds,
-                blueRounds,
-                tier
-        );
-
-        LOG.debug("Processed V3 match {} with real stats", matchId);
 
         return true;
     }
@@ -253,7 +147,6 @@ public class MatchProcessor {
                     .build());
 
         } catch (ConditionalCheckFailedException e) {
-            // ✅ Already processed → SAFE EXIT
             LOG.debug("Match {} already processed for {}", matchId, puuid);
             return;
         } catch (DynamoDbException e) {
@@ -341,11 +234,6 @@ public class MatchProcessor {
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> asMap(Object value) {
-        return value instanceof Map<?, ?> ? (Map<String, Object>) value : new HashMap<>();
-    }
-
     private String str(Object value) {
         return value == null ? "" : String.valueOf(value);
     }
@@ -354,34 +242,18 @@ public class MatchProcessor {
         return value instanceof Number n ? n.intValue() : 0;
     }
 
-    @SuppressWarnings("unchecked")
-    private int extractTeamRounds(Object teamsObj, String teamName) {
-        if (!(teamsObj instanceof Map<?, ?> teams)) {
-            return 0;
-        }
-
-        Object teamObj = teams.get(teamName);
-        if (teamObj instanceof Number n) {
-            return n.intValue();
-        }
-
-        if (teamObj instanceof Map<?, ?> teamMap) {
-            Object roundsWon = teamMap.get("rounds_won");
-            if (roundsWon instanceof Number n) {
-                return n.intValue();
-            }
-        }
-
-        return 0;
+    private int extractTeamRounds(StoredMatchesResponse.Teams teams, String teamName) {
+        if (teams == null) return 0;
+        return "red".equals(teamName) ? teams.red() : teams.blue();
     }
 
-    private long parseDateRaw(Object startedAt) {
-        if (startedAt == null) {
+    private long parseDateRaw(String startedAt) {
+        if (startedAt == null || startedAt.isBlank()) {
             return 0L;
         }
 
         try {
-            return Instant.parse(String.valueOf(startedAt)).getEpochSecond();
+            return Instant.parse(startedAt).getEpochSecond();
         } catch (Exception ignored) {
             return 0L;
         }

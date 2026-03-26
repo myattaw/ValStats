@@ -16,7 +16,7 @@ public class ValorantController {
     }
 
     @Get("/matches/{region}/{name}/{tag}")
-    public Map<String, Object> getMatches(
+    public Object getMatches(
             @PathVariable String region,
             @PathVariable String name,
             @PathVariable String tag,
@@ -42,7 +42,7 @@ public class ValorantController {
     }
 
     @Get("/match/{matchid}")
-    public Map<String, Object> getMatchById(@PathVariable String matchid) {
+    public Object getMatchById(@PathVariable String matchid) {
         return valorantService.getMatchById(matchid);
     }
 

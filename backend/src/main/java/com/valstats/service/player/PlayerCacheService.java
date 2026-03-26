@@ -26,26 +26,6 @@ public class PlayerCacheService {
     }
 
     /**
-     * Check if a player exists in the database.
-     */
-    public boolean playerExists(String puuid) {
-        try {
-            GetItemResponse response = ddb.getItem(GetItemRequest.builder()
-                    .tableName(tableName)
-                    .key(Map.of(
-                            "PK", AttributeValue.fromS("PLAYER#" + puuid),
-                            "SK", AttributeValue.fromS("PROFILE")
-                    ))
-                    .build());
-
-            return response.hasItem() && !response.item().isEmpty();
-        } catch (DynamoDbException e) {
-            LOG.error("Error checking if player exists: {}", puuid, e);
-            return false;
-        }
-    }
-
-    /**
      * Get the last time we fetched data for this player from the external API.
      */
     public Optional<Instant> getLastFetchTime(String puuid) {

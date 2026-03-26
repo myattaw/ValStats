@@ -121,7 +121,7 @@ public class ValorantService {
      * Get match history for a player with pagination.
      * Delegates to MatchDataService which handles caching strategy.
      */
-    public Map<String, Object> getUnifiedMatches(
+    public Object getUnifiedMatches(
             String region,
             String name,
             String tag,
@@ -156,7 +156,7 @@ public class ValorantService {
      * Get full match details by ID.
      * Delegates to MatchDataService which handles caching strategy.
      */
-    public Map<String, Object> getMatchById(String matchId) {
+    public Object getMatchById(String matchId) {
         return matchDataService.getMatchDetails(matchId);
     }
 

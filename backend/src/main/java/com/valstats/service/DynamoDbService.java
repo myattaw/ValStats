@@ -73,7 +73,6 @@ public class DynamoDbService {
             List<Map<String, AttributeValue>> allItems = new ArrayList<>();
             Map<String, AttributeValue> lastEvaluatedKey = null;
 
-            // 🔥 MAIN QUERY
             do {
                 QueryRequest.Builder builder = QueryRequest.builder()
                         .tableName(tableName)
@@ -94,12 +93,12 @@ public class DynamoDbService {
 
             } while (lastEvaluatedKey != null && !lastEvaluatedKey.isEmpty());
 
-            // ✅ CRITICAL FIX — ONLY KEEP MATCH ROWS
+            // ONLY KEEP MATCH ROWS
             allItems = allItems.stream()
                     .filter(item -> item.get("SK").s().contains("#MATCH#"))
                     .toList();
 
-            // ✅ PAGINATION AFTER FILTERING
+            // PAGINATION AFTER FILTERING
             if (!allItems.isEmpty()) {
                 int startIndex = Math.max(0, (page - 1) * size);
                 int endIndex = Math.min(startIndex + size, allItems.size());
@@ -110,7 +109,7 @@ public class DynamoDbService {
             }
 
             // =========================
-            // 🔻 FALLBACK (OLD SCHEMA)
+            // FALLBACK (OLD SCHEMA)
             // =========================
             List<Map<String, AttributeValue>> fallbackItems = new ArrayList<>();
             Map<String, AttributeValue> scanLastKey = null;
@@ -366,7 +365,6 @@ public class DynamoDbService {
 
         } while (lastKey != null && !lastKey.isEmpty());
 
-        // ✅ CRITICAL FIX
         items = items.stream()
                 .filter(item -> item.get("SK").s().contains("#MATCH#"))
                 .toList();

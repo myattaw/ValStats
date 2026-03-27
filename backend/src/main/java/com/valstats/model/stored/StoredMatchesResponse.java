@@ -23,7 +23,8 @@ public record StoredMatchesResponse(
             int returned,
             int before,
             int after
-    ) {}
+    ) {
+    }
 
     @Introspected
     @Serdeable
@@ -31,7 +32,8 @@ public record StoredMatchesResponse(
             Meta meta,
             Stats stats,
             Teams teams
-    ) {}
+    ) {
+    }
 
     @Introspected
     @Serdeable
@@ -44,21 +46,24 @@ public record StoredMatchesResponse(
             Season season,
             String region,
             String cluster
-    ) {}
+    ) {
+    }
 
     @Introspected
     @Serdeable
     public record MapInfo(
             String id,
             String name
-    ) {}
+    ) {
+    }
 
     @Introspected
     @Serdeable
     public record Season(
             String id,
             @JsonProperty("short") String shortName
-    ) {}
+    ) {
+    }
 
     @Introspected
     @Serdeable
@@ -74,14 +79,16 @@ public record StoredMatchesResponse(
             int assists,
             Shots shots,
             Damage damage
-    ) {}
+    ) {
+    }
 
     @Introspected
     @Serdeable
     public record Character(
             String id,
             String name
-    ) {}
+    ) {
+    }
 
     @Introspected
     @Serdeable
@@ -89,20 +96,23 @@ public record StoredMatchesResponse(
             int head,
             int body,
             int leg
-    ) {}
+    ) {
+    }
 
     @Introspected
     @Serdeable
     public record Damage(
             int dealt,
             int received
-    ) {}
+    ) {
+    }
 
     @Introspected
     @Serdeable
     public record Teams(
             int red,
             int blue
-    ) {}
+    ) {
+    }
 }
 

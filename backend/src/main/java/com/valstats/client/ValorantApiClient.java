@@ -1,6 +1,5 @@
 package com.valstats.client;
 
-import com.valstats.model.match.RecentMatchesResponse;
 import com.valstats.model.stored.StoredMatchesResponse;
 import io.micronaut.http.annotation.Get;
 import io.micronaut.http.annotation.Header;
@@ -12,17 +11,6 @@ import java.util.Map;
 
 @Client("https://api.henrikdev.xyz")
 public interface ValorantApiClient {
-
-    @Get("/valorant/v3/matches/{region}/{name}/{tag}")
-    RecentMatchesResponse getMatches(
-            String region,
-            String name,
-            String tag,
-            @QueryValue int size,
-            @QueryValue int start,
-            @QueryValue String mode,
-            @Header("Authorization") String apiKey
-    );
 
     @Get("/valorant/v1/stored-matches/{region}/{name}/{tag}")
     StoredMatchesResponse getStoredMatches(

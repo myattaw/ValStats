@@ -1,5 +1,6 @@
 package com.valstats;
 
+import io.micronaut.context.ApplicationContext;
 import io.micronaut.runtime.Micronaut;
 
 /**
@@ -7,12 +8,11 @@ import io.micronaut.runtime.Micronaut;
  * This Lambda periodically fetches match data from the Valorant API and writes to DynamoDB.
  * Triggered by EventBridge schedule.
  */
-public class ValstatsApplication {
+public class ValstatsSyncApplication {
 
     public static void main(String[] args) {
-        Micronaut.build(args)
-                .mainClass(ValstatsApplication.class)
-                .start();
+        ApplicationContext ctx = ApplicationContext.run();
+        ctx.getBean(LocalRunner.class).run();
     }
 
 }

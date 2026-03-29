@@ -31,7 +31,6 @@ public class MatchDataService {
     private final ValorantApiClient apiClient;
     private final MatchResponseFormatter responseFormatter;
     private final MatchProcessor matchProcessor;
-    private final String apiKey;
 
     public MatchDataService(
             DynamoDbService dynamoDbService,
@@ -43,7 +42,6 @@ public class MatchDataService {
         this.apiClient = apiClient;
         this.responseFormatter = responseFormatter;
         this.matchProcessor = matchProcessor;
-        this.apiKey = System.getenv("HDEV_KEY");
     }
 
     /**

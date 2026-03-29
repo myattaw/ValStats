@@ -12,47 +12,29 @@
     <artifactId>match-sync-lambda</artifactId>
 
     <dependencies>
-        <!-- Common models and config -->
+        <!-- Shared module -->
         <dependency>
             <groupId>com.valstats</groupId>
             <artifactId>common</artifactId>
             <version>0.1</version>
         </dependency>
 
-        <!-- Micronaut Lambda support -->
-        <dependency>
-            <groupId>io.micronaut.aws</groupId>
-            <artifactId>micronaut-function-aws</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>io.micronaut.aws</groupId>
-            <artifactId>micronaut-aws-lambda-events-serde</artifactId>
-        </dependency>
-
-        <!-- HTTP Client for external API calls -->
-        <dependency>
-            <groupId>io.micronaut</groupId>
-            <artifactId>micronaut-http-client-jdk</artifactId>
-        </dependency>
-
-        <!-- Embedded server for local development runs -->
+        <!-- 🔥 Micronaut FULL runtime (this fixes your issue) -->
         <dependency>
             <groupId>io.micronaut</groupId>
             <artifactId>micronaut-http-server-netty</artifactId>
-            <scope>runtime</scope>
+        </dependency>
+
+        <!-- HTTP client -->
+        <dependency>
+            <groupId>io.micronaut</groupId>
+            <artifactId>micronaut-http-client-jdk</artifactId>
         </dependency>
 
         <!-- Serialization -->
         <dependency>
             <groupId>io.micronaut.serde</groupId>
             <artifactId>micronaut-serde-jackson</artifactId>
-        </dependency>
-
-        <!-- Jackson for JSON processing -->
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
         </dependency>
 
         <!-- AWS SDK -->
@@ -80,10 +62,29 @@
 
     <build>
         <plugins>
+
+            <!-- Micronaut plugin -->
             <plugin>
                 <groupId>io.micronaut.maven</groupId>
                 <artifactId>micronaut-maven-plugin</artifactId>
+                <version>4.10.0</version>
             </plugin>
+
+            <!-- 🔥 REQUIRED for Micronaut DI -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>io.micronaut</groupId>
+                            <artifactId>micronaut-inject-java</artifactId>
+                            <version>${micronaut.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+
         </plugins>
     </build>
 

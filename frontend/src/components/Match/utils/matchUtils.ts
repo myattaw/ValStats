@@ -1,4 +1,9 @@
-export const API_BASE_URL = "http://localhost:50163/api/valorant";
+/**
+ * In development Vite proxies this path to Micronaut. In production, either
+ * serve the frontend and API from the same origin or set VITE_API_BASE_URL to
+ * the API Gateway URL (including /api/valorant).
+ */
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api/valorant").replace(/\/$/, "");
 
 export const INITIAL_MATCHES_SIZE = 15;
 export const LOAD_MORE_SIZE = 10;

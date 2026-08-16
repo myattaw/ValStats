@@ -42,7 +42,7 @@ export function ActSelector({
         async function fetchActs() {
             try {
                 const res = await fetch(
-                    `${API_BASE_URL}/acts/${region}/${name}/${tag}`
+                    `${API_BASE_URL}/acts/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`
                 );
 
                 if (!res.ok) throw new Error("Failed to fetch acts");

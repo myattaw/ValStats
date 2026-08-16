@@ -83,9 +83,11 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid}: { detail
     const enemyTeam = details.players.filter((player) => player.team?.toLowerCase() !== ownTeamName).sort((a, b) => b.score - a.score);
     const round = details.rounds.find((item) => item.number === selectedRound) ?? details.rounds[0];
     const isOwnTeamWin = (winningTeam: string) => winningTeam.toLowerCase() === ownTeamName;
+    const playerTeam = (puuid?: string) => details.players.find((player) => player.puuid === puuid)?.team?.toLowerCase();
+    const relationshipClass = (puuid?: string) => playerTeam(puuid) === ownTeamName ? "teammate" : "enemy";
 
     return (
-        <div className="border-x border-b border-white/10 rounded-b-lg bg-[#0b0f15] overflow-hidden">
+        <div className="rounded-b-lg bg-[#0b0f15] overflow-hidden">
             <div className="compact-match-details">
                 <TeamDisplay label="Your team" players={ownTeam} isVictory={true} rounds_played={roundsPlayed} isBottom={false} rounds={details.rounds} selectedRound={round?.number} onRoundSelect={setSelectedRound}/>
                 {round ? <article className="round-card selected-round inline-round-detail">
@@ -100,13 +102,13 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid}: { detail
                         <div className="kill-feed">
                             {round.kills.length ? round.kills.map((kill, index) => (
                                 <div className="kill-event" key={`${round.number}-${index}`}>
-                                    <span>{kill.killerName}</span>
+                                    <time dateTime={`PT${Math.floor(kill.time / 1000)}S`}>{formatRoundTime(kill.time)}</time>
+                                    <span className={relationshipClass(kill.killerPuuid)}>{kill.killerName}</span>
                                     <span className={kill.headshot ? "headshot" : ""}>
                                         {kill.weaponIcon ? <img src={kill.weaponIcon} alt={kill.weaponName}/> : <Crosshair/>}
                                         {kill.headshot && <b>HS</b>}
                                     </span>
-                                    <span>{kill.victimName}</span>
-                                    <time dateTime={`PT${Math.floor(kill.time / 1000)}S`}>{formatRoundTime(kill.time)}</time>
+                                    <span className={relationshipClass(kill.victimPuuid)}>{kill.victimName}</span>
                                 </div>
                             )) : <p className="empty-round">No kill events recorded for this round.</p>}
                         </div>

@@ -135,7 +135,7 @@ export const fetchMatchDetails = async (matchId: string) => {
                 headshot: kill.finishing_damage?.damage_type === "Headshot" || kill.is_headshot === true,
                 time: kill.kill_time_in_round ?? 0,
             }))
-        ),
+        ).sort((a: { time: number }, b: { time: number }) => a.time - b.time),
     }));
 
     return { players: normalizedPlayers, rounds };

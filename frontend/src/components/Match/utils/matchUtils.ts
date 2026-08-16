@@ -118,24 +118,52 @@ export const fetchMatchDetails = async (matchId: string) => {
     }));
 
     const playerNames = new Map(players.map((p: any) => [p.puuid, `${p.name}${p.tag ? `#${p.tag}` : ""}`]));
+    const normalizeKill = (kill: any, fallbackKillerPuuid?: string) => {
+        const killerPuuid = kill.killer_puuid || fallbackKillerPuuid;
+        return {
+            killerPuuid,
+            killerName: kill.killer_display_name || playerNames.get(killerPuuid) || "Unknown",
+            victimPuuid: kill.victim_puuid,
+            victimName: kill.victim_display_name || playerNames.get(kill.victim_puuid) || "Unknown",
+            weaponName: kill.damage_weapon_name || kill.damage_weapon_assets?.display_name || "Weapon",
+            weaponIcon: kill.damage_weapon_assets?.killfeed_icon,
+            headshot: kill.finishing_damage?.damage_type === "Headshot" || kill.is_headshot === true,
+            time: Number(kill.kill_time_in_round) || 0,
+            playerLocations: (kill.player_locations_on_kill || kill.player_locations || []).map((entry: any) => ({
+                puuid: entry.player_puuid,
+                team: entry.player_team,
+                location: {
+                    x: Number(entry.location?.x) || 0,
+                    y: Number(entry.location?.y) || 0,
+                },
+                viewRadians: entry.view_radians,
+            })),
+            victimLocation: kill.victim_death_location ? {
+                x: Number(kill.victim_death_location.x) || 0,
+                y: Number(kill.victim_death_location.y) || 0,
+            } : undefined,
+        };
+    };
+
+    const globalKills = Array.isArray(matchData.kills) ? matchData.kills : [];
+    const roundsAreZeroBased = globalKills.some((kill: any) => Number(kill.round) === 0);
     const rounds = (matchData.rounds || []).map((round: any, index: number) => ({
         number: index + 1,
         winningTeam: round.winning_team || "Unknown",
         endType: round.end_type || "Round complete",
         planter: round.plant_events?.planted_by?.display_name,
         defuser: round.defuse_events?.defused_by?.display_name,
-        kills: (round.player_stats || []).flatMap((stat: any) =>
-            (stat.kill_events || stat.kills || []).map((kill: any) => ({
-                killerPuuid: stat.player_puuid,
-                killerName: playerNames.get(stat.player_puuid) || "Unknown",
-                victimPuuid: kill.victim_puuid,
-                victimName: kill.victim_display_name || playerNames.get(kill.victim_puuid) || "Unknown",
-                weaponName: kill.damage_weapon_name || kill.damage_weapon_assets?.display_name || "Weapon",
-                weaponIcon: kill.damage_weapon_assets?.killfeed_icon,
-                headshot: kill.finishing_damage?.damage_type === "Headshot" || kill.is_headshot === true,
-                time: kill.kill_time_in_round ?? 0,
-            }))
-        ).sort((a: { time: number }, b: { time: number }) => a.time - b.time),
+        kills: (() => {
+            const roundNumber = roundsAreZeroBased ? index : index + 1;
+            const topLevelKills = globalKills
+                .filter((kill: any) => Number(kill.round) === roundNumber)
+                .map((kill: any) => normalizeKill(kill));
+            const nestedKills = (round.player_stats || []).flatMap((stat: any) =>
+                (stat.kill_events || stat.kills || []).map((kill: any) => normalizeKill(kill, stat.player_puuid))
+            );
+            return (topLevelKills.length ? topLevelKills : nestedKills)
+                .sort((a: { time: number }, b: { time: number }) => a.time - b.time);
+        })(),
     }));
 
     return { players: normalizedPlayers, rounds };

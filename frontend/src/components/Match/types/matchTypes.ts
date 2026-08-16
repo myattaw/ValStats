@@ -31,6 +31,20 @@ export interface RoundKill {
     weaponIcon?: string;
     headshot: boolean;
     time: number;
+    playerLocations: EventPlayerLocation[];
+    victimLocation?: EventLocation;
+}
+
+export interface EventLocation {
+    x: number;
+    y: number;
+}
+
+export interface EventPlayerLocation {
+    puuid: string;
+    team?: string;
+    location: EventLocation;
+    viewRadians?: number;
 }
 
 export interface MatchRound {

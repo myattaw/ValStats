@@ -1,9 +1,122 @@
-import {useState} from "react";
-import {Crosshair, Crown, Shield} from "lucide-react";
+import {useEffect, useRef, useState, type PointerEvent as ReactPointerEvent} from "react";
+import {Crosshair, Crown, RotateCcw, Shield, ZoomIn, ZoomOut} from "lucide-react";
 import {Skeleton} from "../ui/skeleton";
-import {MatchDetails, MatchRound, PlayerStats} from './types/matchTypes';
+import {EventLocation, MatchDetails, MatchRound, PlayerStats, RoundKill} from './types/matchTypes';
 
 const TIER_SET = "03621f52-342b-cf4e-4f86-9350a49c6d04";
+
+interface MapData {
+    displayIcon: string;
+    xMultiplier: number;
+    yMultiplier: number;
+    xScalar: number;
+    yScalar: number;
+}
+
+const TacticalMap = ({mapId, event, players, ownTeam}: { mapId?: string; event?: RoundKill; players: PlayerStats[]; ownTeam?: string }) => {
+    const [map, setMap] = useState<MapData | null>(null);
+    const [zoom, setZoom] = useState(1);
+    const [pan, setPan] = useState({x: 0, y: 0});
+    const drag = useRef<{pointerId: number; x: number; y: number; originX: number; originY: number} | null>(null);
+    const mapElement = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+        if (!mapId) return;
+        const controller = new AbortController();
+        fetch(`https://valorant-api.com/v1/maps/${encodeURIComponent(mapId)}`, {signal: controller.signal})
+            .then((response) => response.ok ? response.json() : Promise.reject(new Error("Map unavailable")))
+            .then((payload) => setMap({
+                displayIcon: payload.data.displayIcon,
+                xMultiplier: Number(payload.data.xMultiplier),
+                yMultiplier: Number(payload.data.yMultiplier),
+                xScalar: Number(payload.data.xScalarToAdd ?? payload.data.xScalar),
+                yScalar: Number(payload.data.yScalarToAdd ?? payload.data.yScalar),
+            }))
+            .catch((reason) => {
+                if (reason?.name !== "AbortError") console.error("Failed to load tactical map", reason);
+            });
+        return () => controller.abort();
+    }, [mapId]);
+
+    useEffect(() => {
+        const element = mapElement.current;
+        if (!element) return;
+        const handleNativeWheel = (wheelEvent: globalThis.WheelEvent) => {
+            wheelEvent.preventDefault();
+            wheelEvent.stopPropagation();
+            setZoom((value) => Math.max(.75, Math.min(2.5, value + (wheelEvent.deltaY < 0 ? .15 : -.15))));
+        };
+        element.addEventListener("wheel", handleNativeWheel, {passive: false});
+        return () => element.removeEventListener("wheel", handleNativeWheel);
+    }, []);
+
+    const position = (location: EventLocation) => {
+        const left = (location.y * (map?.xMultiplier ?? 0) + (map?.xScalar ?? 0)) * 100;
+        const top = (location.x * (map?.yMultiplier ?? 0) + (map?.yScalar ?? 0)) * 100;
+        if (!Number.isFinite(left) || !Number.isFinite(top)) return undefined;
+        return {
+            left: `${Math.max(1, Math.min(99, left))}%`,
+            top: `${Math.max(1, Math.min(99, top))}%`,
+        };
+    };
+
+    if (!map?.displayIcon) return <div className="map-placeholder">Map positioning unavailable</div>;
+
+    const victim = players.find((player) => player.puuid === event?.victimPuuid);
+    const resetView = () => {
+        setZoom(1);
+        setPan({x: 0, y: 0});
+    };
+    const handlePointerDown = (pointerEvent: ReactPointerEvent<HTMLDivElement>) => {
+        if (pointerEvent.button !== 0) return;
+        pointerEvent.currentTarget.setPointerCapture(pointerEvent.pointerId);
+        drag.current = {pointerId: pointerEvent.pointerId, x: pointerEvent.clientX, y: pointerEvent.clientY, originX: pan.x, originY: pan.y};
+    };
+    const handlePointerMove = (pointerEvent: ReactPointerEvent<HTMLDivElement>) => {
+        if (!drag.current || drag.current.pointerId !== pointerEvent.pointerId) return;
+        setPan({x: drag.current.originX + pointerEvent.clientX - drag.current.x, y: drag.current.originY + pointerEvent.clientY - drag.current.y});
+    };
+    const handlePointerUp = (pointerEvent: ReactPointerEvent<HTMLDivElement>) => {
+        if (drag.current?.pointerId === pointerEvent.pointerId) drag.current = null;
+        if (pointerEvent.currentTarget.hasPointerCapture(pointerEvent.pointerId)) pointerEvent.currentTarget.releasePointerCapture(pointerEvent.pointerId);
+    };
+
+    return (
+        <div className="map-stage">
+        <div ref={mapElement} className="tactical-map" onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerCancel={handlePointerUp} onDoubleClick={resetView} title="Scroll to zoom · Drag to pan · Double-click to reset">
+            <div className="map-canvas" style={{transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px)) scale(${zoom})`}}>
+            <img src={map.displayIcon} alt="Round tactical map"/>
+            {event?.playerLocations.map((entry) => {
+                const player = players.find((item) => item.puuid === entry.puuid);
+                const relation = (player?.team || entry.team)?.toLowerCase() === ownTeam ? "teammate" : "enemy";
+                const role = entry.puuid === event.killerPuuid ? " killer" : entry.puuid === event.victimPuuid ? " victim dead" : "";
+                const markerPosition = position(entry.location);
+                if (!markerPosition) return null;
+                return <span
+                    key={entry.puuid}
+                    className={`map-player ${relation}${role}`}
+                    style={markerPosition}
+                    title={`${player?.name || "Player"} · ${player?.agent || "Unknown agent"}`}
+                >{player?.agentIcon ? <img src={player.agentIcon} alt={player.agent}/> : player?.agent?.slice(0, 2).toUpperCase() || "?"}</span>;
+            })}
+            {event?.victimLocation && !event.playerLocations.some((entry) => entry.puuid === event.victimPuuid) && (() => {
+                const markerPosition = position(event.victimLocation!);
+                return markerPosition ? <span className="map-player enemy victim dead" style={markerPosition} title={event.victimName}>
+                    {victim?.agentIcon ? <img src={victim.agentIcon} alt={victim.agent}/> : victim?.agent?.slice(0, 2).toUpperCase() || "×"}
+                </span> : null;
+            })()}
+            {!event && <div className="map-overlay-message">Select an event</div>}
+            </div>
+        </div>
+        <div className="map-controls" aria-label="Map zoom controls">
+            <button onClick={() => setZoom((value) => Math.max(.75, value - .25))} disabled={zoom <= .75} title="Zoom out"><ZoomOut/></button>
+            <span>{Math.round(zoom * 100)}%</span>
+            <button onClick={() => setZoom((value) => Math.min(2.5, value + .25))} disabled={zoom >= 2.5} title="Zoom in"><ZoomIn/></button>
+            <button onClick={resetView} disabled={zoom === 1 && pan.x === 0 && pan.y === 0} title="Reset map view"><RotateCcw/></button>
+        </div>
+        </div>
+    );
+};
 
 // Helper to calculate headshot percentage
 function getHeadshotPercentage(player: PlayerStats): string {
@@ -75,8 +188,9 @@ const formatRoundTime = (milliseconds: number) => {
     return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
 };
 
-export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid}: { details: MatchDetails; roundsPlayed: number; viewerPuuid?: string | null }) => {
+export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: { details: MatchDetails; roundsPlayed: number; viewerPuuid?: string | null; mapId?: string }) => {
     const [selectedRound, setSelectedRound] = useState(1);
+    const [selectedEvent, setSelectedEvent] = useState(0);
     const viewer = details.players.find((player) => player.puuid === viewerPuuid);
     const ownTeamName = viewer?.team?.toLowerCase() || details.players[0]?.team?.toLowerCase();
     const ownTeam = details.players.filter((player) => player.team?.toLowerCase() === ownTeamName).sort((a, b) => b.score - a.score);
@@ -85,6 +199,8 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid}: { detail
     const isOwnTeamWin = (winningTeam: string) => winningTeam.toLowerCase() === ownTeamName;
     const playerTeam = (puuid?: string) => details.players.find((player) => player.puuid === puuid)?.team?.toLowerCase();
     const relationshipClass = (puuid?: string) => playerTeam(puuid) === ownTeamName ? "teammate" : "enemy";
+
+    useEffect(() => setSelectedEvent(0), [selectedRound]);
 
     return (
         <div className="rounded-b-lg bg-[#0b0f15] overflow-hidden">
@@ -99,9 +215,10 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid}: { detail
                         {(round.planter || round.defuser) && (
                             <div className="objective-row"><Crown className="w-3.5 h-3.5"/>{round.planter && `Planted by ${round.planter}`}{round.planter && round.defuser && " · "}{round.defuser && `Defused by ${round.defuser}`}</div>
                         )}
+                        <div className="round-analysis">
                         <div className="kill-feed">
                             {round.kills.length ? round.kills.map((kill, index) => (
-                                <div className="kill-event" key={`${round.number}-${index}`}>
+                                <button className={`kill-event ${selectedEvent === index ? "selected" : ""}`} key={`${round.number}-${index}`} onClick={() => setSelectedEvent(index)}>
                                     <time dateTime={`PT${Math.floor(kill.time / 1000)}S`}>{formatRoundTime(kill.time)}</time>
                                     <span className={relationshipClass(kill.killerPuuid)}>{kill.killerName}</span>
                                     <span className={kill.headshot ? "headshot" : ""}>
@@ -109,8 +226,10 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid}: { detail
                                         {kill.headshot && <b>HS</b>}
                                     </span>
                                     <span className={relationshipClass(kill.victimPuuid)}>{kill.victimName}</span>
-                                </div>
+                                </button>
                             )) : <p className="empty-round">No kill events recorded for this round.</p>}
+                        </div>
+                        <TacticalMap mapId={mapId} event={round.kills[selectedEvent]} players={details.players} ownTeam={ownTeamName}/>
                         </div>
                     </article> : <div className="empty-details compact-empty">Round data was not supplied by the match provider.</div>}
                 <TeamDisplay label="Enemy team" players={enemyTeam} isVictory={false} rounds_played={roundsPlayed} isBottom={true} rounds={details.rounds} selectedRound={round?.number} onRoundSelect={setSelectedRound}/>

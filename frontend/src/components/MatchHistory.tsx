@@ -340,7 +340,7 @@ export function MatchHistory({
 
                                         {isExpanded && match.details && (
                                             <CollapsibleContent>
-                                                <MatchDetailsPanel details={match.details} roundsPlayed={match.rounds_played} viewerPuuid={puuid}/>
+                                                <MatchDetailsPanel details={match.details} roundsPlayed={match.rounds_played} viewerPuuid={puuid} mapId={match.mapId}/>
                                             </CollapsibleContent>
                                         )}
                                     </div>

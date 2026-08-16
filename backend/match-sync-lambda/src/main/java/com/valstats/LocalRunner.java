@@ -1,7 +1,6 @@
 package com.valstats;
 
 import com.valstats.service.match.MatchDataService;
-import io.micronaut.runtime.Micronaut;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 
@@ -13,10 +12,10 @@ public class LocalRunner {
 
     public void run() {
         matchDataService.syncStoredMatches(
-                "e70e9f85-d38b-5253-989c-89d16d2c4cc9",
+                "28b2d23e-a656-54a9-a003-61f2193fc72d",
                 "na",
-                "FertileHippo374",
-                "374",
+                "Rages",
+                "alt",
                 50,
                 true
         );

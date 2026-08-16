@@ -11,12 +11,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Comparator;
 
 @Singleton
 public class PlayerCacheService {
 
     private static final Logger LOG = LoggerFactory.getLogger(PlayerCacheService.class);
     private static final long FETCH_COOLDOWN_SECONDS = 180; // 3 minutes
+    private static final long NAME_HISTORY_BACKFILL_SECONDS = 86400; // once per day
 
     private final DynamoDbClient ddb;
     private final String tableName = "valstats";
@@ -136,9 +138,107 @@ public class PlayerCacheService {
                             )
                     ))
                     .build());
+            recordPlayerName(puuid, name, tag, Instant.now().getEpochSecond());
         } catch (DynamoDbException e) {
             LOG.error("Failed to store player profile: {}#{}", name, tag, e);
         }
+    }
+
+    public void recordPlayerName(String puuid, String name, String tag, long observedAt) {
+        if (puuid == null || puuid.isBlank() || name == null || name.isBlank() || tag == null || tag.isBlank()) return;
+
+        String normalized = (name + "#" + tag).toLowerCase(java.util.Locale.ROOT);
+        Map<String, AttributeValue> key = Map.of(
+                "PK", AttributeValue.fromS("PLAYER#" + puuid),
+                "SK", AttributeValue.fromS("NAME#" + normalized)
+        );
+        Map<String, AttributeValue> values = Map.of(
+                ":name", AttributeValue.fromS(name),
+                ":tag", AttributeValue.fromS(tag),
+                ":seen", AttributeValue.fromN(String.valueOf(observedAt)),
+                ":now", AttributeValue.fromS(Instant.now().toString()),
+                ":one", AttributeValue.fromN("1")
+        );
+
+        try {
+            ddb.updateItem(UpdateItemRequest.builder()
+                    .tableName(tableName).key(key)
+                    .updateExpression("SET #n = :name, #t = :tag, firstSeen = if_not_exists(firstSeen, :seen), lastSeen = if_not_exists(lastSeen, :seen), updatedAt = :now ADD observations :one")
+                    .expressionAttributeNames(Map.of("#n", "name", "#t", "tag"))
+                    .expressionAttributeValues(values).build());
+            updateObservedBoundary(key, "firstSeen", observedAt, "firstSeen > :seen");
+            updateObservedBoundary(key, "lastSeen", observedAt, "lastSeen < :seen");
+        } catch (DynamoDbException e) {
+            LOG.error("Failed to record name history for player {}", puuid, e);
+        }
+    }
+
+    private void updateObservedBoundary(Map<String, AttributeValue> key, String attribute, long observedAt, String condition) {
+        try {
+            ddb.updateItem(UpdateItemRequest.builder().tableName(tableName).key(key)
+                    .updateExpression("SET " + attribute + " = :seen").conditionExpression(condition)
+                    .expressionAttributeValues(Map.of(":seen", AttributeValue.fromN(String.valueOf(observedAt)))).build());
+        } catch (ConditionalCheckFailedException ignored) {
+            // The existing boundary is already correct.
+        }
+    }
+
+    public List<Map<String, Object>> getPlayerNameHistory(String puuid) {
+        QueryResponse response = ddb.query(QueryRequest.builder().tableName(tableName)
+                .keyConditionExpression("PK = :pk AND begins_with(SK, :prefix)")
+                .expressionAttributeValues(Map.of(
+                        ":pk", AttributeValue.fromS("PLAYER#" + puuid),
+                        ":prefix", AttributeValue.fromS("NAME#"))).build());
+
+        String currentNameTag = getCurrentNameTag(puuid).orElse("");
+        return response.items().stream().map(item -> {
+                    String name = item.getOrDefault("name", AttributeValue.fromS("")).s();
+                    String tag = item.getOrDefault("tag", AttributeValue.fromS("")).s();
+                    Map<String, Object> result = new HashMap<>();
+                    result.put("name", name);
+                    result.put("tag", tag);
+                    result.put("firstSeen", Long.parseLong(item.getOrDefault("firstSeen", AttributeValue.fromN("0")).n()));
+                    result.put("lastSeen", Long.parseLong(item.getOrDefault("lastSeen", AttributeValue.fromN("0")).n()));
+                    result.put("observations", Long.parseLong(item.getOrDefault("observations", AttributeValue.fromN("0")).n()));
+                    result.put("current", (name + "#" + tag).equalsIgnoreCase(currentNameTag));
+                    return result;
+                }).sorted(Comparator.comparingLong(item -> -((Number) item.get("lastSeen")).longValue())).toList();
+    }
+
+    private Optional<String> getCurrentNameTag(String puuid) {
+        GetItemResponse response = ddb.getItem(GetItemRequest.builder().tableName(tableName)
+                .key(Map.of("PK", AttributeValue.fromS("PLAYER#" + puuid), "SK", AttributeValue.fromS("PROFILE")))
+                .projectionExpression("#n, #t").expressionAttributeNames(Map.of("#n", "name", "#t", "tag")).build());
+        if (!response.hasItem() || !response.item().containsKey("name") || !response.item().containsKey("tag")) return Optional.empty();
+        return Optional.of(response.item().get("name").s() + "#" + response.item().get("tag").s());
+    }
+
+    public Optional<Map<String, String>> getCurrentIdentity(String puuid) {
+        GetItemResponse response = ddb.getItem(GetItemRequest.builder().tableName(tableName)
+                .key(Map.of("PK", AttributeValue.fromS("PLAYER#" + puuid), "SK", AttributeValue.fromS("PROFILE"))).build());
+        if (!response.hasItem()) return Optional.empty();
+        Map<String, AttributeValue> item = response.item();
+        return Optional.of(Map.of(
+                "name", item.getOrDefault("name", AttributeValue.fromS("")).s(),
+                "tag", item.getOrDefault("tag", AttributeValue.fromS("")).s(),
+                "region", item.getOrDefault("region", AttributeValue.fromS("na")).s()
+        ));
+    }
+
+    public boolean shouldBackfillNameHistory(String puuid) {
+        GetItemResponse response = ddb.getItem(GetItemRequest.builder().tableName(tableName)
+                .key(Map.of("PK", AttributeValue.fromS("PLAYER#" + puuid), "SK", AttributeValue.fromS("NAME_HISTORY_META"))).build());
+        if (!response.hasItem() || !response.item().containsKey("lastBackfill")) return true;
+        long lastBackfill = Long.parseLong(response.item().get("lastBackfill").n());
+        return Instant.now().getEpochSecond() - lastBackfill >= NAME_HISTORY_BACKFILL_SECONDS;
+    }
+
+    public void markNameHistoryBackfilled(String puuid) {
+        ddb.putItem(PutItemRequest.builder().tableName(tableName).item(Map.of(
+                "PK", AttributeValue.fromS("PLAYER#" + puuid),
+                "SK", AttributeValue.fromS("NAME_HISTORY_META"),
+                "lastBackfill", AttributeValue.fromN(String.valueOf(Instant.now().getEpochSecond()))
+        )).build());
     }
 
     /**

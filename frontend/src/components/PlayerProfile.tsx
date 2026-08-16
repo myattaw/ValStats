@@ -2,6 +2,7 @@ import { Shield, Trophy } from 'lucide-react';
 import { ACT_MAP } from './Match/utils/matchUtils';
 import { Skeleton } from './ui/skeleton';
 import type { MmrData, ProfileData } from '../types/player';
+import { PlayerNameHistory } from './PlayerNameHistory';
 
 const TIER_SET = '03621f52-342b-cf4e-4f86-9350a49c6d04';
 
@@ -48,6 +49,7 @@ export function PlayerProfile({ profile, mmr, actId, actLabel, loading }: {
           <span className="eyebrow">Competitive profile</span>
           <h1>{profile?.name ?? 'Loading player'}<span>#{profile?.tag ?? ''}</span></h1>
           {profile?.account_level && <p>Account level {profile.account_level}</p>}
+          <PlayerNameHistory puuid={profile?.puuid} />
         </div>
       </div>
       <div className="rank-grid">

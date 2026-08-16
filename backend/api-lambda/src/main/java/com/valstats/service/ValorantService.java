@@ -2,6 +2,7 @@ package com.valstats.service;
 
 import com.valstats.client.ValorantApiClient;
 import com.valstats.config.ValorantApiConfig;
+import com.valstats.model.stored.StoredMatchesResponse;
 import com.valstats.service.match.MatchDataService;
 import com.valstats.service.player.PlayerCacheService;
 import com.valstats.service.player.PlayerStatsService;
@@ -11,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
 import java.util.*;
+import java.time.Instant;
 
 /**
  * Main service for Valorant API operations - READ ONLY.
@@ -137,7 +139,15 @@ public class ValorantService {
      * Get account details from HenrikDev API
      */
     public Map<String, Object> getAccountDetails(String name, String tag) {
-        return apiClient.getAccount(name, tag);
+        Map<String, Object> response = apiClient.getAccount(name, tag);
+        if (response != null && response.get("data") instanceof Map<?, ?> data) {
+            String puuid = Objects.toString(data.get("puuid"), "");
+            String currentName = Objects.toString(data.get("name"), name);
+            String currentTag = Objects.toString(data.get("tag"), tag);
+            String region = Objects.toString(data.get("region"), "na");
+            if (!puuid.isBlank()) playerCacheService.storePlayerProfile(puuid, currentName, currentTag, region);
+        }
+        return response;
     }
 
     /**
@@ -145,7 +155,69 @@ public class ValorantService {
      * Delegates to MatchDataService which handles caching strategy.
      */
     public Object getMatchById(String matchId) {
-        return matchDataService.getMatchDetails(matchId);
+        Object response = matchDataService.getMatchDetails(matchId);
+        recordMatchPlayerNames(response);
+        return response;
+    }
+
+    private void recordMatchPlayerNames(Object response) {
+        if (!(response instanceof Map<?, ?> root) || !(root.get("data") instanceof Map<?, ?> data)) return;
+        if (!(data.get("players") instanceof Map<?, ?> players) || !(players.get("all_players") instanceof List<?> allPlayers)) return;
+
+        long observedAt = Instant.now().getEpochSecond();
+        if (data.get("metadata") instanceof Map<?, ?> metadata && metadata.get("game_start") instanceof Number gameStart) {
+            observedAt = gameStart.longValue();
+            if (observedAt > 10_000_000_000L) observedAt /= 1000;
+        }
+
+        for (Object value : allPlayers) {
+            if (!(value instanceof Map<?, ?> player)) continue;
+            playerCacheService.recordPlayerName(
+                    Objects.toString(player.get("puuid"), ""),
+                    Objects.toString(player.get("name"), ""),
+                    Objects.toString(player.get("tag"), ""),
+                    observedAt
+            );
+        }
+    }
+
+    public List<Map<String, Object>> getPlayerNameHistory(String puuid) {
+        backfillRecentNameHistory(puuid);
+        return playerCacheService.getPlayerNameHistory(puuid);
+    }
+
+    private void backfillRecentNameHistory(String puuid) {
+        if (!playerCacheService.shouldBackfillNameHistory(puuid)) return;
+        Optional<Map<String, String>> identity = playerCacheService.getCurrentIdentity(puuid);
+        if (identity.isEmpty()) return;
+
+        boolean completed = false;
+        try {
+            Map<String, String> current = identity.get();
+            StoredMatchesResponse response = apiClient.getStoredMatches(
+                    current.get("region"), current.get("name"), current.get("tag"), 50, 1, "competitive");
+            if (response != null && response.data() != null) {
+                for (StoredMatchesResponse.StoredMatch match : response.data()) {
+                    long observedAt = Instant.now().getEpochSecond();
+                    try {
+                        if (match.meta() != null && match.meta().startedAt() != null) {
+                            observedAt = Instant.parse(match.meta().startedAt()).getEpochSecond();
+                        }
+                    } catch (Exception ignored) {
+                        // Keep current time if the provider sends an unexpected date format.
+                    }
+                    if (match.players() == null) continue;
+                    for (StoredMatchesResponse.Player player : match.players()) {
+                        playerCacheService.recordPlayerName(player.puuid(), player.name(), player.tag(), observedAt);
+                    }
+                }
+                completed = true;
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to backfill recent name history for {}", puuid, e);
+        } finally {
+            if (completed) playerCacheService.markNameHistoryBackfilled(puuid);
+        }
     }
 
     /**

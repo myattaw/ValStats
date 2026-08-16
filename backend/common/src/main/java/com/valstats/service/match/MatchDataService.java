@@ -227,16 +227,10 @@ public class MatchDataService {
      * Strategy: Check cache first, then API if needed
      */
     public Object getMatchDetails(String matchId) {
-        // Try cache first
-        Optional<Map<String, AttributeValue>> cached = dynamoDbService.getMatchById(matchId);
-        if (cached.isPresent()) {
-            LOG.debug("Returning cached match details for {}", matchId);
-            List<Map<String, AttributeValue>> players = dynamoDbService.getMatchPlayers(matchId);
-            return responseFormatter.formatCachedMatchDetails(cached.get(), players);
-        }
-
-        // Cache miss - fetch from API
-        LOG.info("Cache miss for match {}. Fetching from API...", matchId);
+        // Stored-match records only contain summary statistics. The complete
+        // Henrik payload is required here for ranks, economy and round events.
+        // Do not return the lossy cached summary from this detail endpoint.
+        LOG.info("Fetching full match details for {}", matchId);
         return apiClient.getMatchById(matchId);
     }
 

@@ -94,9 +94,10 @@ export const fetchMatchDetails = async (matchId: string) => {
     const matchData = data.data;
     const players = matchData.players?.all_players || [];
 
-    return players.map((p: any) => ({
+    const normalizedPlayers = players.map((p: any) => ({
         puuid: p.puuid,
         name: p.name,
+        tag: p.tag,
         agent: p.character,
         kills: p.stats.kills,
         deaths: p.stats.deaths,
@@ -107,6 +108,35 @@ export const fetchMatchDetails = async (matchId: string) => {
         bodyshots: p.stats.bodyshots,
         legshots: p.stats.legshots,
         agentIcon: p.assets?.agent?.small || "",
+        cardIcon: p.assets?.card?.small || "",
         team: p.team,
+        currentTier: p.currenttier ?? p.competitive_tier ?? p.tier ?? 0,
+        currentTierName: p.currenttier_patched || p.competitive_tier_name || p.rank || "Unranked",
+        level: p.account_level,
+        economySpent: p.economy?.spent?.overall ?? 0,
+        economyLoadout: p.economy?.loadout_value?.average ?? 0,
     }));
+
+    const playerNames = new Map(players.map((p: any) => [p.puuid, `${p.name}${p.tag ? `#${p.tag}` : ""}`]));
+    const rounds = (matchData.rounds || []).map((round: any, index: number) => ({
+        number: index + 1,
+        winningTeam: round.winning_team || "Unknown",
+        endType: round.end_type || "Round complete",
+        planter: round.plant_events?.planted_by?.display_name,
+        defuser: round.defuse_events?.defused_by?.display_name,
+        kills: (round.player_stats || []).flatMap((stat: any) =>
+            (stat.kill_events || stat.kills || []).map((kill: any) => ({
+                killerPuuid: stat.player_puuid,
+                killerName: playerNames.get(stat.player_puuid) || "Unknown",
+                victimPuuid: kill.victim_puuid,
+                victimName: kill.victim_display_name || playerNames.get(kill.victim_puuid) || "Unknown",
+                weaponName: kill.damage_weapon_name || kill.damage_weapon_assets?.display_name || "Weapon",
+                weaponIcon: kill.damage_weapon_assets?.killfeed_icon,
+                headshot: kill.finishing_damage?.damage_type === "Headshot" || kill.is_headshot === true,
+                time: kill.kill_time_in_round ?? 0,
+            }))
+        ),
+    }));
+
+    return { players: normalizedPlayers, rounds };
 };

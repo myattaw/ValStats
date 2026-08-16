@@ -8,7 +8,7 @@ import {
     fetchMatchDetails,
     INITIAL_MATCHES_SIZE
 } from "./Match/utils/matchUtils";
-import { MatchSkeleton, TeamDisplay } from "./Match/MatchComponents";
+import { MatchDetailsPanel, MatchSkeleton } from "./Match/MatchComponents";
 
 type LastKey = Record<string, string | number> | null;
 
@@ -93,66 +93,7 @@ export function MatchHistory({
         setLastKey(null);
         setHasMore(true);
         fetchInitialMatches();
-    }, [puuid, playerName, playerTag, selectedAct, fetchInitialMatches]);
-
-    const renderMatchTeams = (match: Match) => {
-        if (!match.players) return null;
-
-        const allPlayers = match.players;
-        const teams = match.teams;
-
-        let topTeamName = "blue";
-        let bottomTeamName = "red";
-
-        if (teams) {
-            if (match.result === "Victory") {
-                topTeamName = teams.blue.has_won ? "blue" : "red";
-                bottomTeamName = teams.blue.has_won ? "red" : "blue";
-            } else {
-                topTeamName = teams.blue.has_won ? "red" : "blue";
-                bottomTeamName = teams.blue.has_won ? "blue" : "red";
-            }
-        }
-
-        const topTeamPlayers = allPlayers
-            .filter((p) => p.team?.toLowerCase() === topTeamName)
-            .sort((a, b) => b.score - a.score);
-
-        const bottomTeamPlayers = allPlayers
-            .filter((p) => p.team?.toLowerCase() === bottomTeamName)
-            .sort((a, b) => b.score - a.score);
-
-        const redRounds = teams?.red?.rounds_won ?? 0;
-        const blueRounds = teams?.blue?.rounds_won ?? 0;
-
-        const redWon = redRounds > blueRounds;
-        const blueWon = blueRounds > redRounds;
-
-        const topLabel =
-            (topTeamName === "red" ? redWon : blueWon) ? "Victory" : "Defeat";
-
-        const bottomLabel =
-            (bottomTeamName === "red" ? redWon : blueWon) ? "Victory" : "Defeat";
-
-        return (
-            <>
-                <TeamDisplay
-                    label={topLabel === "Victory" ? "Winning Team (Victory)" : "Losing Team (Defeat)"}
-                    players={topTeamPlayers}
-                    isVictory={topLabel === "Victory"}
-                    rounds_played={match.rounds_played}
-                    isBottom={false}
-                />
-                <TeamDisplay
-                    label={bottomLabel === "Victory" ? "Winning Team (Victory)" : "Losing Team (Defeat)"}
-                    players={bottomTeamPlayers}
-                    isVictory={bottomLabel === "Victory"}
-                    rounds_played={match.rounds_played}
-                    isBottom={true}
-                />
-            </>
-        );
-    };
+    }, [playerName, playerTag, selectedAct, fetchInitialMatches]);
 
     const RANK_NAMES = [
         "Unranked",
@@ -216,16 +157,16 @@ export function MatchHistory({
     const handleExpand = async (match: Match, isExpanded: boolean) => {
         if (loadingMatchId === match.id) return;
 
-        if (!match.players || match.players.length <= 1) {
+        if (!match.details) {
             setLoadingMatchId(match.id);
             setExpandedMatch(match.id);
 
             try {
-                const playerStats = await fetchMatchDetails(match.id);
+                const details = await fetchMatchDetails(match.id);
                 setMatches((prev) =>
                     prev.map((m) =>
                         m.id === match.id
-                            ? { ...m, players: playerStats, hasDetails: true }
+                            ? { ...m, players: details.players, details, hasDetails: true }
                             : m
                     )
                 );
@@ -279,13 +220,13 @@ export function MatchHistory({
                             return (
                                 <Collapsible
                                     key={match.id}
-                                    open={isExpanded && !!match.players}
+                                    open={isExpanded && !!match.details}
                                     onOpenChange={() => handleExpand(match, isExpanded)}
                                 >
                                     <div>
                                         <CollapsibleTrigger
                                             className={`w-full text-left p-0 transition-colors relative overflow-hidden ${
-                                                isExpanded && match.players
+                                                isExpanded && match.details
                                                     ? "rounded-t-lg border-t border-l border-r !border-b-0"
                                                     : "rounded-lg border"
                                             } ${borderColor}`}
@@ -388,7 +329,7 @@ export function MatchHistory({
                                                         ) : (
                                                             <ChevronDown
                                                                 className={`w-5 h-5 text-gray-400 transition-transform ${
-                                                                    isExpanded && match.players ? "rotate-180" : ""
+                                                                    isExpanded && match.details ? "rotate-180" : ""
                                                                 }`}
                                                             />
                                                         )}
@@ -397,9 +338,9 @@ export function MatchHistory({
                                             </div>
                                         </CollapsibleTrigger>
 
-                                        {isExpanded && match.players && (
+                                        {isExpanded && match.details && (
                                             <CollapsibleContent>
-                                                <div>{renderMatchTeams(match)}</div>
+                                                <MatchDetailsPanel details={match.details} roundsPlayed={match.rounds_played} viewerPuuid={puuid}/>
                                             </CollapsibleContent>
                                         )}
                                     </div>

@@ -13,6 +13,38 @@ export interface PlayerStats {
     headshots?: number;
     legshots?: number;
     rounds_played?: number; // <-- Add this
+    tag?: string;
+    currentTier?: number;
+    currentTierName?: string;
+    cardIcon?: string;
+    level?: number;
+    economySpent?: number;
+    economyLoadout?: number;
+}
+
+export interface RoundKill {
+    killerPuuid?: string;
+    killerName: string;
+    victimPuuid?: string;
+    victimName: string;
+    weaponName: string;
+    weaponIcon?: string;
+    headshot: boolean;
+    time: number;
+}
+
+export interface MatchRound {
+    number: number;
+    winningTeam: string;
+    endType: string;
+    planter?: string;
+    defuser?: string;
+    kills: RoundKill[];
+}
+
+export interface MatchDetails {
+    players: PlayerStats[];
+    rounds: MatchRound[];
 }
 
 export interface Match {
@@ -34,6 +66,7 @@ export interface Match {
     rrChange: number;
     rounds_played: number;
     players?: PlayerStats[];
+    details?: MatchDetails;
     agentIcon?: string;
     teams?: any;
     hasDetails?: boolean;

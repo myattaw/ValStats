@@ -156,6 +156,7 @@ public class MatchProcessor {
         marker.put("damage_made", AttributeValue.fromN(String.valueOf(damageMade)));
         marker.put("rounds_played", AttributeValue.fromN(String.valueOf(roundsPlayed)));
         marker.put("adr", AttributeValue.fromN(String.valueOf(adr)));
+        marker.put("damageSchemaVersion", AttributeValue.fromN("2"));
         marker.put("redRoundsWon", AttributeValue.fromN(String.valueOf(redRoundsWon)));
         marker.put("blueRoundsWon", AttributeValue.fromN(String.valueOf(blueRoundsWon)));
         marker.put("tier", AttributeValue.fromN(String.valueOf(tier)));
@@ -212,8 +213,10 @@ public class MatchProcessor {
         values.put(":damage", AttributeValue.fromN(String.valueOf(damageMade)));
         values.put(":rounds", AttributeValue.fromN(String.valueOf(roundsPlayed)));
         values.put(":adr", AttributeValue.fromN(String.valueOf(adr)));
+        values.put(":damageSchemaVersion", AttributeValue.fromN("2"));
         String expression = "SET #mode = :mode, modeName = :modeName, "
-                + "damage_made = :damage, rounds_played = :rounds, adr = :adr";
+                + "damage_made = :damage, rounds_played = :rounds, adr = :adr, "
+                + "damageSchemaVersion = :damageSchemaVersion";
         if (!seasonShort.isBlank() && !seasonName.isBlank()) {
             expression += ", seasonShort = :seasonShort, seasonName = :seasonName";
             values.put(":seasonShort", AttributeValue.fromS(seasonShort));

@@ -39,6 +39,22 @@ public class ValorantController {
         );
     }
 
+    @Post("/matches/{region}/{name}/{tag}/refresh")
+    public Map<String, Object> refreshMatches(
+            @PathVariable String region,
+            @PathVariable String name,
+            @PathVariable String tag) {
+        return valorantService.refreshMatches(region, name, tag);
+    }
+
+    @Get("/matches/{region}/{name}/{tag}/refresh-status")
+    public Map<String, Object> getMatchRefreshStatus(
+            @PathVariable String region,
+            @PathVariable String name,
+            @PathVariable String tag) {
+        return valorantService.getMatchRefreshStatus(region, name, tag);
+    }
+
     @Get("/modes/{region}/{name}/{tag}")
     public Object getModes(@PathVariable String region, @PathVariable String name, @PathVariable String tag) {
         return valorantService.getAvailableModes(region, name, tag);
@@ -59,6 +75,16 @@ public class ValorantController {
     @Get("/players/{puuid}/names")
     public Map<String, Object> getPlayerNameHistory(@PathVariable String puuid) {
         return Map.of("status", 200, "data", valorantService.getPlayerNameHistory(puuid));
+    }
+
+    @Get("/players/{puuid}/names/refresh-status")
+    public Map<String, Object> getPlayerNameHistoryRefreshStatus(@PathVariable String puuid) {
+        return valorantService.getPlayerNameHistoryRefreshStatus(puuid);
+    }
+
+    @Post("/players/{puuid}/names/refresh")
+    public Map<String, Object> refreshPlayerNameHistory(@PathVariable String puuid) {
+        return valorantService.refreshPlayerNameHistory(puuid);
     }
 
     @Get("/players/{puuid}")

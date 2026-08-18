@@ -19,7 +19,8 @@ public class PlayerCacheService {
     private static final Logger LOG = LoggerFactory.getLogger(PlayerCacheService.class);
     private static final long FETCH_COOLDOWN_SECONDS = 180; // 3 minutes
     private static final long NAME_HISTORY_BACKFILL_SECONDS = 86400; // once per day
-    private static final String NAME_HISTORY_META_SK = "NAME_HISTORY_META_V2";
+    private static final String NAME_HISTORY_META_SK = "NAME_HISTORY_META_V3";
+    private static final String NAME_HISTORY_CHECKPOINT_PREFIX = "NAME_HISTORY_CHECKPOINT_V3#";
 
     private final DynamoDbClient ddb;
     private final String tableName = "valstats";
@@ -110,16 +111,6 @@ public class PlayerCacheService {
     public void storePlayerProfile(String puuid, String name, String tag, String region) {
         String now = Instant.now().toString();
 
-        // Store main profile
-        Map<String, AttributeValue> profileItem = new HashMap<>();
-        profileItem.put("PK", AttributeValue.fromS("PLAYER#" + puuid));
-        profileItem.put("SK", AttributeValue.fromS("PROFILE"));
-        profileItem.put("puuid", AttributeValue.fromS(puuid));
-        profileItem.put("name", AttributeValue.fromS(name));
-        profileItem.put("tag", AttributeValue.fromS(tag));
-        profileItem.put("region", AttributeValue.fromS(region));
-        profileItem.put("updatedAt", AttributeValue.fromS(now));
-
         // Store name#tag -> puuid lookup
         String nameTag = (name + "#" + tag).toLowerCase();
         Map<String, AttributeValue> lookupItem = new HashMap<>();
@@ -130,15 +121,23 @@ public class PlayerCacheService {
         lookupItem.put("updatedAt", AttributeValue.fromS(now));
 
         try {
-            // Use batch write for efficiency
-            ddb.batchWriteItem(BatchWriteItemRequest.builder()
-                    .requestItems(Map.of(
-                            tableName, List.of(
-                                    WriteRequest.builder().putRequest(PutRequest.builder().item(profileItem).build()).build(),
-                                    WriteRequest.builder().putRequest(PutRequest.builder().item(lookupItem).build()).build()
-                            )
-                    ))
+            // Update instead of replacing so concurrent identity resolution cannot
+            // erase enriched account fields such as card images and account level.
+            ddb.updateItem(UpdateItemRequest.builder()
+                    .tableName(tableName)
+                    .key(Map.of(
+                            "PK", AttributeValue.fromS("PLAYER#" + puuid),
+                            "SK", AttributeValue.fromS("PROFILE")))
+                    .updateExpression("SET puuid = :puuid, #n = :name, #t = :tag, #r = :region, updatedAt = :now")
+                    .expressionAttributeNames(Map.of("#n", "name", "#t", "tag", "#r", "region"))
+                    .expressionAttributeValues(Map.of(
+                            ":puuid", AttributeValue.fromS(puuid),
+                            ":name", AttributeValue.fromS(name),
+                            ":tag", AttributeValue.fromS(tag),
+                            ":region", AttributeValue.fromS(region),
+                            ":now", AttributeValue.fromS(now)))
                     .build());
+            ddb.putItem(PutItemRequest.builder().tableName(tableName).item(lookupItem).build());
             recordPlayerName(puuid, name, tag, Instant.now().getEpochSecond());
         } catch (DynamoDbException e) {
             LOG.error("Failed to store player profile: {}#{}", name, tag, e);
@@ -223,11 +222,67 @@ public class PlayerCacheService {
                 .key(Map.of("PK", AttributeValue.fromS("PLAYER#" + puuid), "SK", AttributeValue.fromS("PROFILE"))).build());
         if (!response.hasItem()) return Optional.empty();
         Map<String, AttributeValue> item = response.item();
+        if (!item.containsKey("accountLevel") || !item.containsKey("cardSmall")) {
+            return Optional.empty();
+        }
         return Optional.of(Map.of(
                 "name", item.getOrDefault("name", AttributeValue.fromS("")).s(),
                 "tag", item.getOrDefault("tag", AttributeValue.fromS("")).s(),
                 "region", item.getOrDefault("region", AttributeValue.fromS("na")).s()
         ));
+    }
+
+    public Optional<Map<String, Object>> getCachedAccount(String name, String tag) {
+        Optional<String> puuid = getPuuidByNameTag(name, tag);
+        if (puuid.isEmpty()) return Optional.empty();
+        GetItemResponse response = ddb.getItem(GetItemRequest.builder().tableName(tableName)
+                .key(Map.of("PK", AttributeValue.fromS("PLAYER#" + puuid.get()), "SK", AttributeValue.fromS("PROFILE")))
+                .build());
+        if (!response.hasItem()) return Optional.empty();
+        Map<String, AttributeValue> item = response.item();
+        Map<String, Object> data = new HashMap<>();
+        data.put("puuid", puuid.get());
+        data.put("name", item.getOrDefault("name", AttributeValue.fromS(name)).s());
+        data.put("tag", item.getOrDefault("tag", AttributeValue.fromS(tag)).s());
+        data.put("region", item.getOrDefault("region", AttributeValue.fromS("na")).s());
+        if (item.containsKey("accountLevel")) data.put("account_level", Long.parseLong(item.get("accountLevel").n()));
+        Map<String, String> card = new HashMap<>();
+        for (String field : List.of("id", "small", "large", "wide")) {
+            String attribute = "card" + Character.toUpperCase(field.charAt(0)) + field.substring(1);
+            if (item.containsKey(attribute)) card.put(field, item.get(attribute).s());
+        }
+        if (!card.isEmpty()) data.put("card", card);
+        return Optional.of(data);
+    }
+
+    public void storeAccountProfile(Map<?, ?> data, String fallbackName, String fallbackTag, String fallbackRegion) {
+        String puuid = java.util.Objects.toString(data.get("puuid"), "");
+        if (puuid.isBlank()) return;
+        String name = java.util.Objects.toString(data.get("name"), fallbackName);
+        String tag = java.util.Objects.toString(data.get("tag"), fallbackTag);
+        String region = java.util.Objects.toString(data.get("region"), fallbackRegion);
+        storePlayerProfile(puuid, name, tag, region);
+
+        Map<String, AttributeValue> values = new HashMap<>();
+        StringBuilder update = new StringBuilder("SET updatedAt = :now");
+        values.put(":now", AttributeValue.fromS(Instant.now().toString()));
+        if (data.get("account_level") instanceof Number level) {
+            update.append(", accountLevel = :level");
+            values.put(":level", AttributeValue.fromN(String.valueOf(level.longValue())));
+        }
+        if (data.get("card") instanceof Map<?, ?> card) {
+            for (String field : List.of("id", "small", "large", "wide")) {
+                String value = java.util.Objects.toString(card.get(field), "");
+                if (value.isBlank()) continue;
+                String token = ":card" + field;
+                update.append(", card").append(Character.toUpperCase(field.charAt(0)))
+                        .append(field.substring(1)).append(" = ").append(token);
+                values.put(token, AttributeValue.fromS(value));
+            }
+        }
+        ddb.updateItem(UpdateItemRequest.builder().tableName(tableName)
+                .key(Map.of("PK", AttributeValue.fromS("PLAYER#" + puuid), "SK", AttributeValue.fromS("PROFILE")))
+                .updateExpression(update.toString()).expressionAttributeValues(values).build());
     }
 
     public boolean shouldBackfillNameHistory(String puuid) {
@@ -251,7 +306,7 @@ public class PlayerCacheService {
                 .tableName(tableName)
                 .key(Map.of(
                         "PK", AttributeValue.fromS("PLAYER#" + puuid),
-                        "SK", AttributeValue.fromS("NAME_HISTORY_CHECKPOINT#" + matchId)
+                        "SK", AttributeValue.fromS(NAME_HISTORY_CHECKPOINT_PREFIX + matchId)
                 ))
                 .projectionExpression("SK")
                 .build());
@@ -263,7 +318,7 @@ public class PlayerCacheService {
                 .tableName(tableName)
                 .item(Map.of(
                         "PK", AttributeValue.fromS("PLAYER#" + puuid),
-                        "SK", AttributeValue.fromS("NAME_HISTORY_CHECKPOINT#" + matchId),
+                        "SK", AttributeValue.fromS(NAME_HISTORY_CHECKPOINT_PREFIX + matchId),
                         "processedAt", AttributeValue.fromS(Instant.now().toString())
                 ))
                 .build());

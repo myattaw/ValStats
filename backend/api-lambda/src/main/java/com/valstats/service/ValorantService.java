@@ -28,7 +28,7 @@ import java.time.Instant;
 public class ValorantService {
 
     private static final Logger LOG = LoggerFactory.getLogger(ValorantService.class);
-    private static final long NAME_HISTORY_SAMPLE_SECONDS = 30L * 24 * 60 * 60;
+    private static final long NAME_HISTORY_SAMPLE_SECONDS = 7L * 24 * 60 * 60;
     private static final int NAME_HISTORY_CHECKPOINTS_PER_REQUEST = 5;
 
     private final MatchDataService matchDataService;
@@ -142,23 +142,43 @@ public class ValorantService {
                 act,
                 mode
         );
-        backfillRecentNameHistory(puuid);
         return matches;
+    }
+
+    public Map<String, Object> refreshMatches(String region, String name, String tag) {
+        String puuid = resolvePuuid(name, tag, region);
+        if (puuid == null) return errorResponse("Player not found");
+        if (!matchDataService.needsRefresh(puuid, region, name, tag)) {
+            return Map.of("status", 200, "data", Map.of("updated", false, "refreshing", false));
+        }
+        boolean updated = matchDataService.refreshPlayerMatches(puuid, region, name, tag);
+        return Map.of("status", 200, "data", Map.of("updated", updated));
+    }
+
+    public Map<String, Object> getMatchRefreshStatus(String region, String name, String tag) {
+        Optional<String> puuid = playerCacheService.getPuuidByNameTag(name, tag);
+        if (puuid.isEmpty()) {
+            return Map.of("status", 200, "data", Map.of("refreshRequired", true));
+        }
+        boolean required = matchDataService.needsRefresh(puuid.get(), region, name, tag);
+        return Map.of("status", 200, "data", Map.of("refreshRequired", required));
     }
 
     /**
      * Get account details from HenrikDev API
      */
     public Map<String, Object> getAccountDetails(String name, String tag) {
+        Optional<Map<String, Object>> cached = playerCacheService.getCachedAccount(name, tag);
+        if (cached.isPresent()) return Map.of("status", 200, "data", cached.get());
+        return refreshAccountDetails(name, tag, "na");
+    }
+
+    private Map<String, Object> refreshAccountDetails(String name, String tag, String region) {
         Map<String, Object> response = apiRequestQueue.execute(
                 "account for " + name + "#" + tag,
                 () -> apiClient.getAccount(name, tag));
         if (response != null && response.get("data") instanceof Map<?, ?> data) {
-            String puuid = Objects.toString(data.get("puuid"), "");
-            String currentName = Objects.toString(data.get("name"), name);
-            String currentTag = Objects.toString(data.get("tag"), tag);
-            String region = Objects.toString(data.get("region"), "na");
-            if (!puuid.isBlank()) playerCacheService.storePlayerProfile(puuid, currentName, currentTag, region);
+            playerCacheService.storeAccountProfile(data, name, tag, region);
         }
         return response;
     }
@@ -222,8 +242,20 @@ public class ValorantService {
     }
 
     public List<Map<String, Object>> getPlayerNameHistory(String puuid) {
-        backfillRecentNameHistory(puuid);
         return playerCacheService.getPlayerNameHistory(puuid);
+    }
+
+    public Map<String, Object> getPlayerNameHistoryRefreshStatus(String puuid) {
+        return Map.of("status", 200, "data", Map.of(
+                "refreshRequired", playerCacheService.shouldBackfillNameHistory(puuid)));
+    }
+
+    public Map<String, Object> refreshPlayerNameHistory(String puuid) {
+        if (!playerCacheService.shouldBackfillNameHistory(puuid)) {
+            return Map.of("status", 200, "data", Map.of("updated", false));
+        }
+        backfillRecentNameHistory(puuid);
+        return Map.of("status", 200, "data", Map.of("updated", true));
     }
 
     public Map<String, Object> getPlayerIdentity(String puuid) {
@@ -250,7 +282,7 @@ public class ValorantService {
                 String tag = Objects.toString(data.get("tag"), "");
                 String region = Objects.toString(data.get("region"), "na");
                 if (!name.isBlank() && !tag.isBlank()) {
-                    playerCacheService.storePlayerProfile(resolvedPuuid, name, tag, region);
+                    playerCacheService.storeAccountProfile(data, name, tag, region);
                     return identityResponse(resolvedPuuid, name, tag, region);
                 }
             }

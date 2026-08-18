@@ -31,13 +31,15 @@ export function MatchHistory({
                                  playerName,
                                  playerTag,
                                  selectedAct,
-                                 selectedMode
+                                 selectedMode,
+                                 onRefreshingChange
                              }: {
     puuid?: string | null;
     playerName: string;
     playerTag: string;
     selectedAct: string;
     selectedMode: string;
+    onRefreshingChange?: (refreshing: boolean) => void;
 }) {
     const [expandedMatch, setExpandedMatch] = useState<string | null>(null);
     const [loadingMatchId, setLoadingMatchId] = useState<string | null>(null);
@@ -67,8 +69,8 @@ export function MatchHistory({
         [playerName, playerTag, selectedAct, selectedMode]
     );
 
-    const fetchInitialMatches = useCallback(async () => {
-        setIsInitialLoading(true);
+    const fetchInitialMatches = useCallback(async (showLoading = true) => {
+        if (showLoading) setIsInitialLoading(true);
 
         try {
             const res = await fetch(buildMatchesUrl());
@@ -98,9 +100,32 @@ export function MatchHistory({
             setLastKey(null);
             setHasMore(false);
         } finally {
-            setIsInitialLoading(false);
+            if (showLoading) setIsInitialLoading(false);
         }
     }, [buildMatchesUrl, isSeasonMode]);
+
+    const refreshMatches = useCallback(async () => {
+        try {
+            const baseUrl = `${API_BASE_URL}/matches/na/${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}`;
+            const statusResponse = await fetch(`${baseUrl}/refresh-status`);
+            if (!statusResponse.ok) return;
+            const statusPayload = await statusResponse.json();
+            if (statusPayload?.data?.refreshRequired !== true) return;
+
+            onRefreshingChange?.(true);
+            const poll = window.setInterval(() => void fetchInitialMatches(false), 2500);
+            try {
+                await fetch(`${baseUrl}/refresh`, { method: "POST" });
+            } finally {
+                window.clearInterval(poll);
+                await fetchInitialMatches(false);
+            }
+        } catch (error) {
+            console.error("Background match refresh failed", error);
+        } finally {
+            onRefreshingChange?.(false);
+        }
+    }, [playerName, playerTag, fetchInitialMatches, onRefreshingChange]);
 
     useEffect(() => {
         setMatches([]);
@@ -109,8 +134,9 @@ export function MatchHistory({
         setLoadingMore(false);
         setLastKey(null);
         setHasMore(true);
-        fetchInitialMatches();
-    }, [playerName, playerTag, selectedAct, selectedMode, fetchInitialMatches]);
+        void fetchInitialMatches().then(refreshMatches);
+        return () => onRefreshingChange?.(false);
+    }, [playerName, playerTag, selectedAct, selectedMode, fetchInitialMatches, refreshMatches, onRefreshingChange]);
 
     const RANK_NAMES = [
         "Unranked",

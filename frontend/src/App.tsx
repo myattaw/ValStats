@@ -15,9 +15,11 @@ export default function App() {
   const [player, setPlayer] = useState<PlayerIdentifier | null>(() => parsePlayerFromUrl());
   const [act, setAct] = useState<{ id: string; label: string; seasonKey?: string }>({ id: 'all', label: 'Current act' });
   const [mode, setMode] = useState({ id: 'competitive', label: 'Competitive' });
+  const [matchesRefreshing, setMatchesRefreshing] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
   const { profile, stats, mmr, error, rankLoading, loadState, updatedAt, resolvedPlayer, region } = usePlayerData(player, act.id, mode.id);
   const activePlayer = resolvedPlayer ?? player;
+  const visibleLoadState = loadState === 'initial-loading' ? loadState : matchesRefreshing ? 'refreshing' : loadState;
 
   useEffect(() => {
     const syncFromHistory = () => setPlayer(parsePlayerFromUrl());
@@ -55,7 +57,7 @@ export default function App() {
         ) : (
           <div className="dashboard">
             {(inputError || error) && <div className="error-banner"><AlertCircle size={18} />{inputError || error}</div>}
-            <PlayerProfile profile={profile} mmr={mmr} seasonKey={act.seasonKey} actLabel={act.label} loading={loadState === 'initial-loading'} loadState={loadState} updatedAt={updatedAt} />
+            <PlayerProfile profile={profile} mmr={mmr} seasonKey={act.seasonKey} actLabel={act.label} loading={loadState === 'initial-loading'} loadState={visibleLoadState} updatedAt={updatedAt} />
             <section className="overview-panel">
               <div className="section-toolbar">
                 <div><span className="eyebrow">Performance</span><h2>{mode.label} overview</h2></div>
@@ -66,7 +68,7 @@ export default function App() {
               </div>
               <StatsOverview stats={stats} loading={rankLoading} />
             </section>
-            {activePlayer?.name && activePlayer.tag && <MatchHistory puuid={profile?.puuid ?? player.puuid} playerName={activePlayer.name} playerTag={activePlayer.tag} selectedAct={act.id} selectedMode={mode.id} />}
+            {activePlayer?.name && activePlayer.tag && <MatchHistory puuid={profile?.puuid ?? player.puuid} playerName={activePlayer.name} playerTag={activePlayer.tag} selectedAct={act.id} selectedMode={mode.id} onRefreshingChange={setMatchesRefreshing} />}
           </div>
         )}
       </main>

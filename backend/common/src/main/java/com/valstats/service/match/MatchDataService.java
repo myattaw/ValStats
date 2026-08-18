@@ -62,69 +62,6 @@ public class MatchDataService {
             String act,
             String mode
     ) {
-        QueryResponse check = dynamoDbService.getMatchesFromGSI(puuid, 50, null);
-
-        boolean didSync = false;
-
-        // =========================
-        // INITIAL BACKFILL / TOP-UP
-        // =========================
-        boolean hasAnyMatches = !check.items().isEmpty();
-        boolean needsModeBackfill = hasAnyMatches && check.items().stream().anyMatch(item -> !item.containsKey("mode"));
-        boolean needsDamageBackfill = hasAnyMatches && check.items().stream().anyMatch(item ->
-                !item.containsKey("damage_made") || !item.containsKey("rounds_played")
-                        || !item.containsKey("adr")
-                        || "0".equals(item.get("damage_made").n()));
-
-        if (!hasAnyMatches || needsModeBackfill || needsDamageBackfill) {
-            String backfillType = !hasAnyMatches ? "Initial"
-                    : needsDamageBackfill ? "Damage metadata" : "Game-mode metadata";
-            LOG.info("{} backfill for {}", backfillType, puuid);
-
-            boolean syncSucceeded = syncStoredMatches(
-                    puuid,
-                    region,
-                    name,
-                    tag,
-                    STORED_MATCH_PAGE_SIZE,
-                    true
-            );
-
-            if (syncSucceeded) {
-                dynamoDbService.updatePlayerLastRecentMatchUpdate(region, name, tag);
-                didSync = true;
-            }
-
-        } else {
-            // =========================
-            // INCREMENTAL SYNC
-            // =========================
-            Optional<Long> lastUpdateTime = dynamoDbService.getPlayerLastRecentMatchUpdate(region, name, tag);
-
-            long now = System.currentTimeMillis() / 1000;
-            long lastUpdate = lastUpdateTime.orElse(0L);
-
-            if (now - lastUpdate > 300) {
-                LOG.info("Running stored-match sync for {}#{}", name, tag);
-
-                boolean syncSucceeded = syncStoredMatches(
-                        puuid,
-                        region,
-                        name,
-                        tag,
-                        STORED_MATCH_PAGE_SIZE,
-                        false
-                );
-
-                if (syncSucceeded) {
-                    dynamoDbService.updatePlayerLastRecentMatchUpdate(region, name, tag);
-                    didSync = true;
-                }
-            } else {
-                LOG.debug("Skipping sync (cooldown active) for {}#{}", name, tag);
-            }
-        }
-
         // =========================
         // FETCH MATCHES
         // =========================
@@ -156,22 +93,6 @@ public class MatchDataService {
         // =========================
         List<Map<String, AttributeValue>> cachedMMR = dynamoDbService.getMMRHistory(puuid);
 
-        if (!cachedMatches.isEmpty() && cachedMMR.isEmpty() && !didSync) {
-            LOG.info("Refreshing MMR for {}", puuid);
-
-            try {
-                Map<String, Object> mmrHistory = apiRequestQueue.execute(
-                        "MMR history for " + name + "#" + tag,
-                        () -> apiClient.getMMRHistory(region, name, tag));
-
-                cacheMMRHistory(puuid, mmrHistory);
-            } catch (Exception e) {
-                LOG.warn("MMR refresh failed for {}#{}. Returning matches without fresh MMR.", name, tag, e);
-            }
-
-            cachedMMR = dynamoDbService.getMMRHistory(puuid);
-        }
-
         // =========================
         // FORMAT RESPONSE
         // =========================
@@ -188,6 +109,51 @@ public class MatchDataService {
                 result.data(),
                 cursor
         );
+    }
+
+    /** Performs slow external refresh work. Never call this from the cached read path. */
+    public boolean refreshPlayerMatches(String puuid, String region, String name, String tag) {
+        if (!needsRefresh(puuid, region, name, tag)) {
+            LOG.debug("Skipping sync (cooldown active) for {}#{}", name, tag);
+            return false;
+        }
+        QueryResponse check = dynamoDbService.getMatchesFromGSI(puuid, 50, null);
+        boolean hasAnyMatches = !check.items().isEmpty();
+        boolean needsModeBackfill = hasAnyMatches && check.items().stream()
+                .anyMatch(item -> !item.containsKey("mode"));
+        boolean needsDamageBackfill = hasAnyMatches && check.items().stream().anyMatch(item ->
+                !item.containsKey("damage_made") || !item.containsKey("rounds_played")
+                        || !item.containsKey("adr") || !item.containsKey("damageSchemaVersion"));
+        boolean initialBackfill = !hasAnyMatches || needsModeBackfill || needsDamageBackfill;
+
+        boolean succeeded = syncStoredMatches(
+                puuid, region, name, tag, STORED_MATCH_PAGE_SIZE, initialBackfill);
+        if (!succeeded) return false;
+
+        dynamoDbService.updatePlayerLastRecentMatchUpdate(region, name, tag);
+        if (dynamoDbService.getMMRHistory(puuid).isEmpty()) {
+            try {
+                Map<String, Object> mmrHistory = apiRequestQueue.execute(
+                        "MMR history for " + name + "#" + tag,
+                        () -> apiClient.getMMRHistory(region, name, tag));
+                cacheMMRHistory(puuid, mmrHistory);
+            } catch (Exception e) {
+                LOG.warn("MMR refresh failed for {}#{}: {}", name, tag, e.getMessage());
+            }
+        }
+        return true;
+    }
+
+    public boolean needsRefresh(String puuid, String region, String name, String tag) {
+        QueryResponse check = dynamoDbService.getMatchesFromGSI(puuid, 50, null);
+        if (check.items().isEmpty()) return true;
+        boolean incompleteMetadata = check.items().stream().anyMatch(item ->
+                !item.containsKey("mode") || !item.containsKey("damage_made")
+                        || !item.containsKey("rounds_played") || !item.containsKey("adr")
+                        || !item.containsKey("damageSchemaVersion"));
+        if (incompleteMetadata) return true;
+        long lastUpdate = dynamoDbService.getPlayerLastRecentMatchUpdate(region, name, tag).orElse(0L);
+        return System.currentTimeMillis() / 1000 - lastUpdate > 300;
     }
 
     private MatchResponses.Cursor convertLastKey(Map<String, AttributeValue> lastKey) {

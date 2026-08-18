@@ -545,6 +545,7 @@ public class ValorantService {
 
             @SuppressWarnings("unchecked")
             Map<String, Object> bySeason = (Map<String, Object>) rawBySeason;
+            normalizeHighestRank(data, bySeason);
 
             if (seasonId != null && !seasonId.isBlank() && !"all".equalsIgnoreCase(seasonId)) {
                 String henrikSeasonKey = mapToHenrikSeason(seasonId);
@@ -582,6 +583,65 @@ public class ValorantService {
         } catch (Exception e) {
             LOG.error("Failed to get MMR for {}#{}", name, tag, e);
             return errorResponse("Failed to load MMR");
+        }
+    }
+
+    private void normalizeHighestRank(Map<String, Object> data, Map<String, Object> bySeason) {
+        int peakTier = 0;
+        String peakName = "Unranked";
+        String peakSeason = "";
+
+        if (data.get("highest_rank") instanceof Map<?, ?> highest) {
+            peakTier = intValue(highest.get("tier"));
+            peakName = Objects.toString(highest.get("patched_tier"), peakName);
+            peakSeason = Objects.toString(highest.get("season"), "");
+        }
+
+        if (data.get("current_data") instanceof Map<?, ?> current) {
+            int tier = intValue(current.get("currenttier"));
+            if (tier > peakTier) {
+                peakTier = tier;
+                peakName = Objects.toString(current.get("currenttierpatched"), peakName);
+                peakSeason = "";
+            }
+        }
+
+        for (Map.Entry<String, Object> seasonEntry : bySeason.entrySet()) {
+            if (!(seasonEntry.getValue() instanceof Map<?, ?> season)) continue;
+            int finalTier = intValue(season.get("final_rank"));
+            if (finalTier > peakTier) {
+                peakTier = finalTier;
+                peakName = Objects.toString(season.get("final_rank_patched"), peakName);
+                peakSeason = seasonEntry.getKey();
+            }
+            if (season.get("act_rank_wins") instanceof Iterable<?> wins) {
+                for (Object value : wins) {
+                    if (!(value instanceof Map<?, ?> win)) continue;
+                    int tier = intValue(win.get("tier"));
+                    if (tier > peakTier) {
+                        peakTier = tier;
+                        peakName = Objects.toString(win.get("patched_tier"), peakName);
+                        peakSeason = seasonEntry.getKey();
+                    }
+                }
+            }
+        }
+
+        if (peakTier > 0) {
+            Map<String, Object> normalized = new HashMap<>();
+            normalized.put("tier", peakTier);
+            normalized.put("patched_tier", peakName);
+            normalized.put("season", peakSeason);
+            data.put("highest_rank", normalized);
+        }
+    }
+
+    private int intValue(Object value) {
+        if (value instanceof Number number) return number.intValue();
+        try {
+            return value == null ? 0 : Integer.parseInt(value.toString());
+        } catch (NumberFormatException ignored) {
+            return 0;
         }
     }
 

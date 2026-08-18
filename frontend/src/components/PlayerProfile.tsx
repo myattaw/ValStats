@@ -53,9 +53,11 @@ export function PlayerProfile({ profile, mmr, seasonKey, actLabel, loading, load
               {loadState === 'initial-loading' ? 'Loading account' : loadState === 'refreshing' ? 'Refreshing' : 'Updated'}
             </span>
           </div>
-          <h1>{profile?.name ?? 'Loading player'}<span>#{profile?.tag ?? ''}</span></h1>
+          <div className="profile-name-row">
+            <h1>{profile?.name ?? 'Loading player'}<span>#{profile?.tag ?? ''}</span></h1>
+            <PlayerNameHistory puuid={profile?.puuid} />
+          </div>
           {profile?.account_level && <p>Account level {profile.account_level}</p>}
-          <PlayerNameHistory puuid={profile?.puuid} />
         </div>
       </div>
       <div className="rank-grid">

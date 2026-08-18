@@ -76,6 +76,7 @@ export const fetchMatchDetails = async (matchId: string) => {
         level: p.account_level,
         economySpent: p.economy?.spent?.overall ?? 0,
         economyLoadout: p.economy?.loadout_value?.average ?? 0,
+        partyId: p.party_id || p.partyId || p.party?.id,
     }));
 
     const playerNames = new Map(players.map((p: any) => [p.puuid, `${p.name}${p.tag ? `#${p.tag}` : ""}`]));

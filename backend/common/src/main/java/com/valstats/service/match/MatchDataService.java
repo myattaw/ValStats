@@ -59,7 +59,8 @@ public class MatchDataService {
             String tag,
             int size,
             String lastKeyJson,
-            String act
+            String act,
+            String mode
     ) {
         QueryResponse check = dynamoDbService.getMatchesFromGSI(puuid, 50, null);
 
@@ -69,9 +70,10 @@ public class MatchDataService {
         // INITIAL BACKFILL / TOP-UP
         // =========================
         boolean hasAnyMatches = !check.items().isEmpty();
+        boolean needsModeBackfill = hasAnyMatches && check.items().stream().anyMatch(item -> !item.containsKey("mode"));
 
-        if (!hasAnyMatches) {
-            LOG.info("Initial backfill for {}", puuid);
+        if (!hasAnyMatches || needsModeBackfill) {
+            LOG.info("{} backfill for {}", needsModeBackfill ? "Game-mode metadata" : "Initial", puuid);
 
             boolean syncSucceeded = syncStoredMatches(
                     puuid,
@@ -125,27 +127,23 @@ public class MatchDataService {
 
         Map<String, AttributeValue> exclusiveStartKey = parseLastKey(lastKeyJson);
 
-        if (act != null && !"all".equalsIgnoreCase(act)) {
-            QueryResponse response = dynamoDbService.getMatchesBySeasonPaginated(
-                    puuid,
-                    act,
-                    size,
-                    exclusiveStartKey
-            );
+        cachedMatches = new ArrayList<>();
+        String normalizedMode = mode == null ? "all"
+                : mode.replaceAll("[^A-Za-z0-9]", "").toLowerCase(Locale.ROOT);
+        Map<String, AttributeValue> queryCursor = exclusiveStartKey;
+        do {
+            int remaining = size - cachedMatches.size();
+            QueryResponse response = act != null && !"all".equalsIgnoreCase(act)
+                    ? dynamoDbService.getMatchesBySeasonPaginated(puuid, act, remaining, queryCursor)
+                    : dynamoDbService.getMatchesFromGSI(puuid, remaining, queryCursor);
 
-            cachedMatches = response.items();
-            responseLastKey = response.lastEvaluatedKey();
-
-        } else {
-            QueryResponse response = dynamoDbService.getMatchesFromGSI(
-                    puuid,
-                    size,
-                    exclusiveStartKey
-            );
-
-            cachedMatches = response.items();
-            responseLastKey = response.lastEvaluatedKey();
-        }
+            cachedMatches.addAll(response.items().stream()
+                    .filter(item -> "all".equals(normalizedMode)
+                            || (item.containsKey("mode") && normalizedMode.equals(item.get("mode").s())))
+                    .toList());
+            queryCursor = response.lastEvaluatedKey();
+        } while (cachedMatches.size() < size && queryCursor != null && !queryCursor.isEmpty());
+        responseLastKey = queryCursor;
 
         // =========================
         // ENSURE MMR IS FRESH
@@ -284,7 +282,7 @@ public class MatchDataService {
                                 tag,
                                 batchSize,
                                 requestedPage,
-                                "competitive"
+                                null
                         ));
             } catch (Exception e) {
                 LOG.error("Failed stored-match request page={} size={} for {}#{}", page, batchSize, name, tag, e);

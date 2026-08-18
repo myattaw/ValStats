@@ -16,12 +16,14 @@ export function MatchHistory({
                                  puuid,
                                  playerName,
                                  playerTag,
-                                 selectedAct
+                                 selectedAct,
+                                 selectedMode
                              }: {
     puuid?: string | null;
     playerName: string;
     playerTag: string;
     selectedAct: string;
+    selectedMode: string;
 }) {
     const [expandedMatch, setExpandedMatch] = useState<string | null>(null);
     const [loadingMatchId, setLoadingMatchId] = useState<string | null>(null);
@@ -38,7 +40,8 @@ export function MatchHistory({
         (cursor?: LastKey) => {
             const params = new URLSearchParams({
                 size: String(INITIAL_MATCHES_SIZE),
-                act: selectedAct
+                act: selectedAct,
+                mode: selectedMode
             });
 
             if (cursor) {
@@ -47,7 +50,7 @@ export function MatchHistory({
 
             return `${API_BASE_URL}/matches/na/${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}?${params.toString()}`;
         },
-        [playerName, playerTag, selectedAct]
+        [playerName, playerTag, selectedAct, selectedMode]
     );
 
     const fetchInitialMatches = useCallback(async () => {
@@ -93,7 +96,7 @@ export function MatchHistory({
         setLastKey(null);
         setHasMore(true);
         fetchInitialMatches();
-    }, [playerName, playerTag, selectedAct, fetchInitialMatches]);
+    }, [playerName, playerTag, selectedAct, selectedMode, fetchInitialMatches]);
 
     const RANK_NAMES = [
         "Unranked",

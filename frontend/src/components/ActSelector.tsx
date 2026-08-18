@@ -106,12 +106,8 @@ export function ActSelector({
     }, [region, name, tag]);
 
     return (
-        <div className="flex items-center gap-3 py-2">
-            <div className="flex items-center gap-2 text-gray-400">
-                <Calendar className="w-4 h-4" />
-                <span className="text-sm">Act Filter:</span>
-            </div>
-
+        <div className="filter-control">
+            <span>Act</span>
             <Select
                 value={selectedAct}
                 onValueChange={(value) => {
@@ -120,8 +116,9 @@ export function ActSelector({
                 }}
             >
                 <SelectTrigger
-                    className="w-[180px] text-sm bg-[#1a1a1a] border-[#2a2a2a] text-white hover:bg-[#242424] focus:ring-[#4a7cff] focus:ring-offset-0"
+                    className="filter-trigger"
                 >
+                    <Calendar className="w-3.5 h-3.5" />
                     <SelectValue
                         placeholder="Select Act"
                         className="truncate text-sm"

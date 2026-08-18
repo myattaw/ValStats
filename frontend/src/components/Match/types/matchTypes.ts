@@ -20,6 +20,7 @@ export interface PlayerStats {
     level?: number;
     economySpent?: number;
     economyLoadout?: number;
+    partyId?: string;
 }
 
 export interface RoundKill {

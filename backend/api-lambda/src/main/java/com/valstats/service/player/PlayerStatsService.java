@@ -31,27 +31,41 @@ public class PlayerStatsService {
             String region,
             String name,
             String tag,
-            String seasonId
+            String seasonId,
+            String mode
     ) {
-        Map<String, Long> stats;
-
-        if (seasonId == null || seasonId.equalsIgnoreCase("all")) {
-            stats = dynamoDbService.getPlayerTotalStats(puuid);
-
-            if (stats.isEmpty() || stats.getOrDefault("matches_played", 0L) == 0) {
-                LOG.info("No cached stats for player {} yet; match sync will populate them", puuid);
-            }
-        } else {
-            Optional<Map<String, AttributeValue>> seasonStats = dynamoDbService.getPlayerSeasonStats(puuid, seasonId);
-
-            if (seasonStats.isEmpty()) {
-                LOG.info("No cached stats for player {} season {} yet", puuid, seasonId);
-            }
-
-            stats = seasonStats.isPresent() ? readStatsItem(seasonStats.get()) : new HashMap<>();
+        String normalizedMode = mode == null ? "all" : mode.replaceAll("[^A-Za-z0-9]", "").toLowerCase(Locale.ROOT);
+        Map<String, Long> stats = new HashMap<>();
+        for (Map<String, AttributeValue> item : dynamoDbService.getStoredMatchesForPlayer(puuid, 10_000, 1)) {
+            if (!"all".equalsIgnoreCase(seasonId)
+                    && !seasonId.equals(stringValue(item, "seasonId"))) continue;
+            if (!"all".equals(normalizedMode)
+                    && !normalizedMode.equals(stringValue(item, "mode"))) continue;
+            add(stats, "matches_played", 1);
+            add(stats, "total_kills", numberValue(item, "kills"));
+            add(stats, "total_deaths", numberValue(item, "deaths"));
+            add(stats, "total_assists", numberValue(item, "assists"));
+            add(stats, "total_score", numberValue(item, "score"));
+            add(stats, "total_headshots", numberValue(item, "headshots"));
+            add(stats, "total_bodyshots", numberValue(item, "bodyshots"));
+            add(stats, "total_legshots", numberValue(item, "legshots"));
+            add(stats, "total_damage", numberValue(item, "damage_made"));
+            add(stats, "total_rounds", numberValue(item, "rounds_played"));
         }
-
         return formatStats(stats);
+    }
+
+    private void add(Map<String, Long> stats, String key, long value) {
+        stats.merge(key, value, Long::sum);
+    }
+
+    private long numberValue(Map<String, AttributeValue> item, String key) {
+        try { return item.containsKey(key) ? Long.parseLong(item.get(key).n()) : 0L; }
+        catch (Exception ignored) { return 0L; }
+    }
+
+    private String stringValue(Map<String, AttributeValue> item, String key) {
+        return item.containsKey(key) && item.get(key).s() != null ? item.get(key).s() : "";
     }
 
     /**
@@ -95,9 +109,10 @@ public class PlayerStatsService {
             String region,
             String name,
             String tag,
-            String seasonId
+            String seasonId,
+            String mode
     ) {
-        Map<String, Object> stats = getPlayerStats(puuid, region, name, tag, seasonId);
+        Map<String, Object> stats = getPlayerStats(puuid, region, name, tag, seasonId, mode);
         if (!Objects.equals(stats.get("status"), 200)) {
             return stats;
         }

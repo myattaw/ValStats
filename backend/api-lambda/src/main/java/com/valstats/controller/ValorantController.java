@@ -25,7 +25,8 @@ public class ValorantController {
             @PathVariable String tag,
             @QueryValue(defaultValue = "10") Integer size,
             @QueryValue Optional<String> lastKey, // ✅ NEW
-            @QueryValue(defaultValue = "all") String act
+            @QueryValue(defaultValue = "all") String act,
+            @QueryValue(defaultValue = "competitive") String mode
     ) {
         return valorantService.getUnifiedMatches(
                 region,
@@ -33,8 +34,14 @@ public class ValorantController {
                 tag,
                 size,
                 lastKey.orElse(null),
-                act
+                act,
+                mode
         );
+    }
+
+    @Get("/modes/{region}/{name}/{tag}")
+    public Object getModes(@PathVariable String region, @PathVariable String name, @PathVariable String tag) {
+        return valorantService.getAvailableModes(region, name, tag);
     }
 
     @Get("/account/{name}/{tag}")
@@ -59,8 +66,9 @@ public class ValorantController {
             @PathVariable String region,
             @PathVariable String name,
             @PathVariable String tag,
-            @QueryValue(defaultValue = "all") String seasonId) {
-        return valorantService.getPlayerStats(region, name, tag, seasonId);
+            @QueryValue(defaultValue = "all") String seasonId,
+            @QueryValue(defaultValue = "competitive") String mode) {
+        return valorantService.getPlayerStats(region, name, tag, seasonId, mode);
     }
 
     @Get("/stats/{region}/{name}/{tag}/adr")
@@ -68,8 +76,9 @@ public class ValorantController {
             @PathVariable String region,
             @PathVariable String name,
             @PathVariable String tag,
-            @QueryValue(defaultValue = "all") String seasonId) {
-        return valorantService.getPlayerAdr(region, name, tag, seasonId);
+            @QueryValue(defaultValue = "all") String seasonId,
+            @QueryValue(defaultValue = "competitive") String mode) {
+        return valorantService.getPlayerAdr(region, name, tag, seasonId, mode);
     }
 
     @Get("/acts/{region}/{name}/{tag}")

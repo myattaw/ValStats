@@ -130,9 +130,10 @@ function getHeadshotPercentage(player: PlayerStats): string {
 }
 
 // Component for displaying match player data
-export const MatchPlayerRow = ({player, teamStyle, rounds_played, rounds = [], selectedRound, onRoundSelect}: {
+export const MatchPlayerRow = ({player, teamStyle, partyColor, rounds_played, rounds = [], selectedRound, onRoundSelect}: {
     player: PlayerStats;
     teamStyle: string;
+    partyColor?: string;
     rounds_played: number;
     rounds?: MatchRound[];
     selectedRound?: number;
@@ -140,7 +141,7 @@ export const MatchPlayerRow = ({player, teamStyle, rounds_played, rounds = [], s
 }) => {
     const rp = player.rounds_played ?? rounds_played;
     return (
-        <div className="scoreboard-player-row">
+        <div className="scoreboard-player-row" style={partyColor ? { borderLeft: `3px solid ${partyColor}` } : undefined}>
             <div className="scoreboard-player-identity">
                 <div className={`w-7 h-7 rounded flex items-center justify-center overflow-hidden ${teamStyle}`}>
                     {player.agentIcon ? (
@@ -278,6 +279,12 @@ export const TeamDisplay = ({
     const teamStyle = isVictory
         ? "bg-gradient-to-br from-[#4ade80] to-[#15803d]"
         : "bg-gradient-to-br from-[#f87171] to-[#dc2626]";
+    const groupedParties = players.reduce((counts, player) => {
+        if (player.partyId) counts.set(player.partyId, (counts.get(player.partyId) ?? 0) + 1);
+        return counts;
+    }, new Map<string, number>());
+    const partyIds = [...groupedParties.entries()].filter(([, count]) => count > 1).map(([id]) => id);
+    const partyColors = ['#a78bfa', '#38bdf8', '#fbbf24', '#f472b6', '#2dd4bf'];
 
     return (
         <div
@@ -289,6 +296,7 @@ export const TeamDisplay = ({
                         key={idx}
                         player={player}
                         teamStyle={teamStyle}
+                        partyColor={player.partyId && partyIds.includes(player.partyId) ? partyColors[partyIds.indexOf(player.partyId) % partyColors.length] : undefined}
                         rounds_played={rounds_played}
                         rounds={rounds}
                         selectedRound={selectedRound}

@@ -124,7 +124,8 @@ public class ValorantService {
             String tag,
             int size,
             String lastKey,
-            String act
+            String act,
+            String mode
     ) {
         String puuid = resolvePuuid(name, tag, region);
         if (puuid == null) {
@@ -138,7 +139,8 @@ public class ValorantService {
                 tag,
                 size,
                 lastKey,
-                act
+                act,
+                mode
         );
         backfillRecentNameHistory(puuid);
         return matches;
@@ -319,26 +321,26 @@ public class ValorantService {
      * Get aggregated player stats (K/D, HS%, ACS, K/R, ADR).
      * Delegates to PlayerStatsService.
      */
-    public Map<String, Object> getPlayerStats(String region, String name, String tag, String seasonId) {
+    public Map<String, Object> getPlayerStats(String region, String name, String tag, String seasonId, String mode) {
         String puuid = resolvePuuid(name, tag, region);
         if (puuid == null) {
             return errorResponse("Player not found");
         }
 
-        return playerStatsService.getPlayerStats(puuid, region, name, tag, seasonId);
+        return playerStatsService.getPlayerStats(puuid, region, name, tag, seasonId, mode);
     }
 
     /**
      * Get only ADR for a player.
      * Delegates to PlayerStatsService.
      */
-    public Map<String, Object> getPlayerAdr(String region, String name, String tag, String seasonId) {
+    public Map<String, Object> getPlayerAdr(String region, String name, String tag, String seasonId, String mode) {
         String puuid = resolvePuuid(name, tag, region);
         if (puuid == null) {
             return errorResponse("Player not found");
         }
 
-        return playerStatsService.getPlayerAdr(puuid, region, name, tag, seasonId);
+        return playerStatsService.getPlayerAdr(puuid, region, name, tag, seasonId, mode);
     }
 
     public List<Map<String, String>> getAvailableActs(String region, String name, String tag) {
@@ -391,6 +393,31 @@ public class ValorantService {
                         "value", entry.getKey(),
                         "label", resolveSeasonLabel(entry.getKey(), seasonLabels.get(entry.getKey()))
                 ))
+                .toList();
+    }
+
+    public List<Map<String, String>> getAvailableModes(String region, String name, String tag) {
+        String puuid = resolvePuuid(name, tag, region);
+        if (puuid == null) return List.of();
+
+        Map<String, String> modes = new TreeMap<>();
+        for (Map<String, AttributeValue> item : dynamoDbService.getStoredMatchesForPlayer(puuid, 10_000, 1)) {
+            AttributeValue mode = item.get("mode");
+            if (mode == null || mode.s() == null || mode.s().isBlank()) continue;
+            AttributeValue storedName = item.get("modeName");
+            String label = storedName != null && storedName.s() != null && !storedName.s().isBlank()
+                    ? storedName.s() : mode.s();
+            modes.putIfAbsent(mode.s(), label);
+        }
+
+        if (modes.isEmpty()) modes.put("competitive", "Competitive");
+        return modes.entrySet().stream()
+                .sorted((a, b) -> {
+                    if ("competitive".equals(a.getKey())) return -1;
+                    if ("competitive".equals(b.getKey())) return 1;
+                    return a.getValue().compareToIgnoreCase(b.getValue());
+                })
+                .map(entry -> Map.of("value", entry.getKey(), "label", entry.getValue()))
                 .toList();
     }
 

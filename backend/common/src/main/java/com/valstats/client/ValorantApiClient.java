@@ -1,6 +1,7 @@
 package com.valstats.client;
 
 import com.valstats.model.stored.StoredMatchesResponse;
+import io.micronaut.core.annotation.Nullable;
 import io.micronaut.http.annotation.Get;
 import io.micronaut.http.annotation.Header;
 import io.micronaut.http.annotation.PathVariable;
@@ -20,7 +21,7 @@ public interface ValorantApiClient {
             @PathVariable String tag,
             @QueryValue(value = "size", defaultValue = "10") Integer size,
             @QueryValue(value = "page", defaultValue = "1") Integer page,
-            @QueryValue(value = "mode", defaultValue = "competitive") String filter
+            @Nullable @QueryValue("mode") String filter
     );
 
     @Get("/valorant/v1/mmr-history/{region}/{name}/{tag}")

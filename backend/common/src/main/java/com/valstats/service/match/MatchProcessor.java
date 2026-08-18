@@ -53,6 +53,8 @@ public class MatchProcessor {
         String seasonShort = season != null ? SeasonNames.normalizeShortCode(season.shortName()) : "";
         String seasonName = SeasonNames.format(seasonShort);
         storeSeasonMetadata(seasonId, seasonShort, seasonName);
+        String mode = normalizeMode(meta.mode());
+        String modeName = displayMode(meta.mode());
 
         int redRounds = extractTeamRounds(match.teams(), "red");
         int blueRounds = extractTeamRounds(match.teams(), "blue");
@@ -67,6 +69,8 @@ public class MatchProcessor {
                 seasonId,
                 seasonShort,
                 seasonName,
+                mode,
+                modeName,
                 matchId,
                 stats.kills(),
                 stats.deaths(),
@@ -97,6 +101,8 @@ public class MatchProcessor {
             String seasonId,
             String seasonShort,
             String seasonName,
+            String mode,
+            String modeName,
             String matchId,
             long kills,
             long deaths,
@@ -133,6 +139,8 @@ public class MatchProcessor {
         marker.put("seasonId", AttributeValue.fromS(seasonId));
         if (!seasonShort.isBlank()) marker.put("seasonShort", AttributeValue.fromS(seasonShort));
         if (!seasonName.isBlank()) marker.put("seasonName", AttributeValue.fromS(seasonName));
+        marker.put("mode", AttributeValue.fromS(mode));
+        marker.put("modeName", AttributeValue.fromS(modeName));
         marker.put("map", AttributeValue.fromS(nullSafe(map)));
         marker.put("mapId", AttributeValue.fromS(nullSafe(mapId)));
         marker.put("agentName", AttributeValue.fromS(nullSafe(agentName)));
@@ -164,6 +172,7 @@ public class MatchProcessor {
                     .build());
 
         } catch (ConditionalCheckFailedException e) {
+            updateExistingMatchMetadata(pk, sk, seasonShort, seasonName, mode, modeName);
             LOG.debug("Match {} already processed for {}", matchId, puuid);
             return;
         } catch (DynamoDbException e) {
@@ -190,6 +199,30 @@ public class MatchProcessor {
         );
 
         LOG.debug("Processed match {} for player {}", matchId, puuid);
+    }
+
+    private void updateExistingMatchMetadata(
+            String pk, String sk, String seasonShort, String seasonName, String mode, String modeName) {
+        Map<String, AttributeValue> values = new HashMap<>();
+        values.put(":mode", AttributeValue.fromS(mode));
+        values.put(":modeName", AttributeValue.fromS(modeName));
+        String expression = "SET #mode = :mode, modeName = :modeName";
+        if (!seasonShort.isBlank() && !seasonName.isBlank()) {
+            expression += ", seasonShort = :seasonShort, seasonName = :seasonName";
+            values.put(":seasonShort", AttributeValue.fromS(seasonShort));
+            values.put(":seasonName", AttributeValue.fromS(seasonName));
+        }
+        try {
+            ddb.updateItem(UpdateItemRequest.builder()
+                    .tableName(tableName)
+                    .key(Map.of("PK", AttributeValue.fromS(pk), "SK", AttributeValue.fromS(sk)))
+                    .updateExpression(expression)
+                    .expressionAttributeNames(Map.of("#mode", "mode"))
+                    .expressionAttributeValues(values)
+                    .build());
+        } catch (DynamoDbException updateError) {
+            LOG.warn("Failed to backfill metadata for {}", sk, updateError);
+        }
     }
 
     private void storeSeasonMetadata(String seasonId, String seasonShort, String seasonName) {
@@ -321,6 +354,24 @@ public class MatchProcessor {
 
     private String nullSafe(String value) {
         return value == null ? "" : value;
+    }
+
+    private String normalizeMode(String value) {
+        if (value == null || value.isBlank()) return "unknown";
+        return value.replaceAll("[^A-Za-z0-9]", "").toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private String displayMode(String value) {
+        if (value == null || value.isBlank()) return "Unknown";
+        String spaced = value.trim().replaceAll("([a-z])([A-Z])", "$1 $2").replace('_', ' ');
+        String[] words = spaced.split("\\s+");
+        StringBuilder result = new StringBuilder();
+        for (String word : words) {
+            if (!result.isEmpty()) result.append(' ');
+            result.append(Character.toUpperCase(word.charAt(0)))
+                    .append(word.substring(1).toLowerCase(java.util.Locale.ROOT));
+        }
+        return result.toString();
     }
 }
 

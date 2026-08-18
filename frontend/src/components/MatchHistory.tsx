@@ -32,7 +32,8 @@ export function MatchHistory({
                                  playerTag,
                                  selectedAct,
                                  selectedMode,
-                                 onRefreshingChange
+                                 onRefreshingChange,
+                                 onRefreshComplete
                              }: {
     puuid?: string | null;
     playerName: string;
@@ -40,11 +41,13 @@ export function MatchHistory({
     selectedAct: string;
     selectedMode: string;
     onRefreshingChange?: (refreshing: boolean) => void;
+    onRefreshComplete?: () => void;
 }) {
     const [expandedMatch, setExpandedMatch] = useState<string | null>(null);
     const [loadingMatchId, setLoadingMatchId] = useState<string | null>(null);
     const [loadingMore, setLoadingMore] = useState(false);
     const [isInitialLoading, setIsInitialLoading] = useState(true);
+    const [isBackgroundRefreshing, setIsBackgroundRefreshing] = useState(false);
     const [matches, setMatches] = useState<Match[]>([]);
     const [hoveredMatch, setHoveredMatch] = useState<string | null>(null);
     const [lastKey, setLastKey] = useState<LastKey>(null);
@@ -110,6 +113,7 @@ export function MatchHistory({
     }, [buildMatchesUrl, isSeasonMode]);
 
     const refreshMatches = useCallback(async () => {
+        setIsBackgroundRefreshing(true);
         try {
             const baseUrl = `${API_BASE_URL}/matches/na/${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}`;
             const statusResponse = await fetch(`${baseUrl}/refresh-status`);
@@ -124,13 +128,15 @@ export function MatchHistory({
             } finally {
                 window.clearInterval(poll);
                 await fetchInitialMatches(false);
+                onRefreshComplete?.();
             }
         } catch (error) {
             console.error("Background match refresh failed", error);
         } finally {
+            setIsBackgroundRefreshing(false);
             onRefreshingChange?.(false);
         }
-    }, [playerName, playerTag, fetchInitialMatches, onRefreshingChange]);
+    }, [playerName, playerTag, fetchInitialMatches, onRefreshingChange, onRefreshComplete]);
 
     useEffect(() => {
         setMatches([]);
@@ -237,7 +243,7 @@ export function MatchHistory({
             </div>
 
             <div className="p-6 space-y-4">
-                {isInitialLoading ? (
+                {isInitialLoading || (isBackgroundRefreshing && matches.length === 0) ? (
                     Array.from({ length: 5 }).map((_, idx) => <MatchSkeleton key={idx} />)
                 ) : (
                     <>

@@ -9,6 +9,8 @@ import com.valstats.service.SeasonNames;
 import com.valstats.service.player.PlayerCacheService;
 import com.valstats.service.player.PlayerStatsService;
 import jakarta.inject.Singleton;
+import io.micronaut.http.HttpStatus;
+import io.micronaut.http.client.exceptions.HttpClientResponseException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -598,17 +600,23 @@ public class ValorantService {
                     "account for " + name + "#" + tag,
                     () -> apiClient.getAccount(name, tag));
 
-            @SuppressWarnings("unchecked")
-            Map<String, Object> data =
-                    (Map<String, Object>) account.getOrDefault("data", new HashMap<>());
+            if (account == null || !(account.get("data") instanceof Map<?, ?> data)) {
+                LOG.debug("No Henrik account found for {}#{}", name, tag);
+                return null;
+            }
 
-            if (data.get("puuid") != null) {
-                String puuid = String.valueOf(data.get("puuid"));
-                String playerRegion = String.valueOf(
-                        data.getOrDefault("region", region != null ? region : "na")
-                );
+            String puuid = Objects.toString(data.get("puuid"), "");
+            if (!puuid.isBlank()) {
+                String playerRegion = Objects.toString(
+                        data.get("region"), region != null ? region : "na");
                 playerCacheService.storePlayerProfile(puuid, name, tag, playerRegion);
                 return puuid;
+            }
+        } catch (HttpClientResponseException e) {
+            if (e.getStatus() == HttpStatus.NOT_FOUND) {
+                LOG.debug("Henrik account not found for {}#{}", name, tag);
+            } else {
+                LOG.error("Failed to resolve puuid for {}#{}", name, tag, e);
             }
         } catch (Exception e) {
             LOG.error("Failed to resolve puuid for {}#{}", name, tag, e);

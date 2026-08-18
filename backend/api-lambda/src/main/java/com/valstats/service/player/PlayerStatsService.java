@@ -92,6 +92,7 @@ public class PlayerStatsService {
         double adr = totalRounds > 0 ? (double) damage / totalRounds : 0;
 
         Map<String, Object> data = new HashMap<>();
+        data.put("matches_played", matches);
         data.put("kd_ratio", round(kd));
         data.put("headshot_percent", round(hs));
         data.put("avg_combat_score", round(acs));

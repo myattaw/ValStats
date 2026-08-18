@@ -17,9 +17,10 @@ export default function App() {
   const [mode, setMode] = useState({ id: 'competitive', label: 'Competitive' });
   const [matchesRefreshing, setMatchesRefreshing] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
-  const { profile, stats, mmr, error, rankLoading, loadState, updatedAt, resolvedPlayer, region } = usePlayerData(player, act.id, mode.id);
+  const { profile, stats, mmr, error, rankLoading, loadState, updatedAt, resolvedPlayer, region, refreshPlayerData } = usePlayerData(player, act.id, mode.id);
   const activePlayer = resolvedPlayer ?? player;
   const visibleLoadState = loadState === 'initial-loading' ? loadState : matchesRefreshing ? 'refreshing' : loadState;
+  const statsWaitingForMatches = matchesRefreshing && (!stats || stats.matches_played === 0);
 
   useEffect(() => {
     const syncFromHistory = () => setPlayer(parsePlayerFromUrl());
@@ -66,9 +67,9 @@ export default function App() {
                   <ActSelector selectedAct={act.id} onActChange={(id, label, seasonKey) => setAct({ id, label, seasonKey })} region={region} name={activePlayer?.name ?? ''} tag={activePlayer?.tag ?? ''} />
                 </div>
               </div>
-              <StatsOverview stats={stats} loading={rankLoading} />
+              <StatsOverview stats={stats} loading={rankLoading || statsWaitingForMatches} />
             </section>
-            {activePlayer?.name && activePlayer.tag && <MatchHistory puuid={profile?.puuid ?? player.puuid} playerName={activePlayer.name} playerTag={activePlayer.tag} selectedAct={act.id} selectedMode={mode.id} onRefreshingChange={setMatchesRefreshing} />}
+            {activePlayer?.name && activePlayer.tag && <MatchHistory puuid={profile?.puuid ?? player.puuid} playerName={activePlayer.name} playerTag={activePlayer.tag} selectedAct={act.id} selectedMode={mode.id} onRefreshingChange={setMatchesRefreshing} onRefreshComplete={refreshPlayerData} />}
           </div>
         )}
       </main>

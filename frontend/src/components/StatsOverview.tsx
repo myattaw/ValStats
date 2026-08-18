@@ -1,6 +1,7 @@
 import { Crosshair, Skull, Target, Trophy } from 'lucide-react';
 
 interface PlayerStats {
+    matches_played?: number;
     kd_ratio: number;
     headshot_percent: number;
     avg_combat_score: number;
@@ -12,9 +13,9 @@ interface StatsOverviewProps {
     loading?: boolean;
 }
 
-export function StatsOverview({ stats }: StatsOverviewProps) {
+export function StatsOverview({ stats, loading = false }: StatsOverviewProps) {
 
-    if (!stats) {
+    if (!stats || loading) {
         return (
             <div className="stats-grid">
                 {[1,2,3,4].map(i => (

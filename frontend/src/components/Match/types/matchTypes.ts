@@ -75,6 +75,7 @@ export interface Match {
     adr?: number;
     timestamp: string;
     date_raw: number;
+    server?: string;
     rank: string;
     ranking_in_tier: number;
     rank_tier: number;

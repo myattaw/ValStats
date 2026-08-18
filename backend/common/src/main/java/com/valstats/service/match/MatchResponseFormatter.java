@@ -159,6 +159,7 @@ public class MatchResponseFormatter {
                 roundsPlayed > 0 ? Math.round((float) getInt(match, "score") / roundsPlayed) : 0,
                 timestamp,
                 ts,
+                getString(match, "server"),
                 rank,
                 rankTier,
                 rankingInTier,

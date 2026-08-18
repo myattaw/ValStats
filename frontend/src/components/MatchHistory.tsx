@@ -23,7 +23,28 @@ function normalizeMatch(raw: Match & Record<string, any>): Match {
             ? Math.round(damage / rounds)
             : 0;
 
-    return {...raw, adr};
+    const server = raw.server ?? raw.cluster ?? raw.meta?.cluster;
+
+    return {...raw, adr, server};
+}
+
+function formatMatchDate(dateRaw: number, timestamp?: string) {
+    const numericDate = Number(dateRaw);
+    const date = Number.isFinite(numericDate) && numericDate > 0
+        ? new Date(numericDate > 10_000_000_000 ? numericDate : numericDate * 1000)
+        : timestamp
+            ? new Date(timestamp)
+            : null;
+
+    if (!date || Number.isNaN(date.getTime())) return "Unknown date";
+
+    return new Intl.DateTimeFormat(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit"
+    }).format(date);
 }
 
 export function MatchHistory({
@@ -367,19 +388,16 @@ export function MatchHistory({
                                                     </div>
 
                                                     <div className="flex items-center gap-3">
-                                                        <div className="grid grid-cols-1 justify-items-end gap-1.5 text-xs text-gray-400">
+                                                        <div className="match-server-time">
                                                             {match.server && (
-                                                                <div className="flex max-w-64 items-center gap-1.5">
+                                                                <div className="match-server-time-row">
                                                                     <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
                                                                     <span className="truncate">{match.server}</span>
                                                                 </div>
                                                             )}
-                                                            <div className="flex items-center gap-1.5">
+                                                            <div className="match-server-time-row">
                                                                 <Clock className="h-3.5 w-3.5" />
-                                                                <span>{match.date_raw
-                                                                      ? new Date(match.date_raw * 1000).toLocaleString()
-                                                                      : "Unknown"}
-                                                                </span>
+                                                                <time dateTime={match.timestamp}>{formatMatchDate(match.date_raw, match.timestamp)}</time>
                                                             </div>
                                                         </div>
 

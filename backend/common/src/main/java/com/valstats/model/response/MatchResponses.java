@@ -36,6 +36,7 @@ public final class MatchResponses {
             int acs,
             String timestamp,
             @JsonProperty("date_raw") long dateRaw,
+            String server,
             String rank,
             @JsonProperty("rank_tier") int rankTier,
             @JsonProperty("ranking_in_tier") int rankingInTier,

@@ -86,6 +86,7 @@ public class MatchProcessor {
                 character != null ? str(character.name()) : "",
                 character != null ? str(character.id()) : "",
                 str(stats.team()),
+                str(meta.cluster()),
                 redRounds,
                 blueRounds,
                 tier
@@ -118,6 +119,7 @@ public class MatchProcessor {
             String agentName,
             String agentId,
             String team,
+            String server,
             long redRoundsWon,
             long blueRoundsWon,
             int tier
@@ -146,6 +148,7 @@ public class MatchProcessor {
         marker.put("agentName", AttributeValue.fromS(nullSafe(agentName)));
         marker.put("agentId", AttributeValue.fromS(nullSafe(agentId)));
         marker.put("team", AttributeValue.fromS(nullSafe(team)));
+        if (!server.isBlank()) marker.put("server", AttributeValue.fromS(server));
         marker.put("kills", AttributeValue.fromN(String.valueOf(kills)));
         marker.put("deaths", AttributeValue.fromN(String.valueOf(deaths)));
         marker.put("assists", AttributeValue.fromN(String.valueOf(assists)));
@@ -175,7 +178,7 @@ public class MatchProcessor {
         } catch (ConditionalCheckFailedException e) {
             updateExistingMatchMetadata(
                     pk, sk, seasonShort, seasonName, mode, modeName,
-                    damageMade, roundsPlayed, adr);
+                    server, damageMade, roundsPlayed, adr);
             LOG.debug("Match {} already processed for {}", matchId, puuid);
             return;
         } catch (DynamoDbException e) {
@@ -206,8 +209,10 @@ public class MatchProcessor {
 
     private void updateExistingMatchMetadata(
             String pk, String sk, String seasonShort, String seasonName, String mode, String modeName,
-            long damageMade, long roundsPlayed, double adr) {
+            String server, long damageMade, long roundsPlayed, double adr) {
         Map<String, AttributeValue> values = new HashMap<>();
+        Map<String, String> names = new HashMap<>();
+        names.put("#mode", "mode");
         values.put(":mode", AttributeValue.fromS(mode));
         values.put(":modeName", AttributeValue.fromS(modeName));
         values.put(":damage", AttributeValue.fromN(String.valueOf(damageMade)));
@@ -222,12 +227,17 @@ public class MatchProcessor {
             values.put(":seasonShort", AttributeValue.fromS(seasonShort));
             values.put(":seasonName", AttributeValue.fromS(seasonName));
         }
+        if (!server.isBlank()) {
+            expression += ", #server = :server";
+            names.put("#server", "server");
+            values.put(":server", AttributeValue.fromS(server));
+        }
         try {
             ddb.updateItem(UpdateItemRequest.builder()
                     .tableName(tableName)
                     .key(Map.of("PK", AttributeValue.fromS(pk), "SK", AttributeValue.fromS(sk)))
                     .updateExpression(expression)
-                    .expressionAttributeNames(Map.of("#mode", "mode"))
+                    .expressionAttributeNames(names)
                     .expressionAttributeValues(values)
                     .build());
         } catch (DynamoDbException updateError) {

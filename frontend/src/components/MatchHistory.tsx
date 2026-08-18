@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronDown, ChevronsDown, Clock, Loader2, TrendingDown, TrendingUp } from "lucide-react";
+import { ChevronDown, ChevronsDown, Clock, Loader2, MapPin, TrendingDown, TrendingUp } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import { Match } from "./Match/types/matchTypes";
 import {
@@ -77,9 +77,11 @@ export function MatchHistory({
 
             if (!res.ok) {
                 console.error("Failed to fetch matches:", res.status);
-                setMatches([]);
-                setLastKey(null);
-                setHasMore(false);
+                if (showLoading) {
+                    setMatches([]);
+                    setLastKey(null);
+                    setHasMore(false);
+                }
                 return;
             }
 
@@ -88,17 +90,20 @@ export function MatchHistory({
 
             data.sort((a: Match, b: Match) => b.date_raw - a.date_raw);
 
-            setMatches(data);
-
-            // Season mode is still not cursor-paginated on the backend, so don't show load-more there.
-            setLastKey(json?.lastKey ?? null);
-            setHasMore(!!json?.lastKey);
+            if (showLoading || data.length > 0) {
+                setMatches(data);
+                // Season mode is still not cursor-paginated on the backend, so don't show load-more there.
+                setLastKey(json?.lastKey ?? null);
+                setHasMore(!!json?.lastKey);
+            }
 
         } catch (e) {
             console.error("Error fetching matches:", e);
-            setMatches([]);
-            setLastKey(null);
-            setHasMore(false);
+            if (showLoading) {
+                setMatches([]);
+                setLastKey(null);
+                setHasMore(false);
+            }
         } finally {
             if (showLoading) setIsInitialLoading(false);
         }
@@ -346,37 +351,36 @@ export function MatchHistory({
                                                                 )}
                                                             </div>
 
-                                                            <div className="flex items-center gap-4">
-                                                                <span className="text-gray-400">Agent: {match.agent}</span>
-                                                                <span className="text-gray-400">•</span>
-                                                                <span className="text-gray-400">KDA: {match.kda}</span>
-                                                                <span className="text-gray-400">•</span>
-                                                                <span className="text-gray-400">ACS: {match.acs}</span>
-                                                                <span className="text-gray-400">•</span>
-                                                                <span className="text-gray-400">
-                                                                    ADR: {displayedAdr || '—'}
-                                                                </span>
+                                                            <div className="flex w-full min-w-0 items-center justify-between gap-3 rounded bg-black/30 px-2 py-1 text-xs text-gray-400">
+                                                                <span className="min-w-0 truncate">Agent: {match.agent}</span>
+                                                                <span className="shrink-0 whitespace-nowrap">KDA: {match.kda}</span>
+                                                                <span className="shrink-0 whitespace-nowrap">ACS: {match.acs}</span>
+                                                                <span className="shrink-0 whitespace-nowrap">ADR: {displayedAdr || "—"}</span>
                                                             </div>
                                                         </div>
                                                     </div>
 
-                                                    <div className="flex items-center gap-4">
-                                                        <div className="flex items-center gap-2 text-gray-400">
-                                                            <Clock className="w-4 h-4" />
-                                                            <span>{match.date_raw
-                                                                  ? new Date(match.date_raw * 1000).toLocaleString()
-                                                                  : "Unknown"}
-                                                            </span>
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="grid grid-cols-1 justify-items-end gap-1.5 text-xs text-gray-400">
+                                                            {match.server && (
+                                                                <div className="flex max-w-64 items-center gap-1.5">
+                                                                    <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
+                                                                    <span className="truncate">{match.server}</span>
+                                                                </div>
+                                                            )}
+                                                            <div className="flex items-center gap-1.5">
+                                                                <Clock className="h-3.5 w-3.5" />
+                                                                <span>{match.date_raw
+                                                                      ? new Date(match.date_raw * 1000).toLocaleString()
+                                                                      : "Unknown"}
+                                                                </span>
+                                                            </div>
                                                         </div>
 
                                                         {loadingMatchId === match.id ? (
-                                                            <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
+                                                            <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
                                                         ) : (
-                                                            <ChevronDown
-                                                                className={`w-5 h-5 text-gray-400 transition-transform ${
-                                                                    isExpanded && match.details ? "rotate-180" : ""
-                                                                }`}
-                                                            />
+                                                            <ChevronDown className={`h-5 w-5 text-gray-400 transition-all duration-200 hover:text-white ${isExpanded && match.details ? "rotate-180" : ""}`} />
                                                         )}
                                                     </div>
                                                 </div>

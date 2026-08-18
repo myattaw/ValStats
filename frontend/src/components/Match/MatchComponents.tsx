@@ -49,7 +49,7 @@ const TacticalMap = ({mapId, event, players, ownTeam}: { mapId?: string; event?:
         };
         element.addEventListener("wheel", handleNativeWheel, {passive: false});
         return () => element.removeEventListener("wheel", handleNativeWheel);
-    }, []);
+    }, [map?.displayIcon]);
 
     const position = (location: EventLocation) => {
         const left = (location.y * (map?.xMultiplier ?? 0) + (map?.xScalar ?? 0)) * 100;
@@ -301,7 +301,13 @@ export const TeamDisplay = ({
     return (
         <div
             className={`p-3 border-l border-r ${isBottom ? "border-b rounded-b-lg" : ""} ${bgColor} ${borderColor}`}>
-            <h4 className="text-xs text-gray-400 mb-2">{label}</h4>
+            <div className="scoreboard-team-header">
+                <h4>{label}</h4>
+                <div className="scoreboard-round-numbers" aria-label="Round numbers">
+                    {rounds.map((round) => <span key={round.number}>{round.number}</span>)}
+                </div>
+                <span aria-hidden="true" />
+            </div>
             <div className="scoreboard-player-list">
                 {players.map((player, idx) => (
                     <MatchPlayerRow

@@ -357,8 +357,8 @@ export function MatchHistory({
                                             </div>
                                         </CollapsibleTrigger>
 
-                                        {isExpanded && match.details && (
-                                            <CollapsibleContent>
+                                        {match.details && (
+                                            <CollapsibleContent className="match-details-collapsible">
                                                 <MatchDetailsPanel details={match.details} roundsPlayed={match.rounds_played} viewerPuuid={puuid} mapId={match.mapId}/>
                                             </CollapsibleContent>
                                         )}

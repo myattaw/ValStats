@@ -349,7 +349,7 @@ public class ValorantService {
                 }
                 attempted++;
                 try {
-                    if (recordMatchPlayerNames(apiRequestQueue.execute(
+                    if (recordMatchPlayerNames(apiRequestQueue.executeLowPriority(
                             "match details " + matchId,
                             () -> apiClient.getMatchById(matchId)), puuid)) {
                         playerCacheService.markNameHistoryCheckpointProcessed(puuid, matchId);

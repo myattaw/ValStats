@@ -12,23 +12,29 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Instance-local, bounded FIFO gate for calls to Henrik's API.
  *
- * <p>The fair lock serializes calls, while the minimum interval smooths bursts.
- * A 429 keeps ownership of the gate, waits for the server-provided reset, and
- * retries so queued callers cannot create a second retry storm.</p>
+ * <p>The request gate serializes calls, prioritizes interactive work over
+ * opportunistic background work, and smooths bursts with a minimum interval.
+ * Retry delays release the gate so unrelated interactive requests can proceed.</p>
  */
 @Singleton
 public class HenrikApiRequestQueue {
 
     private static final Logger LOG = LoggerFactory.getLogger(HenrikApiRequestQueue.class);
 
-    private final ReentrantLock requestGate = new ReentrantLock(true);
-    private final Semaphore queueCapacity;
+    private final ReentrantLock requestGate = new ReentrantLock();
+    private final Condition requestAvailable = requestGate.newCondition();
+    private final Semaphore normalQueueCapacity;
+    private final Semaphore lowQueueCapacity;
+    private final AtomicInteger normalDemand = new AtomicInteger();
     private final AtomicLong nextRequestAtNanos = new AtomicLong();
+    private boolean requestInProgress;
     private final long minimumIntervalMillis;
     private final int maxRetries;
     private final long maxRetryDelaySeconds;
@@ -43,25 +49,40 @@ public class HenrikApiRequestQueue {
             throw new IllegalArgumentException("Invalid Henrik API rate-limit configuration");
         }
         this.minimumIntervalMillis = Math.max(1L, (long) Math.ceil(1000.0 / requestsPerSecond));
-        this.queueCapacity = new Semaphore(maxQueuedRequests, true);
+        this.normalQueueCapacity = new Semaphore(maxQueuedRequests, true);
+        this.lowQueueCapacity = new Semaphore(maxQueuedRequests, true);
         this.maxRetries = maxRetries;
         this.maxRetryDelaySeconds = maxRetryDelaySeconds;
     }
 
     public <T> T execute(String operation, Callable<T> request) {
-        if (!queueCapacity.tryAcquire()) {
+        return execute(operation, request, false);
+    }
+
+    /**
+     * Executes opportunistic work only when no normal request is active or waiting.
+     * An HTTP request that is already in flight is allowed to finish.
+     */
+    public <T> T executeLowPriority(String operation, Callable<T> request) {
+        return execute(operation, request, true);
+    }
+
+    private <T> T execute(String operation, Callable<T> request, boolean lowPriority) {
+        Semaphore capacity = lowPriority ? lowQueueCapacity : normalQueueCapacity;
+        if (!capacity.tryAcquire()) {
             throw new HenrikApiQueueFullException("Henrik API request queue is full: " + operation);
         }
 
-        boolean locked = false;
         try {
-            requestGate.lockInterruptibly();
-            locked = true;
-
             for (int attempt = 0; ; attempt++) {
-                awaitNextRequestSlot();
                 try {
-                    return request.call();
+                    acquireRequestSlot(lowPriority);
+                    try {
+                        awaitNextRequestSlot();
+                        return request.call();
+                    } finally {
+                        releaseRequestSlot();
+                    }
                 } catch (HttpClientResponseException exception) {
                     boolean rateLimited = exception.getStatus() == HttpStatus.TOO_MANY_REQUESTS;
                     boolean temporaryServerFailure = exception.getStatus().getCode() == 408
@@ -94,10 +115,36 @@ public class HenrikApiRequestQueue {
             Thread.currentThread().interrupt();
             throw new HenrikApiRequestException("Interrupted while waiting for Henrik API: " + operation, exception);
         } finally {
+            capacity.release();
+        }
+    }
+
+    private void acquireRequestSlot(boolean lowPriority) throws InterruptedException {
+        if (!lowPriority) normalDemand.incrementAndGet();
+        boolean locked = false;
+        try {
+            requestGate.lockInterruptibly();
+            locked = true;
+            while (requestInProgress || (lowPriority && normalDemand.get() > 0)) {
+                requestAvailable.await();
+            }
+            requestInProgress = true;
+        } finally {
+            if (!lowPriority) normalDemand.decrementAndGet();
             if (locked) {
+                requestAvailable.signalAll();
                 requestGate.unlock();
             }
-            queueCapacity.release();
+        }
+    }
+
+    private void releaseRequestSlot() {
+        requestGate.lock();
+        try {
+            requestInProgress = false;
+            requestAvailable.signalAll();
+        } finally {
+            requestGate.unlock();
         }
     }
 

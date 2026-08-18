@@ -64,6 +64,7 @@ const TacticalMap = ({mapId, event, players, ownTeam}: { mapId?: string; event?:
     if (!map?.displayIcon) return <div className="map-placeholder">Map positioning unavailable</div>;
 
     const victim = players.find((player) => player.puuid === event?.victimPuuid);
+    const victimRelation = victim?.team?.toLowerCase() === ownTeam ? "teammate" : "enemy";
     const resetView = () => {
         setZoom(1);
         setPan({x: 0, y: 0});
@@ -102,7 +103,7 @@ const TacticalMap = ({mapId, event, players, ownTeam}: { mapId?: string; event?:
             })}
             {event?.victimLocation && !event.playerLocations.some((entry) => entry.puuid === event.victimPuuid) && (() => {
                 const markerPosition = position(event.victimLocation!);
-                return markerPosition ? <span className="map-player enemy victim dead" style={markerPosition} title={event.victimName}>
+                return markerPosition ? <span className={`map-player ${victimRelation} victim dead`} style={markerPosition} title={event.victimName}>
                     {victim?.agentIcon ? <img src={victim.agentIcon} alt={victim.agent}/> : victim?.agent?.slice(0, 2).toUpperCase() || "×"}
                 </span> : null;
             })()}

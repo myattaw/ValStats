@@ -11,7 +11,7 @@ function rankIcon(tier?: number) {
 
 function RankCard({ label, name, icon, loading }: { label: string; name: string; icon?: string; loading: boolean }) {
   return (
-    <div className="rank-card">
+    <div className="rank-card compact-rank-card">
       <div className="rank-icon">
         {loading ? <Skeleton className="h-10 w-10 rounded-full" /> : icon ? <img src={icon} alt="" /> : <Shield size={22} />}
       </div>
@@ -29,6 +29,13 @@ function rankTriangleIcon(name: string, direction: 'up' | 'down') {
   const tier = rankOrder(name) + 3;
   if (tier < 3) return undefined;
   return `https://media.valorant-api.com/competitivetiers/${TIER_SET}/${tier}/ranktriangle${direction}icon.png`;
+}
+
+function rankLargeIcon(name: string) {
+  const tier = rankOrder(name) + 3;
+  return tier >= 3
+    ? `https://media.valorant-api.com/competitivetiers/${TIER_SET}/${tier}/largeicon.png`
+    : undefined;
 }
 
 function ActRankCard({ label, season, loading }: { label: string; season?: import('../types/player').SeasonRank; loading: boolean }) {
@@ -58,8 +65,15 @@ function ActRankCard({ label, season, loading }: { label: string; season?: impor
             ))}
           </div>
         )) : <Shield size={22} />}
+        {!loading && rows.length > 0 && (
+          <img
+            className="act-rank-center-icon"
+            src={rankLargeIcon(peak)}
+            alt={`${peak} rank icon`}
+          />
+        )}
       </div>
-      <div><span>{label} act rank</span><strong>{loading ? 'Loading…' : peak}</strong><small>{season?.wins ? `${season.wins} wins` : 'No ranked wins'}</small></div>
+      <div><span>{label} act rank</span><strong>{loading ? 'Loading…' : peak}</strong><small>{season?.wins ? `${season.wins} total wins` : 'No ranked wins'}</small></div>
     </div>
   );
 }
@@ -125,7 +139,7 @@ export function PlayerProfile({ profile, mmr, seasonKey, actLabel, loading, load
       <div className="rank-grid">
         <ActRankCard label="Peak" season={peakActSeason} loading={loading} />
         <RankCard label={actLabel} name={currentName} icon={season ? rankIcon(currentTier) : mmr?.current_data?.images?.small} loading={loading} />
-        <div className="rank-card win-rate">
+        <div className="rank-card compact-rank-card win-rate">
           <div className="win-ring" style={{ '--progress': `${winRate * 3.6}deg` } as React.CSSProperties}>{winRate}%</div>
           <div><span>Win rate</span><strong>{games ? `${wins}W · ${games - wins}L` : 'No games'}</strong></div>
         </div>

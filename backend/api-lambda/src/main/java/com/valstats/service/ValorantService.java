@@ -587,63 +587,62 @@ public class ValorantService {
     }
 
     private void normalizeHighestRank(Map<String, Object> data, Map<String, Object> bySeason) {
-        int peakTier = 0;
-        String peakName = "Unranked";
-        String peakSeason = "";
+        RankCandidate peak = new RankCandidate(0, "Unranked", "");
 
         if (data.get("highest_rank") instanceof Map<?, ?> highest) {
-            peakTier = intValue(highest.get("tier"));
-            peakName = Objects.toString(highest.get("patched_tier"), peakName);
-            peakSeason = Objects.toString(highest.get("season"), "");
+            peak = higherRank(peak, Objects.toString(highest.get("patched_tier"), ""),
+                    Objects.toString(highest.get("season"), ""));
         }
 
         if (data.get("current_data") instanceof Map<?, ?> current) {
-            int tier = intValue(current.get("currenttier"));
-            if (tier > peakTier) {
-                peakTier = tier;
-                peakName = Objects.toString(current.get("currenttierpatched"), peakName);
-                peakSeason = "";
-            }
+            peak = higherRank(peak, Objects.toString(current.get("currenttierpatched"), ""), "");
         }
 
         for (Map.Entry<String, Object> seasonEntry : bySeason.entrySet()) {
             if (!(seasonEntry.getValue() instanceof Map<?, ?> season)) continue;
-            int finalTier = intValue(season.get("final_rank"));
-            if (finalTier > peakTier) {
-                peakTier = finalTier;
-                peakName = Objects.toString(season.get("final_rank_patched"), peakName);
-                peakSeason = seasonEntry.getKey();
-            }
+            if (season.containsKey("error") && season.get("error") != null
+                    && !Boolean.FALSE.equals(season.get("error"))) continue;
+            peak = higherRank(peak, Objects.toString(season.get("final_rank_patched"), ""), seasonEntry.getKey());
             if (season.get("act_rank_wins") instanceof Iterable<?> wins) {
                 for (Object value : wins) {
                     if (!(value instanceof Map<?, ?> win)) continue;
-                    int tier = intValue(win.get("tier"));
-                    if (tier > peakTier) {
-                        peakTier = tier;
-                        peakName = Objects.toString(win.get("patched_tier"), peakName);
-                        peakSeason = seasonEntry.getKey();
-                    }
+                    peak = higherRank(peak, Objects.toString(win.get("patched_tier"), ""), seasonEntry.getKey());
                 }
             }
         }
 
-        if (peakTier > 0) {
+        if (peak.order() > 0) {
             Map<String, Object> normalized = new HashMap<>();
-            normalized.put("tier", peakTier);
-            normalized.put("patched_tier", peakName);
-            normalized.put("season", peakSeason);
+            normalized.put("tier", peak.order());
+            normalized.put("patched_tier", peak.name());
+            normalized.put("season", peak.season());
+            normalized.put("normalized", true);
             data.put("highest_rank", normalized);
         }
     }
 
-    private int intValue(Object value) {
-        if (value instanceof Number number) return number.intValue();
-        try {
-            return value == null ? 0 : Integer.parseInt(value.toString());
-        } catch (NumberFormatException ignored) {
-            return 0;
-        }
+    private RankCandidate higherRank(RankCandidate current, String name, String season) {
+        int order = canonicalRankTier(name);
+        return order > current.order() ? new RankCandidate(order, name, season) : current;
     }
+
+    private int canonicalRankTier(String rankName) {
+        if (rankName == null) return 0;
+        return switch (rankName.trim().toLowerCase(Locale.ROOT)) {
+            case "iron 1" -> 3; case "iron 2" -> 4; case "iron 3" -> 5;
+            case "bronze 1" -> 6; case "bronze 2" -> 7; case "bronze 3" -> 8;
+            case "silver 1" -> 9; case "silver 2" -> 10; case "silver 3" -> 11;
+            case "gold 1" -> 12; case "gold 2" -> 13; case "gold 3" -> 14;
+            case "platinum 1" -> 15; case "platinum 2" -> 16; case "platinum 3" -> 17;
+            case "diamond 1" -> 18; case "diamond 2" -> 19; case "diamond 3" -> 20;
+            case "ascendant 1" -> 21; case "ascendant 2" -> 22; case "ascendant 3" -> 23;
+            case "immortal 1" -> 24; case "immortal 2" -> 25; case "immortal 3" -> 26;
+            case "radiant" -> 27;
+            default -> 0;
+        };
+    }
+
+    private record RankCandidate(int order, String name, String season) {}
 
     /**
      * Resolve a player's PUUID from their name and tag.

@@ -165,11 +165,18 @@ export const MatchPlayerRow = ({player, teamStyle, rounds_played, rounds = [], s
             <div className="player-round-track" aria-label={`${player.name} kills by round`}>
                 {rounds.map((round) => {
                     const kills = round.kills.filter((kill) => kill.killerPuuid === player.puuid).length;
+                    const team = player.team?.trim().toLowerCase();
+                    const winningTeam = round.winningTeam?.trim().toLowerCase();
+                    const resultClass = team && winningTeam && winningTeam !== "unknown"
+                        ? winningTeam === team ? "round-win" : "round-loss"
+                        : "round-unknown";
+                    const resultLabel = resultClass === "round-win" ? "win" : resultClass === "round-loss" ? "loss" : "result unavailable";
                     return <button
                         key={round.number}
-                        className={`${kills ? "has-kill" : ""} ${selectedRound === round.number ? "selected" : ""}`}
+                        className={`${resultClass} ${kills ? "has-kill" : ""} ${selectedRound === round.number ? "selected" : ""}`}
                         onClick={() => onRoundSelect?.(round.number)}
-                        title={`Round ${round.number}: ${kills} ${kills === 1 ? "kill" : "kills"}`}
+                        aria-label={`Round ${round.number}: ${resultLabel}, ${kills} ${kills === 1 ? "kill" : "kills"}`}
+                        title={`Round ${round.number}: ${resultLabel} · ${kills} ${kills === 1 ? "kill" : "kills"}`}
                     >{kills || <span>·</span>}</button>;
                 })}
             </div>

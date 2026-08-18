@@ -12,9 +12,9 @@ import type { PlayerIdentifier } from './types/player';
 
 export default function App() {
   const [player, setPlayer] = useState<PlayerIdentifier | null>(() => parsePlayerFromUrl());
-  const [act, setAct] = useState({ id: 'all', label: 'Current act' });
+  const [act, setAct] = useState<{ id: string; label: string; seasonKey?: string }>({ id: 'all', label: 'Current act' });
   const [inputError, setInputError] = useState<string | null>(null);
-  const { profile, stats, mmr, error, profileLoading, rankLoading, region } = usePlayerData(player, act.id);
+  const { profile, stats, mmr, error, rankLoading, loadState, updatedAt, region } = usePlayerData(player, act.id);
 
   useEffect(() => {
     const syncFromHistory = () => setPlayer(parsePlayerFromUrl());
@@ -43,10 +43,10 @@ export default function App() {
         ) : (
           <div className="dashboard">
             {(inputError || error) && <div className="error-banner"><AlertCircle size={18} />{inputError || error}</div>}
-            <PlayerProfile profile={profile} mmr={mmr} actId={act.id} actLabel={act.label} loading={profileLoading || rankLoading} />
+            <PlayerProfile profile={profile} mmr={mmr} seasonKey={act.seasonKey} actLabel={act.label} loading={loadState === 'initial-loading'} loadState={loadState} updatedAt={updatedAt} />
             <div className="section-toolbar">
               <div><span className="eyebrow">Performance</span><h2>Competitive overview</h2></div>
-              <ActSelector selectedAct={act.id} onActChange={(id, label) => setAct({ id, label })} region={region} name={player.name} tag={player.tag} />
+              <ActSelector selectedAct={act.id} onActChange={(id, label, seasonKey) => setAct({ id, label, seasonKey })} region={region} name={player.name} tag={player.tag} />
             </div>
             <StatsOverview stats={stats} loading={rankLoading} />
             <MatchHistory puuid={profile?.puuid} playerName={player.name} playerTag={player.tag} selectedAct={act.id} />

@@ -1,9 +1,6 @@
 package com.valstats.service.player;
 
-import com.valstats.client.ValorantApiClient;
-import com.valstats.model.stored.StoredMatchesResponse;
 import com.valstats.service.DynamoDbService;
-import com.valstats.service.match.MatchProcessor;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,19 +18,8 @@ public class PlayerStatsService {
     private static final Logger LOG = LoggerFactory.getLogger(PlayerStatsService.class);
 
     private final DynamoDbService dynamoDbService;
-    private final ValorantApiClient apiClient;
-    private final MatchProcessor matchProcessor;
-    private final String apiKey;
-
-    public PlayerStatsService(
-            DynamoDbService dynamoDbService,
-            ValorantApiClient apiClient,
-            MatchProcessor matchProcessor
-    ) {
+    public PlayerStatsService(DynamoDbService dynamoDbService) {
         this.dynamoDbService = dynamoDbService;
-        this.apiClient = apiClient;
-        this.matchProcessor = matchProcessor;
-        this.apiKey = System.getenv("HDEV_KEY");
     }
 
     /**
@@ -52,54 +38,20 @@ public class PlayerStatsService {
         if (seasonId == null || seasonId.equalsIgnoreCase("all")) {
             stats = dynamoDbService.getPlayerTotalStats(puuid);
 
-            // Try to load from cache, fall back to API
             if (stats.isEmpty() || stats.getOrDefault("matches_played", 0L) == 0) {
-                LOG.info("No cached stats for player {}. Loading from API...", puuid);
-                loadPlayerMatchesFromAPI(region, name, tag, puuid);
-                stats = dynamoDbService.getPlayerTotalStats(puuid);
+                LOG.info("No cached stats for player {} yet; match sync will populate them", puuid);
             }
         } else {
             Optional<Map<String, AttributeValue>> seasonStats = dynamoDbService.getPlayerSeasonStats(puuid, seasonId);
 
             if (seasonStats.isEmpty()) {
-                LOG.info("No cached stats for season {}. Loading from API...", seasonId);
-                loadPlayerMatchesFromAPI(region, name, tag, puuid);
-                seasonStats = dynamoDbService.getPlayerSeasonStats(puuid, seasonId);
+                LOG.info("No cached stats for player {} season {} yet", puuid, seasonId);
             }
 
             stats = seasonStats.isPresent() ? readStatsItem(seasonStats.get()) : new HashMap<>();
         }
 
         return formatStats(stats);
-    }
-
-    /**
-     * Load player matches from API and process them into stats
-     */
-    private void loadPlayerMatchesFromAPI(String region, String name, String tag, String puuid) {
-        try {
-            StoredMatchesResponse storedApi = apiClient.getStoredMatches(
-                    region, name, tag, 20, 1, "competitive"
-            );
-
-            List<StoredMatchesResponse.StoredMatch> storedMatches =
-                    storedApi != null && storedApi.data() != null ? storedApi.data() : List.of();
-
-            int processed = 0;
-            for (StoredMatchesResponse.StoredMatch match : storedMatches) {
-                try {
-                    if (matchProcessor.processStoredMatchSummary(match, puuid)) {
-                        processed++;
-                    }
-                } catch (Exception e) {
-                    LOG.warn("Failed to process match summary", e);
-                }
-            }
-
-            LOG.info("Processed {} matches for player {}", processed, puuid);
-        } catch (Exception e) {
-            LOG.error("Failed to load matches from API", e);
-        }
     }
 
     /**

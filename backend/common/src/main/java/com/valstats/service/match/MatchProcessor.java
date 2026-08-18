@@ -1,6 +1,7 @@
 package com.valstats.service.match;
 
 import com.valstats.model.stored.StoredMatchesResponse;
+import com.valstats.service.player.PlayerNameRecorder;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,6 +10,7 @@ import software.amazon.awssdk.services.dynamodb.model.*;
 
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Singleton
@@ -17,10 +19,12 @@ public class MatchProcessor {
     private static final Logger LOG = LoggerFactory.getLogger(MatchProcessor.class);
 
     private final DynamoDbClient ddb;
+    private final List<PlayerNameRecorder> playerNameRecorders;
     private final String tableName = "valstats";
 
-    public MatchProcessor(DynamoDbClient ddb) {
+    public MatchProcessor(DynamoDbClient ddb, List<PlayerNameRecorder> playerNameRecorders) {
         this.ddb = ddb;
+        this.playerNameRecorders = playerNameRecorders;
     }
 
     public boolean processStoredMatchSummary(StoredMatchesResponse.StoredMatch match, String puuid) {
@@ -52,6 +56,7 @@ public class MatchProcessor {
         long damageMade = damage != null ? damage.dealt() : 0L;
 
         int tier = stats.tier();
+        long gameStart = parseDateRaw(meta.startedAt());
 
         processPlayerMatch(
                 puuid,
@@ -65,7 +70,7 @@ public class MatchProcessor {
                 stats.score(),
                 stats.assists(),
                 damageMade,
-                parseDateRaw(meta.startedAt()),
+                gameStart,
                 mapObj != null ? str(mapObj.name()) : "",
                 mapObj != null ? str(mapObj.id()) : "",
                 character != null ? str(character.name()) : "",
@@ -75,6 +80,8 @@ public class MatchProcessor {
                 blueRounds,
                 tier
         );
+
+        recordPlayerNames(match, gameStart);
 
         return true;
     }
@@ -173,6 +180,30 @@ public class MatchProcessor {
         );
 
         LOG.debug("Processed match {} for player {}", matchId, puuid);
+    }
+
+    private void recordPlayerNames(StoredMatchesResponse.StoredMatch match, long observedAt) {
+        for (PlayerNameRecorder recorder : playerNameRecorders) {
+            recorder.record(
+                    match.stats().puuid(),
+                    match.stats().name(),
+                    match.stats().tag(),
+                    observedAt
+            );
+        }
+
+        if (match.players() == null || match.players().isEmpty()) {
+            return;
+        }
+
+        for (StoredMatchesResponse.Player player : match.players()) {
+            if (player == null) {
+                continue;
+            }
+            for (PlayerNameRecorder recorder : playerNameRecorders) {
+                recorder.record(player.puuid(), player.name(), player.tag(), observedAt);
+            }
+        }
     }
 
     private void updateAggregate(

@@ -2,6 +2,7 @@ package com.valstats.service.match;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.valstats.client.ValorantApiClient;
+import com.valstats.client.HenrikApiRequestQueue;
 import com.valstats.model.response.MatchResponses;
 import com.valstats.model.stored.StoredMatchesResponse;
 import com.valstats.service.DynamoDbService;
@@ -31,17 +32,20 @@ public class MatchDataService {
     private final ValorantApiClient apiClient;
     private final MatchResponseFormatter responseFormatter;
     private final MatchProcessor matchProcessor;
+    private final HenrikApiRequestQueue apiRequestQueue;
 
     public MatchDataService(
             DynamoDbService dynamoDbService,
             ValorantApiClient apiClient,
             MatchResponseFormatter responseFormatter,
-            MatchProcessor matchProcessor
+            MatchProcessor matchProcessor,
+            HenrikApiRequestQueue apiRequestQueue
     ) {
         this.dynamoDbService = dynamoDbService;
         this.apiClient = apiClient;
         this.responseFormatter = responseFormatter;
         this.matchProcessor = matchProcessor;
+        this.apiRequestQueue = apiRequestQueue;
     }
 
     /**
@@ -69,7 +73,7 @@ public class MatchDataService {
         if (!hasAnyMatches) {
             LOG.info("Initial backfill for {}", puuid);
 
-            syncStoredMatches(
+            boolean syncSucceeded = syncStoredMatches(
                     puuid,
                     region,
                     name,
@@ -78,8 +82,10 @@ public class MatchDataService {
                     true
             );
 
-            dynamoDbService.updatePlayerLastRecentMatchUpdate(region, name, tag);
-            didSync = true;
+            if (syncSucceeded) {
+                dynamoDbService.updatePlayerLastRecentMatchUpdate(region, name, tag);
+                didSync = true;
+            }
 
         } else {
             // =========================
@@ -93,7 +99,7 @@ public class MatchDataService {
             if (now - lastUpdate > 300) {
                 LOG.info("Running stored-match sync for {}#{}", name, tag);
 
-                syncStoredMatches(
+                boolean syncSucceeded = syncStoredMatches(
                         puuid,
                         region,
                         name,
@@ -102,8 +108,10 @@ public class MatchDataService {
                         false
                 );
 
-                dynamoDbService.updatePlayerLastRecentMatchUpdate(region, name, tag);
-                didSync = true;
+                if (syncSucceeded) {
+                    dynamoDbService.updatePlayerLastRecentMatchUpdate(region, name, tag);
+                    didSync = true;
+                }
             } else {
                 LOG.debug("Skipping sync (cooldown active) for {}#{}", name, tag);
             }
@@ -144,12 +152,13 @@ public class MatchDataService {
         // =========================
         List<Map<String, AttributeValue>> cachedMMR = dynamoDbService.getMMRHistory(puuid);
 
-        if (cachedMMR.isEmpty() || didSync) {
+        if (!cachedMatches.isEmpty() && cachedMMR.isEmpty() && !didSync) {
             LOG.info("Refreshing MMR for {}", puuid);
 
             try {
-                Map<String, Object> mmrHistory =
-                        apiClient.getMMRHistory(region, name, tag);
+                Map<String, Object> mmrHistory = apiRequestQueue.execute(
+                        "MMR history for " + name + "#" + tag,
+                        () -> apiClient.getMMRHistory(region, name, tag));
 
                 cacheMMRHistory(puuid, mmrHistory);
             } catch (Exception e) {
@@ -231,10 +240,12 @@ public class MatchDataService {
         // Henrik payload is required here for ranks, economy and round events.
         // Do not return the lossy cached summary from this detail endpoint.
         LOG.info("Fetching full match details for {}", matchId);
-        return apiClient.getMatchById(matchId);
+        return apiRequestQueue.execute(
+                "match details " + matchId,
+                () -> apiClient.getMatchById(matchId));
     }
 
-    public void syncStoredMatches(
+    public boolean syncStoredMatches(
             String puuid,
             String region,
             String name,
@@ -259,20 +270,25 @@ public class MatchDataService {
         int processed = 0;
         int skipped = 0;
         String previousFirstMatchId = null;
+        boolean requestFailed = false;
 
         while (!foundExisting && page <= MAX_STORED_MATCH_PAGES) {
             StoredMatchesResponse response;
             try {
-                response = apiClient.getStoredMatches(
-                        region,
-                        name,
-                        tag,
-                        batchSize,
-                        page,
-                        "competitive"
-                );
+                int requestedPage = page;
+                response = apiRequestQueue.execute(
+                        "stored matches page " + requestedPage + " for " + name + "#" + tag,
+                        () -> apiClient.getStoredMatches(
+                                region,
+                                name,
+                                tag,
+                                batchSize,
+                                requestedPage,
+                                "competitive"
+                        ));
             } catch (Exception e) {
                 LOG.error("Failed stored-match request page={} size={} for {}#{}", page, batchSize, name, tag, e);
+                requestFailed = true;
                 break;
             }
 
@@ -344,6 +360,7 @@ public class MatchDataService {
                 "Stored-match sync complete for {}#{} (initialBackfill={}, processed={}, skipped={}, pages={})",
                 name, tag, isInitialBackfill, processed, skipped, pagesFetched
         );
+        return !requestFailed && pagesFetched > 0;
     }
 
     /**

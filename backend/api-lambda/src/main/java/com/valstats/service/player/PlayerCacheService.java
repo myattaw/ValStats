@@ -19,6 +19,7 @@ public class PlayerCacheService {
     private static final Logger LOG = LoggerFactory.getLogger(PlayerCacheService.class);
     private static final long FETCH_COOLDOWN_SECONDS = 180; // 3 minutes
     private static final long NAME_HISTORY_BACKFILL_SECONDS = 86400; // once per day
+    private static final String NAME_HISTORY_META_SK = "NAME_HISTORY_META_V2";
 
     private final DynamoDbClient ddb;
     private final String tableName = "valstats";
@@ -145,7 +146,9 @@ public class PlayerCacheService {
     }
 
     public void recordPlayerName(String puuid, String name, String tag, long observedAt) {
-        if (puuid == null || puuid.isBlank() || name == null || name.isBlank() || tag == null || tag.isBlank()) return;
+        if (puuid == null || puuid.isBlank()
+                || name == null || name.isBlank() || "null".equalsIgnoreCase(name)
+                || tag == null || tag.isBlank() || "null".equalsIgnoreCase(tag)) return;
 
         String normalized = (name + "#" + tag).toLowerCase(java.util.Locale.ROOT);
         Map<String, AttributeValue> key = Map.of(
@@ -202,7 +205,9 @@ public class PlayerCacheService {
                     result.put("observations", Long.parseLong(item.getOrDefault("observations", AttributeValue.fromN("0")).n()));
                     result.put("current", (name + "#" + tag).equalsIgnoreCase(currentNameTag));
                     return result;
-                }).sorted(Comparator.comparingLong(item -> -((Number) item.get("lastSeen")).longValue())).toList();
+                }).filter(item -> !"null".equalsIgnoreCase((String) item.get("name"))
+                        && !"null".equalsIgnoreCase((String) item.get("tag")))
+                .sorted(Comparator.comparingLong(item -> -((Number) item.get("lastSeen")).longValue())).toList();
     }
 
     private Optional<String> getCurrentNameTag(String puuid) {
@@ -227,7 +232,7 @@ public class PlayerCacheService {
 
     public boolean shouldBackfillNameHistory(String puuid) {
         GetItemResponse response = ddb.getItem(GetItemRequest.builder().tableName(tableName)
-                .key(Map.of("PK", AttributeValue.fromS("PLAYER#" + puuid), "SK", AttributeValue.fromS("NAME_HISTORY_META"))).build());
+                .key(Map.of("PK", AttributeValue.fromS("PLAYER#" + puuid), "SK", AttributeValue.fromS(NAME_HISTORY_META_SK))).build());
         if (!response.hasItem() || !response.item().containsKey("lastBackfill")) return true;
         long lastBackfill = Long.parseLong(response.item().get("lastBackfill").n());
         return Instant.now().getEpochSecond() - lastBackfill >= NAME_HISTORY_BACKFILL_SECONDS;
@@ -236,9 +241,32 @@ public class PlayerCacheService {
     public void markNameHistoryBackfilled(String puuid) {
         ddb.putItem(PutItemRequest.builder().tableName(tableName).item(Map.of(
                 "PK", AttributeValue.fromS("PLAYER#" + puuid),
-                "SK", AttributeValue.fromS("NAME_HISTORY_META"),
+                "SK", AttributeValue.fromS(NAME_HISTORY_META_SK),
                 "lastBackfill", AttributeValue.fromN(String.valueOf(Instant.now().getEpochSecond()))
-        )).build());
+                )).build());
+    }
+
+    public boolean isNameHistoryCheckpointProcessed(String puuid, String matchId) {
+        GetItemResponse response = ddb.getItem(GetItemRequest.builder()
+                .tableName(tableName)
+                .key(Map.of(
+                        "PK", AttributeValue.fromS("PLAYER#" + puuid),
+                        "SK", AttributeValue.fromS("NAME_HISTORY_CHECKPOINT#" + matchId)
+                ))
+                .projectionExpression("SK")
+                .build());
+        return response.hasItem();
+    }
+
+    public void markNameHistoryCheckpointProcessed(String puuid, String matchId) {
+        ddb.putItem(PutItemRequest.builder()
+                .tableName(tableName)
+                .item(Map.of(
+                        "PK", AttributeValue.fromS("PLAYER#" + puuid),
+                        "SK", AttributeValue.fromS("NAME_HISTORY_CHECKPOINT#" + matchId),
+                        "processedAt", AttributeValue.fromS(Instant.now().toString())
+                ))
+                .build());
     }
 
     /**

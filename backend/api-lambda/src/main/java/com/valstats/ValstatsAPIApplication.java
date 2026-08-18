@@ -15,9 +15,8 @@ public class ValstatsAPIApplication {
 
     public static void main(String[] args) {
 
-        String hdevKey = System.getenv("HDEV_KEY");
         LOG.info("Valstats API main entrypoint invoked");
-        LOG.info("HDEV_KEY present: {}", hdevKey);
+        LOG.info("HDEV_KEY configured: {}", System.getenv("HDEV_KEY") != null);
 
         Micronaut.build(args)
                 .mainClass(ValstatsAPIApplication.class)

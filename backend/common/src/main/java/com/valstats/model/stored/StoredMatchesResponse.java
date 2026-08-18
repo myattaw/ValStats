@@ -80,6 +80,8 @@ public record StoredMatchesResponse(
     @Serdeable
     public record Stats(
             String puuid,
+            String name,
+            String tag,
             String team,
             int level,
             Character character,

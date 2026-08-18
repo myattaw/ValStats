@@ -1,5 +1,4 @@
-import { Shield, Trophy } from 'lucide-react';
-import { ACT_MAP } from './Match/utils/matchUtils';
+import { Check, LoaderCircle, RefreshCw, Shield, Trophy } from 'lucide-react';
 import { Skeleton } from './ui/skeleton';
 import type { MmrData, ProfileData } from '../types/player';
 import { PlayerNameHistory } from './PlayerNameHistory';
@@ -21,14 +20,15 @@ function RankCard({ label, name, icon, loading }: { label: string; name: string;
   );
 }
 
-export function PlayerProfile({ profile, mmr, actId, actLabel, loading }: {
+export function PlayerProfile({ profile, mmr, seasonKey, actLabel, loading, loadState, updatedAt }: {
   profile: ProfileData | null;
   mmr: MmrData | null;
-  actId: string;
+  seasonKey?: string;
   actLabel: string;
   loading: boolean;
+  loadState: 'initial-loading' | 'refreshing' | 'updated';
+  updatedAt: Date | null;
 }) {
-  const seasonKey = actId === 'all' ? undefined : ACT_MAP[actId];
   const season = seasonKey ? mmr?.by_season?.[seasonKey] : undefined;
   const currentTier = season?.final_rank ?? mmr?.current_data?.currenttier;
   const currentName = season?.final_rank_patched ?? mmr?.current_data?.currenttierpatched ?? 'Unranked';
@@ -46,7 +46,13 @@ export function PlayerProfile({ profile, mmr, actId, actLabel, loading }: {
           {loading ? <Skeleton className="h-full w-full" /> : profile?.card?.small ? <img src={profile.card.small} alt="Player card" /> : <Trophy />}
         </div>
         <div>
-          <span className="eyebrow">Competitive profile</span>
+          <div className="profile-status-row">
+            <span className="eyebrow">Competitive profile</span>
+            <span className={`load-status ${loadState}`} title={updatedAt ? `Last updated ${updatedAt.toLocaleTimeString()}` : undefined} aria-live="polite">
+              {loadState === 'initial-loading' ? <LoaderCircle /> : loadState === 'refreshing' ? <RefreshCw /> : <Check />}
+              {loadState === 'initial-loading' ? 'Loading account' : loadState === 'refreshing' ? 'Refreshing' : 'Updated'}
+            </span>
+          </div>
           <h1>{profile?.name ?? 'Loading player'}<span>#{profile?.tag ?? ''}</span></h1>
           {profile?.account_level && <p>Account level {profile.account_level}</p>}
           <PlayerNameHistory puuid={profile?.puuid} />

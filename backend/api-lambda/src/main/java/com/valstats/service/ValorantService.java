@@ -1,6 +1,7 @@
 package com.valstats.service;
 
 import com.valstats.client.ValorantApiClient;
+import com.valstats.client.HenrikApiRequestQueue;
 import com.valstats.config.ValorantApiConfig;
 import com.valstats.model.stored.StoredMatchesResponse;
 import com.valstats.service.match.MatchDataService;
@@ -26,6 +27,8 @@ import java.time.Instant;
 public class ValorantService {
 
     private static final Logger LOG = LoggerFactory.getLogger(ValorantService.class);
+    private static final long NAME_HISTORY_SAMPLE_SECONDS = 30L * 24 * 60 * 60;
+    private static final int NAME_HISTORY_CHECKPOINTS_PER_REQUEST = 5;
 
     private final MatchDataService matchDataService;
     private final PlayerStatsService playerStatsService;
@@ -33,6 +36,7 @@ public class ValorantService {
     private final ValorantApiClient apiClient;
     private final String apiKey;
     private final DynamoDbService dynamoDbService;
+    private final HenrikApiRequestQueue apiRequestQueue;
 
     private static final Map<String, String> SEASON_MAP = new LinkedHashMap<>();
     private static final Map<String, String> SEASON_TO_HENRIK = new HashMap<>();
@@ -97,7 +101,8 @@ public class ValorantService {
             PlayerCacheService playerCacheService,
             ValorantApiClient apiClient,
             DynamoDbService dynamoDbService,
-            ValorantApiConfig apiConfig
+            ValorantApiConfig apiConfig,
+            HenrikApiRequestQueue apiRequestQueue
     ) {
         this.matchDataService = matchDataService;
         this.playerStatsService = playerStatsService;
@@ -105,6 +110,7 @@ public class ValorantService {
         this.apiClient = apiClient;
         this.apiKey = apiConfig.getApiKey();
         this.dynamoDbService = dynamoDbService;
+        this.apiRequestQueue = apiRequestQueue;
     }
 
     /**
@@ -124,7 +130,7 @@ public class ValorantService {
             return errorResponse("Player not found");
         }
 
-        return matchDataService.getPlayerMatches(
+        Object matches = matchDataService.getPlayerMatches(
                 puuid,
                 region,
                 name,
@@ -133,13 +139,17 @@ public class ValorantService {
                 lastKey,
                 act
         );
+        backfillRecentNameHistory(puuid);
+        return matches;
     }
 
     /**
      * Get account details from HenrikDev API
      */
     public Map<String, Object> getAccountDetails(String name, String tag) {
-        Map<String, Object> response = apiClient.getAccount(name, tag);
+        Map<String, Object> response = apiRequestQueue.execute(
+                "account for " + name + "#" + tag,
+                () -> apiClient.getAccount(name, tag));
         if (response != null && response.get("data") instanceof Map<?, ?> data) {
             String puuid = Objects.toString(data.get("puuid"), "");
             String currentName = Objects.toString(data.get("name"), name);
@@ -156,13 +166,13 @@ public class ValorantService {
      */
     public Object getMatchById(String matchId) {
         Object response = matchDataService.getMatchDetails(matchId);
-        recordMatchPlayerNames(response);
+        recordMatchPlayerNames(response, null);
         return response;
     }
 
-    private void recordMatchPlayerNames(Object response) {
-        if (!(response instanceof Map<?, ?> root) || !(root.get("data") instanceof Map<?, ?> data)) return;
-        if (!(data.get("players") instanceof Map<?, ?> players) || !(players.get("all_players") instanceof List<?> allPlayers)) return;
+    private boolean recordMatchPlayerNames(Object response, String requiredPuuid) {
+        if (!(response instanceof Map<?, ?> root) || !(root.get("data") instanceof Map<?, ?> data)) return false;
+        if (!(data.get("players") instanceof Map<?, ?> players) || !(players.get("all_players") instanceof List<?> allPlayers)) return false;
 
         long observedAt = Instant.now().getEpochSecond();
         if (data.get("metadata") instanceof Map<?, ?> metadata && metadata.get("game_start") instanceof Number gameStart) {
@@ -170,15 +180,21 @@ public class ValorantService {
             if (observedAt > 10_000_000_000L) observedAt /= 1000;
         }
 
+        boolean requiredPlayerFound = requiredPuuid == null;
         for (Object value : allPlayers) {
             if (!(value instanceof Map<?, ?> player)) continue;
+            String playerPuuid = Objects.toString(player.get("puuid"), "");
             playerCacheService.recordPlayerName(
-                    Objects.toString(player.get("puuid"), ""),
+                    playerPuuid,
                     Objects.toString(player.get("name"), ""),
                     Objects.toString(player.get("tag"), ""),
                     observedAt
             );
+            if (requiredPuuid != null && requiredPuuid.equals(playerPuuid)) {
+                requiredPlayerFound = true;
+            }
         }
+        return requiredPlayerFound;
     }
 
     public List<Map<String, Object>> getPlayerNameHistory(String puuid) {
@@ -191,32 +207,89 @@ public class ValorantService {
         Optional<Map<String, String>> identity = playerCacheService.getCurrentIdentity(puuid);
         if (identity.isEmpty()) return;
 
-        boolean completed = false;
+        boolean completed = true;
         try {
-            Map<String, String> current = identity.get();
-            StoredMatchesResponse response = apiClient.getStoredMatches(
-                    current.get("region"), current.get("name"), current.get("tag"), 50, 1, "competitive");
-            if (response != null && response.data() != null) {
-                for (StoredMatchesResponse.StoredMatch match : response.data()) {
-                    long observedAt = Instant.now().getEpochSecond();
-                    try {
-                        if (match.meta() != null && match.meta().startedAt() != null) {
-                            observedAt = Instant.parse(match.meta().startedAt()).getEpochSecond();
-                        }
-                    } catch (Exception ignored) {
-                        // Keep current time if the provider sends an unexpected date format.
-                    }
-                    if (match.players() == null) continue;
-                    for (StoredMatchesResponse.Player player : match.players()) {
-                        playerCacheService.recordPlayerName(player.puuid(), player.name(), player.tag(), observedAt);
-                    }
+            Map<Long, String> checkpoints = new TreeMap<>();
+            List<Map<String, AttributeValue>> cachedMatches =
+                    dynamoDbService.getStoredMatchesForPlayer(puuid, 10_000, 1);
+
+            for (Map<String, AttributeValue> match : cachedMatches) {
+                AttributeValue matchIdValue = match.get("matchId");
+                AttributeValue gameStartValue = match.get("gameStart");
+                if (matchIdValue == null || matchIdValue.s() == null
+                        || gameStartValue == null || gameStartValue.n() == null) continue;
+                try {
+                    long observedAt = Long.parseLong(gameStartValue.n());
+                    checkpoints.putIfAbsent(
+                            Math.floorDiv(observedAt, NAME_HISTORY_SAMPLE_SECONDS),
+                            matchIdValue.s()
+                    );
+                } catch (NumberFormatException ignored) {
+                    // Ignore malformed cached timestamps.
                 }
-                completed = true;
+            }
+
+            if (checkpoints.isEmpty()) {
+                completed = false;
+                LOG.debug("Name-history backfill for {} is waiting for cached matches", puuid);
+            }
+
+            int attempted = 0;
+            for (String matchId : spreadAcrossTimeline(checkpoints)) {
+                if (playerCacheService.isNameHistoryCheckpointProcessed(puuid, matchId)) continue;
+                if (attempted >= NAME_HISTORY_CHECKPOINTS_PER_REQUEST) {
+                    completed = false;
+                    break;
+                }
+                attempted++;
+                try {
+                    if (recordMatchPlayerNames(apiRequestQueue.execute(
+                            "match details " + matchId,
+                            () -> apiClient.getMatchById(matchId)), puuid)) {
+                        playerCacheService.markNameHistoryCheckpointProcessed(puuid, matchId);
+                    } else {
+                        completed = false;
+                    }
+                } catch (Exception e) {
+                    completed = false;
+                    LOG.warn("Failed name-history checkpoint match {} for {}. Backfill will resume later.", matchId, puuid, e);
+                    break;
+                }
             }
         } catch (Exception e) {
+            completed = false;
             LOG.warn("Failed to backfill recent name history for {}", puuid, e);
         } finally {
             if (completed) playerCacheService.markNameHistoryBackfilled(puuid);
+        }
+    }
+
+    private List<String> spreadAcrossTimeline(Map<Long, String> checkpoints) {
+        List<String> chronological = new ArrayList<>(checkpoints.values());
+        if (chronological.size() <= 2) return chronological;
+
+        List<String> spread = new ArrayList<>(chronological.size());
+        boolean[] added = new boolean[chronological.size()];
+        addCheckpoint(chronological, spread, added, 0);
+        addCheckpoint(chronological, spread, added, chronological.size() - 1);
+
+        ArrayDeque<int[]> ranges = new ArrayDeque<>();
+        ranges.add(new int[]{0, chronological.size() - 1});
+        while (!ranges.isEmpty()) {
+            int[] range = ranges.removeFirst();
+            if (range[1] - range[0] <= 1) continue;
+            int midpoint = (range[0] + range[1]) / 2;
+            addCheckpoint(chronological, spread, added, midpoint);
+            ranges.addLast(new int[]{range[0], midpoint});
+            ranges.addLast(new int[]{midpoint, range[1]});
+        }
+        return spread;
+    }
+
+    private void addCheckpoint(List<String> source, List<String> target, boolean[] added, int index) {
+        if (!added[index]) {
+            target.add(source.get(index));
+            added[index] = true;
         }
     }
 
@@ -296,7 +369,9 @@ public class ValorantService {
      */
     public Map<String, Object> getPlayerMMR(String region, String name, String tag, String seasonId) {
         try {
-            Map<String, Object> mmrResponse = apiClient.getMMR(region, name, tag);
+            Map<String, Object> mmrResponse = apiRequestQueue.execute(
+                    "MMR for " + name + "#" + tag,
+                    () -> apiClient.getMMR(region, name, tag));
 
             if (mmrResponse == null) {
                 return errorResponse("MMR response was null");
@@ -368,7 +443,9 @@ public class ValorantService {
         }
 
         try {
-            Map<String, Object> account = apiClient.getAccount(name, tag);
+            Map<String, Object> account = apiRequestQueue.execute(
+                    "account for " + name + "#" + tag,
+                    () -> apiClient.getAccount(name, tag));
 
             @SuppressWarnings("unchecked")
             Map<String, Object> data =

@@ -35,3 +35,12 @@ aws:
 
 dynamodb:
   table-name: valstats
+
+henrik-api:
+  rate-limit:
+    # Instance-local smoothing. Override these from environment-specific config
+    # when the Henrik plan's RateLimit-Policy allows a higher sustained rate.
+    requests-per-second: 1
+    max-queued-requests: 100
+    max-retries: 3
+    max-retry-delay-seconds: 60

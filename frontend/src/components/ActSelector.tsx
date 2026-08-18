@@ -13,11 +13,12 @@ import { API_BASE_URL } from "./Match/utils/matchUtils";
 interface Act {
     value: string;
     label: string;
+    seasonKey?: string;
 }
 
 interface ActSelectorProps {
     selectedAct: string;
-    onActChange: (id: string, label: string) => void;
+    onActChange: (id: string, label: string, seasonKey?: string) => void;
     region: string;
     name: string;
     tag: string;
@@ -47,11 +48,22 @@ export function ActSelector({
 
                 if (!res.ok) throw new Error("Failed to fetch acts");
 
-                const data = await res.json();
+                const payload = await res.json();
+                const data: Act[] = (Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : []).map((act: Act & { key?: string; code?: string }) => {
+                    const searchable = `${act.seasonKey || ''} ${act.key || ''} ${act.code || ''} ${act.value || ''} ${act.label || ''}`;
+                    const compactMatch = searchable.match(/e(\d+)a(\d+)/i);
+                    const labelMatch = searchable.match(/episode\s*(\d+).*act\s*(\d+)/i);
+                    return {
+                        value: act.value,
+                        label: act.label,
+                        seasonKey: act.seasonKey || act.key || act.code || (compactMatch ? `e${compactMatch[1]}a${compactMatch[2]}` : labelMatch ? `e${labelMatch[1]}a${labelMatch[2]}` : undefined),
+                    };
+                });
 
                 const sorted = data.sort((a: Act, b: Act) => {
                     const parse = (val: string) => {
-                        const match = val.match(/e(\d+)a(\d+)/);
+                        const item = data.find((act) => act.value === val);
+                        const match = (item?.seasonKey || val).match(/e(\d+)a(\d+)/i);
                         return match
                             ? { episode: parseInt(match[1]), act: parseInt(match[2]) }
                             : { episode: 0, act: 0 };
@@ -104,7 +116,7 @@ export function ActSelector({
                 value={selectedAct}
                 onValueChange={(value) => {
                     const selected = acts.find(a => a.value === value);
-                    onActChange(value, selected?.label || "Current");
+                    onActChange(value, selected?.label || "Current", selected?.seasonKey);
                 }}
             >
                 <SelectTrigger

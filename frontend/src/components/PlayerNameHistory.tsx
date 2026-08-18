@@ -15,7 +15,7 @@ function formatDate(timestamp: number) {
   return timestamp ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(timestamp * 1000) : 'Unknown';
 }
 
-export function PlayerNameHistory({ puuid }: { puuid?: string }) {
+export function PlayerNameHistory({ puuid, refreshing = false }: { puuid?: string; refreshing?: boolean }) {
   const [names, setNames] = useState<NameObservation[]>([]);
   const [open, setOpen] = useState(false);
 
@@ -23,43 +23,47 @@ export function PlayerNameHistory({ puuid }: { puuid?: string }) {
     if (!puuid) return;
     const controller = new AbortController();
     const baseUrl = `${API_BASE_URL}/players/${encodeURIComponent(puuid)}/names`;
-    let poll: number | undefined;
 
-    const loadCachedNames = async () => {
-      const response = await fetch(baseUrl, { signal: controller.signal });
-      if (!response.ok) throw new Error('Name history unavailable');
-      const payload = await response.json();
-      setNames(Array.isArray(payload?.data) ? payload.data : []);
-    };
-
-    const run = async () => {
-      try {
-        await loadCachedNames();
-        for (let batch = 0; batch < 10 && !controller.signal.aborted; batch++) {
-          const statusResponse = await fetch(`${baseUrl}/refresh-status`, { signal: controller.signal });
-          if (!statusResponse.ok) break;
-          const status = await statusResponse.json();
-          if (status?.data?.refreshRequired !== true) break;
-
-          if (poll === undefined) {
-            poll = window.setInterval(() => void loadCachedNames().catch(() => undefined), 2500);
-          }
-          await fetch(`${baseUrl}/refresh`, { method: 'POST', signal: controller.signal });
-          if (!controller.signal.aborted) await loadCachedNames();
-        }
-        if (poll !== undefined) window.clearInterval(poll);
-      } catch (reason: any) {
-        if (poll !== undefined) window.clearInterval(poll);
+    void fetch(baseUrl, { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error('Name history unavailable');
+        return response.json();
+      })
+      .then((payload) => setNames(Array.isArray(payload?.data) ? payload.data : []))
+      .catch((reason: any) => {
         if (reason?.name !== 'AbortError') console.error('Failed to load player name history', reason);
+      });
+
+    return () => controller.abort();
+  }, [puuid]);
+
+  useEffect(() => {
+    if (!puuid || !refreshing) return;
+    const controller = new AbortController();
+    const baseUrl = `${API_BASE_URL}/players/${encodeURIComponent(puuid)}/names`;
+
+    const refreshNames = async () => {
+      try {
+        const statusResponse = await fetch(`${baseUrl}/refresh-status`, { signal: controller.signal });
+        if (!statusResponse.ok) return;
+        const status = await statusResponse.json();
+        if (status?.data?.refreshRequired !== true) return;
+
+        const refreshResponse = await fetch(`${baseUrl}/refresh`, { method: 'POST', signal: controller.signal });
+        if (!refreshResponse.ok || controller.signal.aborted) return;
+
+        const namesResponse = await fetch(baseUrl, { signal: controller.signal });
+        if (!namesResponse.ok) return;
+        const payload = await namesResponse.json();
+        if (!controller.signal.aborted) setNames(Array.isArray(payload?.data) ? payload.data : []);
+      } catch (reason: any) {
+        if (reason?.name !== 'AbortError') console.error('Failed to refresh player name history', reason);
       }
     };
 
-    void run();
-    return () => {
-      controller.abort();
-      if (poll !== undefined) window.clearInterval(poll);
-    };
-  }, [puuid]);
+    void refreshNames();
+    return () => controller.abort();
+  }, [puuid, refreshing]);
 
   const previousNames = names.filter((name) => !name.current);
   if (!previousNames.length) return null;

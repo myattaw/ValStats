@@ -131,7 +131,7 @@ export function PlayerProfile({ profile, mmr, seasonKey, actLabel, loading, load
           </div>
           <div className="profile-name-row">
             <h1>{profile?.name ?? 'Loading player'}<span>#{profile?.tag ?? ''}</span></h1>
-            <PlayerNameHistory puuid={profile?.puuid} />
+            <PlayerNameHistory puuid={profile?.puuid} refreshing={loadState === 'refreshing'} />
           </div>
           {profile?.account_level && <p>Account level {profile.account_level}</p>}
         </div>

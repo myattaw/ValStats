@@ -5,6 +5,7 @@ import com.valstats.client.HenrikApiRequestQueue;
 import com.valstats.config.ValorantApiConfig;
 import com.valstats.model.stored.StoredMatchesResponse;
 import com.valstats.service.match.MatchDataService;
+import com.valstats.service.SeasonNames;
 import com.valstats.service.player.PlayerCacheService;
 import com.valstats.service.player.PlayerStatsService;
 import jakarta.inject.Singleton;
@@ -171,6 +172,7 @@ public class ValorantService {
     }
 
     private boolean recordMatchPlayerNames(Object response, String requiredPuuid) {
+        recordSeasonMetadata(response);
         if (!(response instanceof Map<?, ?> root) || !(root.get("data") instanceof Map<?, ?> data)) return false;
         if (!(data.get("players") instanceof Map<?, ?> players) || !(players.get("all_players") instanceof List<?> allPlayers)) return false;
 
@@ -195,6 +197,26 @@ public class ValorantService {
             }
         }
         return requiredPlayerFound;
+    }
+
+    private void recordSeasonMetadata(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Object seasonValue = map.get("season");
+            if (seasonValue instanceof Map<?, ?> season) {
+                String id = Objects.toString(season.get("id"), "");
+                String shortCode = Objects.toString(season.get("short"), "");
+                dynamoDbService.storeSeason(id, shortCode);
+            }
+
+            String seasonId = Objects.toString(map.get("season_id"), "");
+            String seasonShort = Objects.toString(map.get("season_short"), "");
+            if (!seasonId.isBlank() && !seasonShort.isBlank()) {
+                dynamoDbService.storeSeason(seasonId, seasonShort);
+            }
+            map.values().forEach(this::recordSeasonMetadata);
+        } else if (value instanceof Iterable<?> iterable) {
+            iterable.forEach(this::recordSeasonMetadata);
+        }
     }
 
     public List<Map<String, Object>> getPlayerNameHistory(String puuid) {
@@ -327,6 +349,7 @@ public class ValorantService {
                 dynamoDbService.getStoredMatchesForPlayer(puuid, 1000, 1);
 
         Map<String, Long> seasonLatestGame = new HashMap<>();
+        Map<String, String> seasonLabels = new HashMap<>();
 
         for (Map<String, AttributeValue> item : items) {
             AttributeValue skAttr = item.get("SK");
@@ -340,6 +363,17 @@ public class ValorantService {
             if (parts.length < 4) continue;
 
             String seasonId = parts[1];
+
+            AttributeValue storedName = item.get("seasonName");
+            if (storedName != null && storedName.s() != null && !storedName.s().isBlank()) {
+                seasonLabels.put(seasonId, storedName.s());
+            } else {
+                AttributeValue storedShort = item.get("seasonShort");
+                if (storedShort != null && storedShort.s() != null) {
+                    String formatted = SeasonNames.format(storedShort.s());
+                    if (!formatted.isBlank()) seasonLabels.put(seasonId, formatted);
+                }
+            }
 
             long gameStart;
             try {
@@ -355,9 +389,17 @@ public class ValorantService {
                 .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
                 .map(entry -> Map.of(
                         "value", entry.getKey(),
-                        "label", SEASON_MAP.getOrDefault(entry.getKey(), entry.getKey())
+                        "label", resolveSeasonLabel(entry.getKey(), seasonLabels.get(entry.getKey()))
                 ))
                 .toList();
+    }
+
+    private String resolveSeasonLabel(String seasonId, String matchLabel) {
+        if (matchLabel != null && !matchLabel.isBlank()) return matchLabel;
+        return dynamoDbService.getSeason(seasonId)
+                .map(season -> season.get("name"))
+                .filter(name -> name != null && !name.isBlank())
+                .orElse("Unknown Act");
     }
 
     /**
@@ -467,7 +509,10 @@ public class ValorantService {
     }
 
     private String mapToHenrikSeason(String seasonId) {
-        return SEASON_TO_HENRIK.get(seasonId);
+        return dynamoDbService.getSeason(seasonId)
+                .map(season -> season.get("short"))
+                .filter(shortCode -> shortCode != null && !shortCode.isBlank())
+                .orElseGet(() -> SEASON_TO_HENRIK.get(seasonId));
     }
 
     private Map<String, Object> errorResponse(String msg) {

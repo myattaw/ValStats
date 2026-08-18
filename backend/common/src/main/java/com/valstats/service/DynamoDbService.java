@@ -54,6 +54,40 @@ public class DynamoDbService {
         dbClient.putItem(request);
     }
 
+    public void storeSeason(String seasonId, String shortCode) {
+        String normalizedShort = SeasonNames.normalizeShortCode(shortCode);
+        String displayName = SeasonNames.format(normalizedShort);
+        if (seasonId == null || seasonId.isBlank() || displayName.isBlank()) return;
+
+        Map<String, AttributeValue> item = new HashMap<>();
+        item.put("PK", AttributeValue.fromS("METADATA#SEASONS"));
+        item.put("SK", AttributeValue.fromS("SEASON#" + seasonId));
+        item.put("seasonId", AttributeValue.fromS(seasonId));
+        item.put("seasonShort", AttributeValue.fromS(normalizedShort));
+        item.put("seasonName", AttributeValue.fromS(displayName));
+        item.put("updatedAt", AttributeValue.fromS(Instant.now().toString()));
+        putItem(item);
+    }
+
+    public Optional<Map<String, String>> getSeason(String seasonId) {
+        if (seasonId == null || seasonId.isBlank()) return Optional.empty();
+        GetItemResponse response = dbClient.getItem(GetItemRequest.builder()
+                .tableName(tableName)
+                .key(Map.of(
+                        "PK", AttributeValue.fromS("METADATA#SEASONS"),
+                        "SK", AttributeValue.fromS("SEASON#" + seasonId)
+                ))
+                .consistentRead(false)
+                .build());
+        if (!response.hasItem() || response.item().isEmpty()) return Optional.empty();
+        Map<String, AttributeValue> item = response.item();
+        return Optional.of(Map.of(
+                "id", seasonId,
+                "short", item.getOrDefault("seasonShort", AttributeValue.fromS("")).s(),
+                "name", item.getOrDefault("seasonName", AttributeValue.fromS("")).s()
+        ));
+    }
+
     public QueryResponse queryByPk(String pk) {
         return dbClient.query(QueryRequest.builder()
                 .tableName(tableName)

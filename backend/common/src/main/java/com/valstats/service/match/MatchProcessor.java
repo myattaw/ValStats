@@ -2,6 +2,7 @@ package com.valstats.service.match;
 
 import com.valstats.model.stored.StoredMatchesResponse;
 import com.valstats.service.player.PlayerNameRecorder;
+import com.valstats.service.SeasonNames;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,6 +50,9 @@ public class MatchProcessor {
         if (seasonId.isBlank()) {
             seasonId = "unknown";
         }
+        String seasonShort = season != null ? SeasonNames.normalizeShortCode(season.shortName()) : "";
+        String seasonName = SeasonNames.format(seasonShort);
+        storeSeasonMetadata(seasonId, seasonShort, seasonName);
 
         int redRounds = extractTeamRounds(match.teams(), "red");
         int blueRounds = extractTeamRounds(match.teams(), "blue");
@@ -61,6 +65,8 @@ public class MatchProcessor {
         processPlayerMatch(
                 puuid,
                 seasonId,
+                seasonShort,
+                seasonName,
                 matchId,
                 stats.kills(),
                 stats.deaths(),
@@ -89,6 +95,8 @@ public class MatchProcessor {
     public void processPlayerMatch(
             String puuid,
             String seasonId,
+            String seasonShort,
+            String seasonName,
             String matchId,
             long kills,
             long deaths,
@@ -123,6 +131,8 @@ public class MatchProcessor {
         marker.put("matchId", AttributeValue.fromS(matchId));
         marker.put("gameStart", AttributeValue.fromN(String.valueOf(gameStart)));
         marker.put("seasonId", AttributeValue.fromS(seasonId));
+        if (!seasonShort.isBlank()) marker.put("seasonShort", AttributeValue.fromS(seasonShort));
+        if (!seasonName.isBlank()) marker.put("seasonName", AttributeValue.fromS(seasonName));
         marker.put("map", AttributeValue.fromS(nullSafe(map)));
         marker.put("mapId", AttributeValue.fromS(nullSafe(mapId)));
         marker.put("agentName", AttributeValue.fromS(nullSafe(agentName)));
@@ -180,6 +190,25 @@ public class MatchProcessor {
         );
 
         LOG.debug("Processed match {} for player {}", matchId, puuid);
+    }
+
+    private void storeSeasonMetadata(String seasonId, String seasonShort, String seasonName) {
+        if (seasonId.isBlank() || "unknown".equals(seasonId) || seasonName.isBlank()) return;
+        try {
+            ddb.putItem(PutItemRequest.builder()
+                    .tableName(tableName)
+                    .item(Map.of(
+                            "PK", AttributeValue.fromS("METADATA#SEASONS"),
+                            "SK", AttributeValue.fromS("SEASON#" + seasonId),
+                            "seasonId", AttributeValue.fromS(seasonId),
+                            "seasonShort", AttributeValue.fromS(seasonShort),
+                            "seasonName", AttributeValue.fromS(seasonName),
+                            "updatedAt", AttributeValue.fromS(Instant.now().toString())
+                    ))
+                    .build());
+        } catch (DynamoDbException e) {
+            LOG.warn("Failed to store season metadata for {}", seasonId, e);
+        }
     }
 
     private void recordPlayerNames(StoredMatchesResponse.StoredMatch match, long observedAt) {

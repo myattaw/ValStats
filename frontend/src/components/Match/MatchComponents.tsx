@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState, type PointerEvent as ReactPointerEvent} from "react";
+import {useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent} from "react";
 import {Crosshair, Crown, RotateCcw, Shield, ZoomIn, ZoomOut} from "lucide-react";
 import {Skeleton} from "../ui/skeleton";
 import {EventLocation, MatchDetails, MatchRound, PlayerStats, RoundKill} from './types/matchTypes';
@@ -142,7 +142,10 @@ export const MatchPlayerRow = ({player, teamStyle, partyColor, rounds_played, ro
 }) => {
     const rp = player.rounds_played ?? rounds_played;
     return (
-        <div className="scoreboard-player-row" style={partyColor ? { borderLeft: `3px solid ${partyColor}` } : undefined}>
+        <div
+            className={`scoreboard-player-row ${partyColor ? "has-party" : ""}`}
+            style={partyColor ? {"--party-color": partyColor} as CSSProperties : undefined}
+        >
             <div className="scoreboard-player-identity">
                 <div className={`w-7 h-7 rounded flex items-center justify-center overflow-hidden ${teamStyle}`}>
                     {player.agentIcon ? (
@@ -299,7 +302,7 @@ export const TeamDisplay = ({
         <div
             className={`p-3 border-l border-r ${isBottom ? "border-b rounded-b-lg" : ""} ${bgColor} ${borderColor}`}>
             <h4 className="text-xs text-gray-400 mb-2">{label}</h4>
-            <div className="space-y-1">
+            <div className="scoreboard-player-list">
                 {players.map((player, idx) => (
                     <MatchPlayerRow
                         key={idx}

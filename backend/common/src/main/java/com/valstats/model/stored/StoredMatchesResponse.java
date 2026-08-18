@@ -115,7 +115,7 @@ public record StoredMatchesResponse(
     @Introspected
     @Serdeable
     public record Damage(
-            int dealt,
+            int made,
             int received
     ) {
     }

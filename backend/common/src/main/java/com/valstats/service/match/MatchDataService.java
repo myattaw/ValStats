@@ -71,9 +71,15 @@ public class MatchDataService {
         // =========================
         boolean hasAnyMatches = !check.items().isEmpty();
         boolean needsModeBackfill = hasAnyMatches && check.items().stream().anyMatch(item -> !item.containsKey("mode"));
+        boolean needsDamageBackfill = hasAnyMatches && check.items().stream().anyMatch(item ->
+                !item.containsKey("damage_made") || !item.containsKey("rounds_played")
+                        || !item.containsKey("adr")
+                        || "0".equals(item.get("damage_made").n()));
 
-        if (!hasAnyMatches || needsModeBackfill) {
-            LOG.info("{} backfill for {}", needsModeBackfill ? "Game-mode metadata" : "Initial", puuid);
+        if (!hasAnyMatches || needsModeBackfill || needsDamageBackfill) {
+            String backfillType = !hasAnyMatches ? "Initial"
+                    : needsDamageBackfill ? "Damage metadata" : "Game-mode metadata";
+            LOG.info("{} backfill for {}", backfillType, puuid);
 
             boolean syncSucceeded = syncStoredMatches(
                     puuid,
@@ -285,7 +291,8 @@ public class MatchDataService {
                                 null
                         ));
             } catch (Exception e) {
-                LOG.error("Failed stored-match request page={} size={} for {}#{}", page, batchSize, name, tag, e);
+                LOG.warn("Stored-match sync deferred after request failure page={} size={} for {}#{}: {}",
+                        page, batchSize, name, tag, e.getMessage());
                 requestFailed = true;
                 break;
             }
@@ -354,10 +361,14 @@ public class MatchDataService {
             LOG.warn("Stored-match sync hit safety page cap ({}) for {}#{}", MAX_STORED_MATCH_PAGES, name, tag);
         }
 
-        LOG.info(
-                "Stored-match sync complete for {}#{} (initialBackfill={}, processed={}, skipped={}, pages={})",
-                name, tag, isInitialBackfill, processed, skipped, pagesFetched
-        );
+        if (requestFailed) {
+            LOG.warn("Stored-match sync incomplete for {}#{}; cached data remains available "
+                            + "(initialBackfill={}, processed={}, skipped={}, pages={})",
+                    name, tag, isInitialBackfill, processed, skipped, pagesFetched);
+        } else {
+            LOG.info("Stored-match sync complete for {}#{} (initialBackfill={}, processed={}, skipped={}, pages={})",
+                    name, tag, isInitialBackfill, processed, skipped, pagesFetched);
+        }
         return !requestFailed && pagesFetched > 0;
     }
 

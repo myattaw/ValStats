@@ -2,6 +2,7 @@ import {useEffect, useRef, useState, type PointerEvent as ReactPointerEvent} fro
 import {Crosshair, Crown, RotateCcw, Shield, ZoomIn, ZoomOut} from "lucide-react";
 import {Skeleton} from "../ui/skeleton";
 import {EventLocation, MatchDetails, MatchRound, PlayerStats, RoundKill} from './types/matchTypes';
+import {playerUuidPath} from '../../lib/player';
 
 const TIER_SET = "03621f52-342b-cf4e-4f86-9350a49c6d04";
 
@@ -155,7 +156,15 @@ export const MatchPlayerRow = ({player, teamStyle, partyColor, rounds_played, ro
                     )}
                 </div>
                 <div>
-                    <div className="text-white text-sm">{player.name}{player.tag && <span className="text-gray-500">#{player.tag}</span>}</div>
+                    {player.puuid ? (
+                        <a
+                            className="scoreboard-player-link text-sm"
+                            href={playerUuidPath(player.puuid)}
+                            title={`View ${player.name}#${player.tag}'s profile`}
+                        >
+                            <span>{player.name}</span>{player.tag && <span>#{player.tag}</span>}
+                        </a>
+                    ) : <div className="text-white text-sm">{player.name}</div>}
                     <div className="player-rank-line">
                         {player.currentTier ? <img src={`https://media.valorant-api.com/competitivetiers/${TIER_SET}/${player.currentTier}/smallicon.png`} alt=""/> : <Shield/>}
                         <span>{player.currentTierName || "Unranked"}</span>

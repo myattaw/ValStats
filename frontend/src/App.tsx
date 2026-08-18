@@ -16,13 +16,22 @@ export default function App() {
   const [act, setAct] = useState<{ id: string; label: string; seasonKey?: string }>({ id: 'all', label: 'Current act' });
   const [mode, setMode] = useState({ id: 'competitive', label: 'Competitive' });
   const [inputError, setInputError] = useState<string | null>(null);
-  const { profile, stats, mmr, error, rankLoading, loadState, updatedAt, region } = usePlayerData(player, act.id, mode.id);
+  const { profile, stats, mmr, error, rankLoading, loadState, updatedAt, resolvedPlayer, region } = usePlayerData(player, act.id, mode.id);
+  const activePlayer = resolvedPlayer ?? player;
 
   useEffect(() => {
     const syncFromHistory = () => setPlayer(parsePlayerFromUrl());
     window.addEventListener('popstate', syncFromHistory);
     return () => window.removeEventListener('popstate', syncFromHistory);
   }, []);
+
+  useEffect(() => {
+    if (!player?.puuid || !resolvedPlayer?.name || !resolvedPlayer.tag) return;
+    const canonicalPath = playerPath(resolvedPlayer);
+    if (window.location.pathname !== canonicalPath) {
+      window.history.replaceState(null, '', canonicalPath);
+    }
+  }, [player?.puuid, resolvedPlayer]);
 
   const search = (query: string) => {
     const next = parsePlayerQuery(query);
@@ -51,13 +60,13 @@ export default function App() {
               <div className="section-toolbar">
                 <div><span className="eyebrow">Performance</span><h2>{mode.label} overview</h2></div>
                 <div className="history-filters">
-                  <GameModeSelector value={mode.id} onChange={(id, label) => setMode({ id, label })} region={region} name={player.name} tag={player.tag}/>
-                  <ActSelector selectedAct={act.id} onActChange={(id, label, seasonKey) => setAct({ id, label, seasonKey })} region={region} name={player.name} tag={player.tag} />
+                  <GameModeSelector value={mode.id} onChange={(id, label) => setMode({ id, label })} region={region} name={activePlayer?.name ?? ''} tag={activePlayer?.tag ?? ''}/>
+                  <ActSelector selectedAct={act.id} onActChange={(id, label, seasonKey) => setAct({ id, label, seasonKey })} region={region} name={activePlayer?.name ?? ''} tag={activePlayer?.tag ?? ''} />
                 </div>
               </div>
               <StatsOverview stats={stats} loading={rankLoading} />
             </section>
-            <MatchHistory puuid={profile?.puuid} playerName={player.name} playerTag={player.tag} selectedAct={act.id} selectedMode={mode.id} />
+            {activePlayer?.name && activePlayer.tag && <MatchHistory puuid={profile?.puuid ?? player.puuid} playerName={activePlayer.name} playerTag={activePlayer.tag} selectedAct={act.id} selectedMode={mode.id} />}
           </div>
         )}
       </main>

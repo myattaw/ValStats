@@ -37,6 +37,11 @@ public interface ValorantApiClient {
             @PathVariable String tag
     );
 
+    @Get("/valorant/v1/by-puuid/account/{puuid}")
+    Map<String, Object> getAccountByPuuid(
+            @PathVariable String puuid
+    );
+
     @Get("/valorant/v2/match/{matchid}")
     Map<String, Object> getMatchById(
             @PathVariable String matchid

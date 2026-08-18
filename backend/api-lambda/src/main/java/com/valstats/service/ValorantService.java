@@ -226,6 +226,56 @@ public class ValorantService {
         return playerCacheService.getPlayerNameHistory(puuid);
     }
 
+    public Map<String, Object> getPlayerIdentity(String puuid) {
+        Optional<Map<String, String>> cached = playerCacheService.getCurrentIdentity(puuid)
+                .filter(identity -> !identity.getOrDefault("name", "").isBlank()
+                        && !identity.getOrDefault("tag", "").isBlank());
+        if (cached.isPresent()) {
+            Map<String, String> identity = cached.get();
+            return identityResponse(
+                    puuid,
+                    identity.get("name"),
+                    identity.get("tag"),
+                    identity.getOrDefault("region", "na")
+            );
+        }
+
+        try {
+            Map<String, Object> response = apiRequestQueue.execute(
+                    "account for PUUID " + puuid,
+                    () -> apiClient.getAccountByPuuid(puuid));
+            if (response != null && response.get("data") instanceof Map<?, ?> data) {
+                String resolvedPuuid = Objects.toString(data.get("puuid"), puuid);
+                String name = Objects.toString(data.get("name"), "");
+                String tag = Objects.toString(data.get("tag"), "");
+                String region = Objects.toString(data.get("region"), "na");
+                if (!name.isBlank() && !tag.isBlank()) {
+                    playerCacheService.storePlayerProfile(resolvedPuuid, name, tag, region);
+                    return identityResponse(resolvedPuuid, name, tag, region);
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to resolve account for PUUID {}", puuid, e);
+        }
+
+        return Map.of(
+                "status", 404,
+                "error", "Player identity could not be resolved for this PUUID"
+        );
+    }
+
+    private Map<String, Object> identityResponse(String puuid, String name, String tag, String region) {
+        return Map.of(
+                "status", 200,
+                "data", Map.of(
+                        "puuid", puuid,
+                        "name", name,
+                        "tag", tag,
+                        "region", region
+                )
+        );
+    }
+
     private void backfillRecentNameHistory(String puuid) {
         if (!playerCacheService.shouldBackfillNameHistory(puuid)) return;
         Optional<Map<String, String>> identity = playerCacheService.getCurrentIdentity(puuid);

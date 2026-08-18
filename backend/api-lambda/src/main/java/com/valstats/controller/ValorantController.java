@@ -61,6 +61,11 @@ public class ValorantController {
         return Map.of("status", 200, "data", valorantService.getPlayerNameHistory(puuid));
     }
 
+    @Get("/players/{puuid}")
+    public Map<String, Object> getPlayerIdentity(@PathVariable String puuid) {
+        return valorantService.getPlayerIdentity(puuid);
+    }
+
     @Get("/stats/{region}/{name}/{tag}")
     public Map<String, Object> getPlayerStats(
             @PathVariable String region,

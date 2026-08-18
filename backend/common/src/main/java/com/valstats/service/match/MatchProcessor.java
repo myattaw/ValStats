@@ -59,7 +59,7 @@ public class MatchProcessor {
         int redRounds = extractTeamRounds(match.teams(), "red");
         int blueRounds = extractTeamRounds(match.teams(), "blue");
 
-        long damageMade = damage != null ? damage.dealt() : 0L;
+        long damageMade = damage != null ? damage.made() : 0L;
 
         int tier = stats.tier();
         long gameStart = parseDateRaw(meta.startedAt());
@@ -172,7 +172,9 @@ public class MatchProcessor {
                     .build());
 
         } catch (ConditionalCheckFailedException e) {
-            updateExistingMatchMetadata(pk, sk, seasonShort, seasonName, mode, modeName);
+            updateExistingMatchMetadata(
+                    pk, sk, seasonShort, seasonName, mode, modeName,
+                    damageMade, roundsPlayed, adr);
             LOG.debug("Match {} already processed for {}", matchId, puuid);
             return;
         } catch (DynamoDbException e) {
@@ -202,11 +204,16 @@ public class MatchProcessor {
     }
 
     private void updateExistingMatchMetadata(
-            String pk, String sk, String seasonShort, String seasonName, String mode, String modeName) {
+            String pk, String sk, String seasonShort, String seasonName, String mode, String modeName,
+            long damageMade, long roundsPlayed, double adr) {
         Map<String, AttributeValue> values = new HashMap<>();
         values.put(":mode", AttributeValue.fromS(mode));
         values.put(":modeName", AttributeValue.fromS(modeName));
-        String expression = "SET #mode = :mode, modeName = :modeName";
+        values.put(":damage", AttributeValue.fromN(String.valueOf(damageMade)));
+        values.put(":rounds", AttributeValue.fromN(String.valueOf(roundsPlayed)));
+        values.put(":adr", AttributeValue.fromN(String.valueOf(adr)));
+        String expression = "SET #mode = :mode, modeName = :modeName, "
+                + "damage_made = :damage, rounds_played = :rounds, adr = :adr";
         if (!seasonShort.isBlank() && !seasonName.isBlank()) {
             expression += ", seasonShort = :seasonShort, seasonName = :seasonName";
             values.put(":seasonShort", AttributeValue.fromS(seasonShort));

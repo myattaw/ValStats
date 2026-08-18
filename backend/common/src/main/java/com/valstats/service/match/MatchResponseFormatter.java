@@ -108,7 +108,14 @@ public class MatchResponseFormatter {
 
         int score = "red".equals(team) ? redRoundsWon : blueRoundsWon;
         int enemyScore = "red".equals(team) ? blueRoundsWon : redRoundsWon;
-        int roundsPlayed = redRoundsWon + blueRoundsWon;
+        int roundsPlayed = getInt(match, "rounds_played");
+        if (roundsPlayed <= 0) {
+            roundsPlayed = redRoundsWon + blueRoundsWon;
+        }
+        long adr = Math.round(getDouble(match, "adr"));
+        if (adr <= 0 && roundsPlayed > 0) {
+            adr = Math.round((double) getInt(match, "damage_made") / roundsPlayed);
+        }
 
         String agentName = getString(match, "agentName");
         String agentId = getString(match, "agentId");
@@ -157,7 +164,7 @@ public class MatchResponseFormatter {
                 rankingInTier,
                 rr,
                 roundsPlayed,
-                Math.round(getDouble(match, "adr")),
+                adr,
                 teams,
                 "",
                 false

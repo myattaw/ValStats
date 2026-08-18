@@ -3,6 +3,7 @@ package com.valstats.client;
 import io.micronaut.context.annotation.Value;
 import io.micronaut.http.HttpStatus;
 import io.micronaut.http.client.exceptions.HttpClientResponseException;
+import io.micronaut.http.client.exceptions.HttpClientException;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,12 +63,25 @@ public class HenrikApiRequestQueue {
                 try {
                     return request.call();
                 } catch (HttpClientResponseException exception) {
-                    if (exception.getStatus() != HttpStatus.TOO_MANY_REQUESTS || attempt >= maxRetries) {
+                    boolean rateLimited = exception.getStatus() == HttpStatus.TOO_MANY_REQUESTS;
+                    boolean temporaryServerFailure = exception.getStatus().getCode() == 408
+                            || exception.getStatus().getCode() >= 500;
+                    if ((!rateLimited && !temporaryServerFailure) || attempt >= maxRetries) {
                         throw exception;
                     }
 
-                    long delaySeconds = retryDelaySeconds(exception);
-                    LOG.warn("Henrik API rate limit reached during {}. Retrying in {}s ({}/{})",
+                    long delaySeconds = rateLimited
+                            ? retryDelaySeconds(exception)
+                            : transientRetryDelaySeconds(attempt);
+                    LOG.warn("Henrik API temporary HTTP {} during {}. Retrying in {}s ({}/{})",
+                            exception.getStatus().getCode(), operation, delaySeconds, attempt + 1, maxRetries);
+                    sleep(TimeUnit.SECONDS.toMillis(delaySeconds));
+                } catch (HttpClientException exception) {
+                    if (!isTransientNetworkFailure(exception) || attempt >= maxRetries) {
+                        throw exception;
+                    }
+                    long delaySeconds = transientRetryDelaySeconds(attempt);
+                    LOG.warn("Henrik API network timeout during {}. Retrying in {}s ({}/{})",
                             operation, delaySeconds, attempt + 1, maxRetries);
                     sleep(TimeUnit.SECONDS.toMillis(delaySeconds));
                 } catch (RuntimeException exception) {
@@ -85,6 +99,24 @@ public class HenrikApiRequestQueue {
             }
             queueCapacity.release();
         }
+    }
+
+    private boolean isTransientNetworkFailure(Throwable exception) {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (cause instanceof java.net.http.HttpTimeoutException
+                    || cause instanceof java.net.ConnectException
+                    || cause instanceof java.net.SocketTimeoutException) {
+                return true;
+            }
+        }
+        String message = exception.getMessage();
+        return message != null && (message.toLowerCase().contains("timed out")
+                || message.toLowerCase().contains("connection reset"));
+    }
+
+    private long transientRetryDelaySeconds(int attempt) {
+        long exponentialDelay = 1L << Math.min(attempt, 5);
+        return Math.min(maxRetryDelaySeconds, exponentialDelay);
     }
 
     private void awaitNextRequestSlot() throws InterruptedException {

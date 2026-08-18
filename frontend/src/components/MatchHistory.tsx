@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronDown, Clock, Loader2, TrendingDown, TrendingUp } from "lucide-react";
+import { ChevronDown, ChevronsDown, Clock, Loader2, TrendingDown, TrendingUp } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import { Match } from "./Match/types/matchTypes";
 import {
@@ -11,6 +11,20 @@ import {
 import { MatchDetailsPanel, MatchSkeleton } from "./Match/MatchComponents";
 
 type LastKey = Record<string, string | number> | null;
+
+function normalizeMatch(raw: Match & Record<string, any>): Match {
+    const suppliedAdr = raw.adr ?? raw.ADR ?? raw.average_damage_per_round ?? raw.averageDamagePerRound ?? raw.stats?.adr;
+    const numericAdr = Number(suppliedAdr);
+    const damage = Number(raw.damage_made ?? raw.damageMade ?? raw.stats?.damage_made ?? raw.stats?.damageMade);
+    const rounds = Number(raw.rounds_played ?? raw.roundsPlayed);
+    const adr = Number.isFinite(numericAdr) && numericAdr > 0
+        ? Math.round(numericAdr)
+        : Number.isFinite(damage) && damage > 0 && rounds > 0
+            ? Math.round(damage / rounds)
+            : 0;
+
+    return {...raw, adr};
+}
 
 export function MatchHistory({
                                  puuid,
@@ -68,7 +82,7 @@ export function MatchHistory({
             }
 
             const json = await res.json();
-            const data = Array.isArray(json?.data) ? json.data : [];
+            const data: Match[] = Array.isArray(json?.data) ? json.data.map(normalizeMatch) : [];
 
             data.sort((a: Match, b: Match) => b.date_raw - a.date_raw);
 
@@ -138,7 +152,7 @@ export function MatchHistory({
             }
 
             const json = await res.json();
-            const newMatches = Array.isArray(json?.data) ? json.data : [];
+            const newMatches: Match[] = Array.isArray(json?.data) ? json.data.map(normalizeMatch) : [];
 
             setMatches((prev) => {
                 const existingIds = new Set(prev.map((m) => m.id));
@@ -197,6 +211,8 @@ export function MatchHistory({
                 ) : (
                     <>
                         {matches.map((match) => {
+                            const detailAdr = calculateADR(match, puuid ?? undefined);
+                            const displayedAdr = match.adr && match.adr > 0 ? Math.round(match.adr) : detailAdr;
                             const matchBgStyle = match.mapId
                                 ? {
                                     backgroundImage: `url(https://media.valorant-api.com/maps/${match.mapId}/splash.png)`,
@@ -312,7 +328,7 @@ export function MatchHistory({
                                                                 <span className="text-gray-400">ACS: {match.acs}</span>
                                                                 <span className="text-gray-400">•</span>
                                                                 <span className="text-gray-400">
-                                                                    ADR: {match.adr}
+                                                                    ADR: {displayedAdr || '—'}
                                                                 </span>
                                                             </div>
                                                         </div>
@@ -354,20 +370,21 @@ export function MatchHistory({
                 )}
 
                 {canShowLoadMore && (
-                    <button
-                        onClick={handleLoadMore}
-                        disabled={loadingMore || !lastKey}
-                        className="w-full py-4 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg text-white hover:bg-[#242424] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                    >
-                        {loadingMore ? (
-                            <>
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                Loading more matches...
-                            </>
-                        ) : (
-                            "Load More Matches"
-                        )}
-                    </button>
+                    <div className="load-more-row">
+                        <span />
+                        <button
+                            onClick={handleLoadMore}
+                            disabled={loadingMore || !lastKey}
+                            className="load-more-button"
+                            aria-label={loadingMore ? "Loading more matches" : "Load more matches"}
+                        >
+                            <span className="load-more-icon">
+                                {loadingMore ? <Loader2 className="animate-spin" /> : <ChevronsDown />}
+                            </span>
+                            <span><strong>{loadingMore ? "Loading matches" : "Load more"}</strong><small>{loadingMore ? "Fetching match history…" : "Show older matches"}</small></span>
+                        </button>
+                        <span />
+                    </div>
                 )}
             </div>
         </div>

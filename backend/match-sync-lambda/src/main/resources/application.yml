@@ -10,5 +10,10 @@ aws:
   region: us-east-1
 
 dynamodb:
-  table-name: valstats
+  table-name: ${DYNAMODB_TABLE_NAME:valstats}
 
+valorant:
+  api-key: ${HDEV_KEY:}
+
+henrik-api:
+  secret-arn: ${HENRIK_API_SECRET_ARN:}

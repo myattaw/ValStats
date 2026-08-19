@@ -39,6 +39,10 @@
             <groupId>io.micronaut.serde</groupId>
             <artifactId>micronaut-serde-api</artifactId>
         </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sqs</artifactId>
+        </dependency>
     </dependencies>
 
     <parent>
@@ -53,17 +57,5 @@
         <micronaut.runtime>lambda</micronaut.runtime>
         <micronaut.aot.enabled>false</micronaut.aot.enabled>
     </properties>
-
-    <dependencyManagement>
-        <dependencies>
-            <dependency>
-                <groupId>software.amazon.awssdk</groupId>
-                <artifactId>bom</artifactId>
-                <version>2.20.28</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
 
 </project>

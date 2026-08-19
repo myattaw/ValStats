@@ -1,5 +1,6 @@
 package com.valstats.service.player;
 
+import io.micronaut.context.annotation.Value;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,7 +24,8 @@ public class PlayerCacheService {
     private static final String NAME_HISTORY_CHECKPOINT_PREFIX = "NAME_HISTORY_CHECKPOINT_V3#";
 
     private final DynamoDbClient ddb;
-    private final String tableName = "valstats";
+    @Value("${dynamodb.table-name:valstats}")
+    private String tableName = "valstats";
 
     public PlayerCacheService(DynamoDbClient ddb) {
         this.ddb = ddb;

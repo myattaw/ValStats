@@ -2,6 +2,8 @@ package com.valstats.controller;
 
 import com.valstats.service.ValorantService;
 import io.micronaut.http.annotation.*;
+import io.micronaut.http.HttpResponse;
+import io.micronaut.http.HttpStatus;
 import io.micronaut.scheduling.TaskExecutors;
 import io.micronaut.scheduling.annotation.ExecuteOn;
 
@@ -40,11 +42,14 @@ public class ValorantController {
     }
 
     @Post("/matches/{region}/{name}/{tag}/refresh")
-    public Map<String, Object> refreshMatches(
+    public HttpResponse<Map<String, Object>> refreshMatches(
             @PathVariable String region,
             @PathVariable String name,
             @PathVariable String tag) {
-        return valorantService.refreshMatches(region, name, tag);
+        Map<String, Object> response = valorantService.refreshMatches(region, name, tag);
+        return Integer.valueOf(202).equals(response.get("status"))
+                ? HttpResponse.<Map<String, Object>>status(HttpStatus.ACCEPTED).body(response)
+                : HttpResponse.ok(response);
     }
 
     @Get("/matches/{region}/{name}/{tag}/refresh-status")

@@ -11,10 +11,12 @@ import software.amazon.awscdk.services.dynamodb.BillingMode;
 import software.amazon.awscdk.services.dynamodb.ProjectionType;
 import software.amazon.awscdk.services.dynamodb.PointInTimeRecoverySpecification;
 import software.amazon.awscdk.services.dynamodb.Table;
+import software.amazon.awscdk.services.secretsmanager.Secret;
 import software.constructs.Construct;
 
 public final class ValStatsStatefulStack extends Stack {
     private final Table dataTable;
+    private final Secret henrikApiSecret;
 
     public ValStatsStatefulStack(
             Construct scope,
@@ -47,6 +49,11 @@ public final class ValStatsStatefulStack extends Stack {
                 .projectionType(ProjectionType.ALL)
                 .build());
 
+        henrikApiSecret = Secret.Builder.create(this, "HenrikApiSecret")
+                .secretName("valstats/" + environmentName + "/henrik-api-key")
+                .description("HenrikDev API key used by ValStats Lambda functions")
+                .build();
+
         CfnOutput.Builder.create(this, "DataTableName")
                 .value(dataTable.getTableName())
                 .exportName("ValStats-" + environmentName + "-DataTableName")
@@ -55,9 +62,17 @@ public final class ValStatsStatefulStack extends Stack {
                 .value(dataTable.getTableArn())
                 .exportName("ValStats-" + environmentName + "-DataTableArn")
                 .build();
+        CfnOutput.Builder.create(this, "HenrikApiSecretArn")
+                .value(henrikApiSecret.getSecretArn())
+                .exportName("ValStats-" + environmentName + "-HenrikApiSecretArn")
+                .build();
     }
 
     public Table getDataTable() {
         return dataTable;
+    }
+
+    public Secret getHenrikApiSecret() {
+        return henrikApiSecret;
     }
 }

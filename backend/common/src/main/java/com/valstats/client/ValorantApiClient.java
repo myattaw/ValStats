@@ -3,7 +3,6 @@ package com.valstats.client;
 import com.valstats.model.stored.StoredMatchesResponse;
 import io.micronaut.core.annotation.Nullable;
 import io.micronaut.http.annotation.Get;
-import io.micronaut.http.annotation.Header;
 import io.micronaut.http.annotation.PathVariable;
 import io.micronaut.http.annotation.QueryValue;
 import io.micronaut.http.client.annotation.Client;
@@ -11,7 +10,6 @@ import io.micronaut.http.client.annotation.Client;
 import java.util.Map;
 
 @Client("https://api.henrikdev.xyz")
-@Header(name = "Authorization", value = "${HDEV_KEY}")
 public interface ValorantApiClient {
 
     @Get("/valorant/v1/stored-matches/{region}/{name}/{tag}")

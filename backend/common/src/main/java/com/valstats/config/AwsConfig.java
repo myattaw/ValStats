@@ -3,6 +3,8 @@ package com.valstats.config;
 import io.micronaut.context.annotation.Factory;
 import jakarta.inject.Singleton;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import software.amazon.awssdk.services.sqs.SqsClient;
+import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
 
 @Factory
 public class AwsConfig {
@@ -14,6 +16,16 @@ public class AwsConfig {
     @Singleton
     DynamoDbClient dynamoDbClient() {
         return DynamoDbClient.builder().build();
+    }
+
+    @Singleton
+    SqsClient sqsClient() {
+        return SqsClient.builder().build();
+    }
+
+    @Singleton
+    SecretsManagerClient secretsManagerClient() {
+        return SecretsManagerClient.builder().build();
     }
 
 }

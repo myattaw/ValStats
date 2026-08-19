@@ -29,7 +29,11 @@ public final class ValStatsInfrastructureApp {
                 app,
                 "ValStats-" + environmentName + "-Application",
                 environmentName,
-                awsEnvironment
+                awsEnvironment,
+                stateful.getDataTable(),
+                stateful.getHenrikApiSecret(),
+                artifactPath(app, "apiArtifact", "../api-lambda/target/api-lambda-0.1.jar"),
+                artifactPath(app, "syncArtifact", "../match-sync-lambda/target/match-sync-lambda-0.1.jar")
         );
         application.addStackDependency(stateful);
 
@@ -43,5 +47,9 @@ public final class ValStatsInfrastructureApp {
     private static String contextValue(App app, String key, String defaultValue) {
         Object value = app.getNode().tryGetContext(key);
         return value == null || value.toString().isBlank() ? defaultValue : value.toString();
+    }
+
+    private static String artifactPath(App app, String key, String defaultValue) {
+        return contextValue(app, key, defaultValue);
     }
 }

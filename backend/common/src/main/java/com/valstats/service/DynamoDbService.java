@@ -1,6 +1,7 @@
 package com.valstats.service;
 
 import io.micronaut.context.event.StartupEvent;
+import io.micronaut.context.annotation.Value;
 import io.micronaut.runtime.event.annotation.EventListener;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
@@ -17,7 +18,8 @@ public class DynamoDbService {
     private static final Logger LOG = LoggerFactory.getLogger(DynamoDbService.class);
 
     private final DynamoDbClient dbClient;
-    private final String tableName = "valstats";
+    @Value("${dynamodb.table-name:valstats}")
+    private String tableName = "valstats";
 
     public DynamoDbService(DynamoDbClient dbClient) {
         this.dbClient = dbClient;

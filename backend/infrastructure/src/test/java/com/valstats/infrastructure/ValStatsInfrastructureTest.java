@@ -1,14 +1,19 @@
 package com.valstats.infrastructure;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import software.amazon.awscdk.App;
 import software.amazon.awscdk.Environment;
 import software.amazon.awscdk.assertions.Match;
 import software.amazon.awscdk.assertions.Template;
 
 import java.util.Map;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 class ValStatsInfrastructureTest {
+    @TempDir
+    Path temporaryDirectory;
     private static final Environment TEST_ENVIRONMENT = Environment.builder()
             .account("123456789012")
             .region("us-east-1")
@@ -34,13 +39,22 @@ class ValStatsInfrastructureTest {
     }
 
     @Test
-    void applicationStackDefinesTwoWorkerQueuesAndTwoDeadLetterQueues() {
+    void applicationStackDefinesQueuesLambdasAndHttpApi() throws Exception {
         App app = new App();
-        ValStatsApplicationStack stack = new ValStatsApplicationStack(app, "ApplicationTest", "test", TEST_ENVIRONMENT);
+        ValStatsStatefulStack stateful = new ValStatsStatefulStack(app, "StatefulDependency", "test", TEST_ENVIRONMENT);
+        Path apiArtifact = Files.createFile(temporaryDirectory.resolve("api.jar"));
+        Path syncArtifact = Files.createFile(temporaryDirectory.resolve("sync.jar"));
+        ValStatsApplicationStack stack = new ValStatsApplicationStack(
+                app, "ApplicationTest", "test", TEST_ENVIRONMENT,
+                stateful.getDataTable(), stateful.getHenrikApiSecret(),
+                apiArtifact.toString(), syncArtifact.toString());
         Template template = Template.fromStack(stack);
 
         template.resourceCountIs("AWS::SQS::Queue", 4);
         template.resourceCountIs("AWS::CloudWatch::Alarm", 4);
+        template.resourceCountIs("AWS::Lambda::Function", 2);
+        template.resourceCountIs("AWS::ApiGatewayV2::Api", 1);
+        template.resourceCountIs("AWS::Lambda::EventSourceMapping", 1);
         template.hasResourceProperties("AWS::SQS::Queue", Match.objectLike(Map.of(
                 "QueueName", "valstats-test-refresh",
                 "VisibilityTimeout", 300

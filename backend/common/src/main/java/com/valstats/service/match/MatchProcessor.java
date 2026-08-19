@@ -3,6 +3,7 @@ package com.valstats.service.match;
 import com.valstats.model.stored.StoredMatchesResponse;
 import com.valstats.service.player.PlayerNameRecorder;
 import com.valstats.service.SeasonNames;
+import io.micronaut.context.annotation.Value;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,7 +22,8 @@ public class MatchProcessor {
 
     private final DynamoDbClient ddb;
     private final List<PlayerNameRecorder> playerNameRecorders;
-    private final String tableName = "valstats";
+    @Value("${dynamodb.table-name:valstats}")
+    private String tableName = "valstats";
 
     public MatchProcessor(DynamoDbClient ddb, List<PlayerNameRecorder> playerNameRecorders) {
         this.ddb = ddb;

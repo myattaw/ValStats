@@ -2,8 +2,9 @@ package com.valstats.service;
 
 import com.valstats.client.ValorantApiClient;
 import com.valstats.client.HenrikApiRequestQueue;
-import com.valstats.config.ValorantApiConfig;
 import com.valstats.model.stored.StoredMatchesResponse;
+import com.valstats.model.queue.RefreshJob;
+import com.valstats.service.queue.RefreshQueuePublisher;
 import com.valstats.service.match.MatchDataService;
 import com.valstats.service.SeasonNames;
 import com.valstats.service.player.PlayerCacheService;
@@ -37,9 +38,9 @@ public class ValorantService {
     private final PlayerStatsService playerStatsService;
     private final PlayerCacheService playerCacheService;
     private final ValorantApiClient apiClient;
-    private final String apiKey;
     private final DynamoDbService dynamoDbService;
     private final HenrikApiRequestQueue apiRequestQueue;
+    private final RefreshQueuePublisher refreshQueuePublisher;
 
     private static final Map<String, String> SEASON_MAP = new LinkedHashMap<>();
     private static final Map<String, String> SEASON_TO_HENRIK = new HashMap<>();
@@ -104,16 +105,16 @@ public class ValorantService {
             PlayerCacheService playerCacheService,
             ValorantApiClient apiClient,
             DynamoDbService dynamoDbService,
-            ValorantApiConfig apiConfig,
-            HenrikApiRequestQueue apiRequestQueue
+            HenrikApiRequestQueue apiRequestQueue,
+            RefreshQueuePublisher refreshQueuePublisher
     ) {
         this.matchDataService = matchDataService;
         this.playerStatsService = playerStatsService;
         this.playerCacheService = playerCacheService;
         this.apiClient = apiClient;
-        this.apiKey = apiConfig.getApiKey();
         this.dynamoDbService = dynamoDbService;
         this.apiRequestQueue = apiRequestQueue;
+        this.refreshQueuePublisher = refreshQueuePublisher;
     }
 
     /**
@@ -153,8 +154,17 @@ public class ValorantService {
         if (!matchDataService.needsRefresh(puuid, region, name, tag)) {
             return Map.of("status", 200, "data", Map.of("updated", false, "refreshing", false));
         }
+        if (refreshQueuePublisher.isConfigured()) {
+            refreshQueuePublisher.enqueue(RefreshJob.matches(puuid, region, name, tag));
+            return Map.of("status", 202, "data", Map.of(
+                    "updated", false,
+                    "refreshing", true,
+                    "queued", true));
+        }
+
+        // Local development remains usable without SQS configuration.
         boolean updated = matchDataService.refreshPlayerMatches(puuid, region, name, tag);
-        return Map.of("status", 200, "data", Map.of("updated", updated));
+        return Map.of("status", 200, "data", Map.of("updated", updated, "queued", false));
     }
 
     public Map<String, Object> getMatchRefreshStatus(String region, String name, String tag) {

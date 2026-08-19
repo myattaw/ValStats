@@ -8,13 +8,19 @@ This repository contains the Java/Micronaut backend. The React/Vite frontend liv
 
 The cached API works locally, but the production serverless migration is not complete yet.
 
-- `api-lambda` currently runs as a Micronaut Netty application and still performs refresh work synchronously.
-- `match-sync-lambda` currently contains a hard-coded `LocalRunner`; it is not yet an SQS Lambda handler.
+- `api-lambda` can run locally with Netty and deploy behind API Gateway as a
+  Micronaut payload-v2 Lambda. In AWS, match refresh requests are sent to SQS.
+- `match-sync-lambda` contains the SQS Lambda handler used for queued match
+  refreshes. The old `LocalRunner` remains a local-only utility.
 - `HenrikApiRequestQueue` coordinates only one JVM. It cannot enforce a global Henrik API limit across scaled Lambda instances.
-- The Java CDK module now defines the DynamoDB and SQS foundation, but Lambda,
-  API Gateway, secrets, and deployment workflows are not wired yet.
+- The Java CDK module defines DynamoDB, SQS, Secrets Manager, both JVM Lambdas,
+  their least-privilege permissions, and an API Gateway HTTP API.
 
-Do not deploy the current `match-sync-lambda` as a scheduled production function. Complete the SQS worker milestone described below first.
+The deployed worker is queue-driven and its SQS event source is capped at two
+concurrent Lambda invocations. AWS does not permit an event-source maximum below
+two; request a higher account concurrency quota and add reserved concurrency if
+stricter account-level isolation becomes necessary. Name-history work is not
+connected to its low-priority queue yet.
 
 ## Target architecture
 
@@ -260,28 +266,18 @@ chosen because this workload is AWS-only and the backend already uses Java and
 Maven. CDK synthesizes CloudFormation, so infrastructure changes remain
 reproducible and reviewable without adding Terraform and HCL to this repository.
 
-The initial implementation contains two stacks:
+The implementation contains two stacks:
 
 - `ValStats-<environment>-Stateful` contains the protected, on-demand DynamoDB
   table and its `GSI1` index. It has termination protection, deletion protection,
-  point-in-time recovery, and a retain removal policy.
-- `ValStats-<environment>-Application` currently contains the refresh and
-  name-history SQS queues, their dead-letter queues, queue-age alarms, and DLQ
-  alarms.
+  point-in-time recovery, a retain removal policy, and the Henrik API secret.
+- `ValStats-<environment>-Application` contains the API and sync Lambdas, HTTP
+  API Gateway, refresh and name-history queues, dead-letter queues, log groups,
+  queue alarms, IAM grants, and the refresh-queue event source.
 
-The application stack will eventually also manage:
-
-- API Gateway HTTP API, routes, CORS, throttling and custom API domain
-- API Lambda and sync Lambda
-- Lambda event-source mappings and concurrency limits
-- IAM roles following least privilege
-- CloudWatch log retention and budgets
-- Secrets Manager reference for `HDEV_KEY`
-
-The Lambdas are deliberately not in the stack yet. The API artifact still uses
-the local Netty runtime, and `match-sync-lambda` does not yet expose an SQS event
-handler. Adding those resources now would produce a stack that deploys but does
-not work.
+The API and worker currently use the managed Java 21 Lambda runtime. GraalVM
+native packaging remains a later optimization and should be selected only after
+measuring the JVM deployment.
 
 Cloudflare Pages can initially use its Git integration. Keep Cloudflare outside
 CDK unless managing DNS and Pages configuration as code provides enough value to
@@ -300,14 +296,30 @@ cdk bootstrap aws://<account-id>/us-east-1
 Synthesize and review the development environment from `infrastructure/`:
 
 ```powershell
+cd ..
+.\mvnw.bat package -DskipTests
+cd infrastructure
 cdk synth -c environment=dev -c region=us-east-1
 cdk diff -c environment=dev -c region=us-east-1
 ```
 
-Deploy the two stacks only after reviewing the diff:
+Deploy the updated stateful stack first, then store the Henrik key without
+putting its value in source control or CDK context:
 
 ```powershell
-cdk deploy --all -c environment=dev -c region=us-east-1
+cdk deploy ValStats-dev-Stateful -c environment=dev -c region=us-east-1
+$env:HDEV_KEY = "your-henrik-key"
+aws secretsmanager put-secret-value `
+  --secret-id valstats/dev/henrik-api-key `
+  --secret-string $env:HDEV_KEY `
+  --region us-east-1
+Remove-Item Env:HDEV_KEY
+```
+
+Then deploy the application stack:
+
+```powershell
+cdk deploy ValStats-dev-Application -c environment=dev -c region=us-east-1
 ```
 
 Use distinct AWS accounts where possible. At minimum, use distinct CDK context

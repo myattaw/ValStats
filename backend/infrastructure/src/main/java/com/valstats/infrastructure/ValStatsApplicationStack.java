@@ -124,7 +124,10 @@ public final class ValStatsApplicationStack extends Stack {
                 .corsConfiguration(CfnApi.CorsProperty.builder()
                         .allowHeaders(List.of("content-type"))
                         .allowMethods(List.of("GET", "POST", "OPTIONS"))
-                        .allowOrigins(List.of("http://localhost:5173", "http://localhost:3000"))
+                        .allowOrigins(List.of(
+                                "http://localhost:5173",
+                                "http://localhost:3000",
+                                "https://valstats.m8z4m892gf.workers.dev"))
                         .maxAge(86400)
                         .build())
                 .build();

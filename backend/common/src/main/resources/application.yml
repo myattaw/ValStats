@@ -7,8 +7,9 @@ micronaut:
       configurations:
         allowed:
           allowed-origins:
-            - "http://localhost:3000" # Replace with your frontend URL
+            - "http://localhost:3000"
             - "http://localhost:5173"
+            - "https://valstats.m8z4m892gf.workers.dev"
           allowed-methods:
             - GET
             - POST

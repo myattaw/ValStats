@@ -6,6 +6,7 @@ import jakarta.inject.Singleton;
 
 @Singleton
 public class RefreshJobProcessor {
+
     private final MatchDataService matchDataService;
 
     public RefreshJobProcessor(MatchDataService matchDataService) {
@@ -23,4 +24,5 @@ public class RefreshJobProcessor {
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
     }
+
 }

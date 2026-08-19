@@ -12,6 +12,7 @@
         <module>common</module>
         <module>api-lambda</module>
         <module>match-sync-lambda</module>
+        <module>infrastructure</module>
     </modules>
     <dependencies>
         <dependency>

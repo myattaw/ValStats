@@ -11,7 +11,8 @@ The cached API works locally, but the production serverless migration is not com
 - `api-lambda` currently runs as a Micronaut Netty application and still performs refresh work synchronously.
 - `match-sync-lambda` currently contains a hard-coded `LocalRunner`; it is not yet an SQS Lambda handler.
 - `HenrikApiRequestQueue` coordinates only one JVM. It cannot enforce a global Henrik API limit across scaled Lambda instances.
-- Terraform and deployment workflows have not been added yet.
+- The Java CDK module now defines the DynamoDB and SQS foundation, but Lambda,
+  API Gateway, secrets, and deployment workflows are not wired yet.
 
 Do not deploy the current `match-sync-lambda` as a scheduled production function. Complete the SQS worker milestone described below first.
 
@@ -73,6 +74,7 @@ backend/
   common/              Shared clients, models, DynamoDB and match processing
   api-lambda/          HTTP controllers and cached profile API
   match-sync-lambda/   Future SQS-driven synchronization worker
+  infrastructure/      AWS CDK app, stacks and infrastructure tests
   pom.xml              Maven reactor build
 frontend/
   src/                 React application
@@ -84,7 +86,8 @@ frontend/
 
 - JDK 21
 - Maven, or the included Maven wrapper
-- Node.js 20 or newer
+- Node.js 22 or newer (required by the AWS CDK CLI)
+- AWS CDK CLI 2.x for infrastructure synthesis and deployment
 - AWS credentials with access to a development DynamoDB table
 - A HenrikDev API key
 
@@ -107,7 +110,7 @@ Backend configuration defaults are in `common/src/main/resources/application.yml
 From `backend`:
 
 ```powershell
-.\mvnw.cmd test
+.\mvnw.bat test
 ```
 
 ### Run the API locally
@@ -115,7 +118,7 @@ From `backend`:
 From `backend`:
 
 ```powershell
-.\mvnw.cmd -pl api-lambda -am mn:run
+.\mvnw.bat -pl api-lambda -am mn:run
 ```
 
 The API is available at:
@@ -250,35 +253,66 @@ Add CloudWatch Embedded Metric Format metrics for:
 
 These measurements allow cost per cached load and cost per refresh to be calculated from real traffic.
 
-## Terraform recommendation
+## AWS CDK infrastructure
 
-Use Terraform before the first production deployment. Infrastructure should be reproducible and reviewed instead of configured manually in AWS consoles.
+Infrastructure is defined in Java in the `infrastructure` Maven module. CDK was
+chosen because this workload is AWS-only and the backend already uses Java and
+Maven. CDK synthesizes CloudFormation, so infrastructure changes remain
+reproducible and reviewable without adding Terraform and HCL to this repository.
 
-Suggested layout:
+The initial implementation contains two stacks:
 
-```text
-infra/
-  modules/
-    api/
-    dynamodb/
-    refresh-worker/
-  environments/
-    dev/
-    prod/
-```
+- `ValStats-<environment>-Stateful` contains the protected, on-demand DynamoDB
+  table and its `GSI1` index. It has termination protection, deletion protection,
+  point-in-time recovery, and a retain removal policy.
+- `ValStats-<environment>-Application` currently contains the refresh and
+  name-history SQS queues, their dead-letter queues, queue-age alarms, and DLQ
+  alarms.
 
-Terraform should manage:
+The application stack will eventually also manage:
 
 - API Gateway HTTP API, routes, CORS, throttling and custom API domain
 - API Lambda and sync Lambda
-- DynamoDB on-demand table, GSI, TTL and point-in-time recovery policy
-- Normal refresh queue, low-priority name-history queue and dead-letter queues
 - Lambda event-source mappings and concurrency limits
 - IAM roles following least privilege
-- CloudWatch log retention, alarms and budgets
+- CloudWatch log retention and budgets
 - Secrets Manager reference for `HDEV_KEY`
 
-Cloudflare Pages can initially use its Git integration. Add the Cloudflare provider to Terraform only if managing DNS and Pages configuration as code provides enough value to justify storing and rotating a Cloudflare API token.
+The Lambdas are deliberately not in the stack yet. The API artifact still uses
+the local Netty runtime, and `match-sync-lambda` does not yet expose an SQS event
+handler. Adding those resources now would produce a stack that deploys but does
+not work.
+
+Cloudflare Pages can initially use its Git integration. Keep Cloudflare outside
+CDK unless managing DNS and Pages configuration as code provides enough value to
+justify an additional provider or deployment tool.
+
+### CDK commands
+
+Install a compatible CDK CLI, then bootstrap each AWS account and region once:
+
+```powershell
+npm install --global aws-cdk
+cd infrastructure
+cdk bootstrap aws://<account-id>/us-east-1
+```
+
+Synthesize and review the development environment from `infrastructure/`:
+
+```powershell
+cdk synth -c environment=dev -c region=us-east-1
+cdk diff -c environment=dev -c region=us-east-1
+```
+
+Deploy the two stacks only after reviewing the diff:
+
+```powershell
+cdk deploy --all -c environment=dev -c region=us-east-1
+```
+
+Use distinct AWS accounts where possible. At minimum, use distinct CDK context
+values and stack names for development and production. Never commit credentials,
+CDK output, API keys, or generated native binaries.
 
 Use separate Terraform state and AWS accounts for development and production. Never place Terraform state, API keys, or generated native binaries in Git.
 
@@ -290,15 +324,15 @@ Use separate validation and deployment workflows:
 
 1. Build and test the Maven reactor on JDK 21.
 2. Run frontend type checking/build.
-3. Validate formatting and Terraform.
-4. Produce a Terraform plan for review, without applying it.
+3. Run the infrastructure unit tests and `cdk synth`.
+4. Produce a CloudFormation change set or `cdk diff` for review, without deploying it.
 
 ### Main branch
 
 1. Repeat all tests.
 2. Build GraalVM native artifacts on Linux.
 3. Upload versioned artifacts.
-4. Run `terraform apply` only from a protected GitHub environment.
+4. Run `cdk deploy` only from a protected GitHub environment.
 5. Deploy the Cloudflare Pages frontend after the API URL is known.
 6. Run health and cached-read smoke tests.
 
@@ -311,10 +345,10 @@ Authenticate GitHub Actions to AWS using OpenID Connect. Do not store long-lived
 3. Replace the hard-coded sync runner with the SQS handler and dead-letter behavior.
 4. Remove the legacy DynamoDB scan fallback after migrating old rows.
 5. Convert both Lambda modules to GraalVM native custom runtimes.
-6. Add Terraform for a development environment.
+6. Finish the CDK application stack for a development environment.
 7. Add pull-request CI and AWS OIDC deployment workflows.
 8. Deploy development, collect metrics, and revise the cost model.
-9. Add the production Terraform environment and Cloudflare domain.
+9. Add the production CDK deployment and Cloudflare domain.
 
 ## API routes
 

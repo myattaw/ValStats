@@ -8,6 +8,7 @@ import com.valstats.model.queue.RefreshJob;
 import io.micronaut.context.ApplicationContext;
 
 public final class RefreshQueueHandler implements RequestHandler<SQSEvent, Void>, AutoCloseable {
+
     private final ApplicationContext applicationContext;
     private final ObjectMapper objectMapper;
     private final RefreshJobProcessor processor;

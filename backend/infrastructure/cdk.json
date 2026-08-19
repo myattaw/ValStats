@@ -1,0 +1,9 @@
+{
+  "app": "mvn -q -DskipTests compile exec:exec",
+  "context": {
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/core:checkSecretUsage": true,
+    "@aws-cdk/core:defaultCrossStackReferences": "strong",
+    "@aws-cdk/core:target-partitions": ["aws"]
+  }
+}

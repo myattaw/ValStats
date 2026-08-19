@@ -1,0 +1,49 @@
+package com.valstats.service.queue;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.valstats.model.queue.RefreshJob;
+import io.micronaut.context.annotation.Value;
+import jakarta.inject.Singleton;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import software.amazon.awssdk.services.sqs.SqsClient;
+import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
+
+@Singleton
+public class RefreshQueuePublisher {
+
+    private static final Logger LOG = LoggerFactory.getLogger(RefreshQueuePublisher.class);
+
+    private final SqsClient sqsClient;
+    private final ObjectMapper objectMapper;
+    private final String queueUrl;
+
+    public RefreshQueuePublisher(
+            SqsClient sqsClient,
+            @Value("${refresh.queue-url:}") String queueUrl
+    ) {
+        this.sqsClient = sqsClient;
+        this.objectMapper = new ObjectMapper();
+        this.queueUrl = queueUrl;
+    }
+
+    public boolean isConfigured() {
+        return queueUrl != null && !queueUrl.isBlank();
+    }
+
+    public void enqueue(RefreshJob job) {
+        if (!isConfigured()) {
+            throw new IllegalStateException("refresh.queue-url is not configured");
+        }
+        try {
+            sqsClient.sendMessage(SendMessageRequest.builder()
+                    .queueUrl(queueUrl)
+                    .messageBody(objectMapper.writeValueAsString(job))
+                    .build());
+            LOG.info("Queued match refresh for {}#{}", job.name(), job.tag());
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("Unable to serialize refresh job", e);
+        }
+    }
+}

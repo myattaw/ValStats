@@ -1,349 +1,333 @@
-import {useEffect, useState} from "react";
-import {ChevronDown, Clock, Loader2, TrendingDown, TrendingUp} from "lucide-react";
-import {Collapsible, CollapsibleContent, CollapsibleTrigger} from "./ui/collapsible";
-import {Match} from './Match/types/matchTypes';
+import { useCallback, useEffect, useState } from "react";
+import { ChevronDown, ChevronsDown, Clock, Loader2, MapPin, TrendingDown, TrendingUp } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
+import { Match } from "./Match/types/matchTypes";
 import {
     API_BASE_URL,
-    buildMmrMap,
     calculateADR,
-    DETAILED_MATCHES_SIZE,
     fetchMatchDetails,
-    fetchMoreMatches,
-    INITIAL_MATCHES_SIZE,
-    processRecentMatches,
-    processStoredMatches
-} from './Match/utils/matchUtils';
+    INITIAL_MATCHES_SIZE
+} from "./Match/utils/matchUtils";
+import { MatchDetailsPanel, MatchSkeleton } from "./Match/MatchComponents";
 
-import {MatchSkeleton, TeamDisplay} from './Match/MatchComponents';
+type LastKey = Record<string, string | number> | null;
+
+function normalizeMatch(raw: Match & Record<string, any>): Match {
+    const suppliedAdr = raw.adr ?? raw.ADR ?? raw.average_damage_per_round ?? raw.averageDamagePerRound ?? raw.stats?.adr;
+    const numericAdr = Number(suppliedAdr);
+    const damage = Number(raw.damage_made ?? raw.damageMade ?? raw.stats?.damage_made ?? raw.stats?.damageMade);
+    const rounds = Number(raw.rounds_played ?? raw.roundsPlayed);
+    const adr = Number.isFinite(numericAdr) && numericAdr > 0
+        ? Math.round(numericAdr)
+        : Number.isFinite(damage) && damage > 0 && rounds > 0
+            ? Math.round(damage / rounds)
+            : 0;
+
+    const server = raw.server ?? raw.cluster ?? raw.meta?.cluster;
+
+    return {...raw, adr, server};
+}
+
+function formatMatchDate(dateRaw: number, timestamp?: string) {
+    const numericDate = Number(dateRaw);
+    const date = Number.isFinite(numericDate) && numericDate > 0
+        ? new Date(numericDate > 10_000_000_000 ? numericDate : numericDate * 1000)
+        : timestamp
+            ? new Date(timestamp)
+            : null;
+
+    if (!date || Number.isNaN(date.getTime())) return "Unknown date";
+
+    return new Intl.DateTimeFormat(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit"
+    }).format(date);
+}
 
 export function MatchHistory({
-    puuid,
-    playerName,
-    playerTag
-}: {
+                                 puuid,
+                                 playerName,
+                                 playerTag,
+                                 selectedAct,
+                                 selectedMode,
+                                 onRefreshingChange,
+                                 onRefreshComplete
+                             }: {
     puuid?: string | null;
     playerName: string;
     playerTag: string;
+    selectedAct: string;
+    selectedMode: string;
+    onRefreshingChange?: (refreshing: boolean) => void;
+    onRefreshComplete?: () => void;
 }) {
     const [expandedMatch, setExpandedMatch] = useState<string | null>(null);
     const [loadingMatchId, setLoadingMatchId] = useState<string | null>(null);
     const [loadingMore, setLoadingMore] = useState(false);
     const [isInitialLoading, setIsInitialLoading] = useState(true);
+    const [isBackgroundRefreshing, setIsBackgroundRefreshing] = useState(false);
     const [matches, setMatches] = useState<Match[]>([]);
     const [hoveredMatch, setHoveredMatch] = useState<string | null>(null);
-    const [page, setPage] = useState(1);
+    const [lastKey, setLastKey] = useState<LastKey>(null);
+    const [hasMore, setHasMore] = useState(true);
 
-    // Fetch initial match data
-    useEffect(() => {
-        setPage(1); // Reset page on puuid / player change
-        fetchInitialMatches();
-    }, [puuid, playerName, playerTag]); // <- run when player changes
+    const isSeasonMode = selectedAct !== "all";
 
-    // Helper functions
-    const fetchInitialMatches = async () => {
-        setIsInitialLoading(true);
-        setPage(1); // ensure page state reset
+    const buildMatchesUrl = useCallback(
+        (cursor?: LastKey) => {
+            const params = new URLSearchParams({
+                size: String(INITIAL_MATCHES_SIZE),
+                act: selectedAct,
+                mode: selectedMode
+            });
+
+            if (cursor) {
+                params.set("lastKey", encodeURIComponent(JSON.stringify(cursor)));
+            }
+
+            return `${API_BASE_URL}/matches/na/${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}?${params.toString()}`;
+        },
+        [playerName, playerTag, selectedAct, selectedMode]
+    );
+
+    const fetchInitialMatches = useCallback(async (showLoading = true) => {
+        if (showLoading) setIsInitialLoading(true);
 
         try {
-            // Build endpoint segment from playerName/playerTag; fallback to previous segment
-            const hasNameTag = !!(playerName && playerTag);
-            const nameSeg = hasNameTag
-                ? `${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}`
-                : 'rages/alt';
+            const res = await fetch(buildMatchesUrl());
 
-            // Fetch each resource separately so a single failing endpoint doesn't abort everything
-            let recentJson: any = { data: [] };
-            let storedJson: any = { data: [] };
-            let mmrJson: any = { data: [] };
-
-            try {
-                const recentRes = await fetch(`${API_BASE_URL}/recent-matches/na/${nameSeg}?size=${DETAILED_MATCHES_SIZE}`);
-                if (recentRes.ok) recentJson = await recentRes.json();
-                else console.warn('recent-matches fetch returned non-ok status', recentRes.status);
-            } catch (err) {
-                console.warn('recent-matches fetch failed', err);
+            if (!res.ok) {
+                console.error("Failed to fetch matches:", res.status);
+                if (showLoading) {
+                    setMatches([]);
+                    setLastKey(null);
+                    setHasMore(false);
+                }
+                return;
             }
 
-            try {
-                const storedRes = await fetch(`${API_BASE_URL}/stored-matches/na/${nameSeg}?size=${INITIAL_MATCHES_SIZE}`);
-                if (storedRes.ok) storedJson = await storedRes.json();
-                else console.warn('stored-matches fetch returned non-ok status', storedRes.status);
-            } catch (err) {
-                console.warn('stored-matches fetch failed', err);
+            const json = await res.json();
+            const data: Match[] = Array.isArray(json?.data) ? json.data.map(normalizeMatch) : [];
+
+            data.sort((a: Match, b: Match) => b.date_raw - a.date_raw);
+
+            if (showLoading || data.length > 0) {
+                setMatches(data);
+                // Season mode is still not cursor-paginated on the backend, so don't show load-more there.
+                setLastKey(json?.lastKey ?? null);
+                setHasMore(!!json?.lastKey);
             }
 
-            try {
-                const mmrRes = await fetch(`${API_BASE_URL}/mmr-history/na/${nameSeg}`);
-                if (mmrRes.ok) mmrJson = await mmrRes.json();
-                else console.warn('mmr-history fetch returned non-ok status', mmrRes.status);
-            } catch (err) {
-                console.warn('mmr-history fetch failed', err);
-            }
-
-            // Build MMR map (will be empty if mmrJson missing)
-            const mmrMap = buildMmrMap(mmrJson?.data || []);
-
-            // Process matches (pass puuid for correct player selection)
-            const recentMatches = processRecentMatches(recentJson?.data || [], mmrMap, mmrJson, puuid);
-            const detailedMatchIds = new Set(recentMatches.map(m => m.id));
-            const storedMatches = processStoredMatches(
-                storedJson?.data || [],
-                mmrMap,
-                detailedMatchIds
-            );
-
-            // Combine and sort matches
-            const allMatches = [...recentMatches, ...storedMatches];
-            allMatches.sort((a, b) => b.date_raw - a.date_raw);
-
-            setMatches(allMatches);
         } catch (e) {
             console.error("Error fetching matches:", e);
-            // keep fallback (empty) instead of clearing UI aggressively
-            setMatches([]);
-        } finally {
-            setIsInitialLoading(false);
-        }
-    };
-
-    // Handle match click
-    const handleMatchClick = async (matchId: string) => {
-        // Always show loading spinner while fetching
-        setLoadingMatchId(matchId);
-        setExpandedMatch(matchId);
-
-        try {
-            const playerStats = await fetchMatchDetails(matchId);
-
-            setMatches(prev =>
-                prev.map(m =>
-                    m.id === matchId
-                        ? {...m, players: playerStats, hasDetails: true}
-                        : m
-                )
-            );
-            // expandedMatch stays open
-        } catch (error) {
-            // On error, keep spinner visible and expanded
-            // Optionally, you could add a timeout or retry logic here
-            console.error("Failed to load match details:", error);
-        } finally {
-            setLoadingMatchId(null);
-        }
-    };
-
-    // Calculate ADR for a player
-    const calculateADRForMatch = (match: Match): number => {
-        return calculateADR(match, puuid);
-    };
-
-    // Render match teams
-    const renderMatchTeams = (match: Match) => {
-        if (!match.players) return null;
-
-        const allPlayers = match.players;
-        const teams = match.teams;
-
-        let topTeamName = "blue";
-        let bottomTeamName = "red";
-
-        if (teams) {
-            if (match.result === "Victory") {
-                topTeamName = teams.blue.has_won ? "blue" : "red";
-                bottomTeamName = teams.blue.has_won ? "red" : "blue";
-            } else {
-                topTeamName = teams.blue.has_won ? "red" : "blue";
-                bottomTeamName = teams.blue.has_won ? "blue" : "red";
+            if (showLoading) {
+                setMatches([]);
+                setLastKey(null);
+                setHasMore(false);
             }
+        } finally {
+            if (showLoading) setIsInitialLoading(false);
         }
+    }, [buildMatchesUrl, isSeasonMode]);
 
-        const topTeamPlayers = allPlayers
-            .filter(p => p.team?.toLowerCase() === topTeamName)
-            .sort((a, b) => b.score - a.score);
+    const refreshMatches = useCallback(async () => {
+        setIsBackgroundRefreshing(true);
+        try {
+            const baseUrl = `${API_BASE_URL}/matches/na/${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}`;
+            const statusResponse = await fetch(`${baseUrl}/refresh-status`);
+            if (!statusResponse.ok) return;
+            const statusPayload = await statusResponse.json();
+            if (statusPayload?.data?.refreshRequired !== true) return;
 
-        const bottomTeamPlayers = allPlayers
-            .filter(p => p.team?.toLowerCase() === bottomTeamName)
-            .sort((a, b) => b.score - a.score);
+            onRefreshingChange?.(true);
+            const poll = window.setInterval(() => void fetchInitialMatches(false), 2500);
+            try {
+                await fetch(`${baseUrl}/refresh`, { method: "POST" });
+            } finally {
+                window.clearInterval(poll);
+                await fetchInitialMatches(false);
+                onRefreshComplete?.();
+            }
+        } catch (error) {
+            console.error("Background match refresh failed", error);
+        } finally {
+            setIsBackgroundRefreshing(false);
+            onRefreshingChange?.(false);
+        }
+    }, [playerName, playerTag, fetchInitialMatches, onRefreshingChange, onRefreshComplete]);
 
-        const topLabel = (teams && teams[topTeamName]?.has_won) ? "Victory" : "Defeat";
-        const bottomLabel = (teams && teams[bottomTeamName]?.has_won) ? "Victory" : "Defeat";
+    useEffect(() => {
+        setMatches([]);
+        setExpandedMatch(null);
+        setLoadingMatchId(null);
+        setLoadingMore(false);
+        setLastKey(null);
+        setHasMore(true);
+        void fetchInitialMatches().then(refreshMatches);
+        return () => onRefreshingChange?.(false);
+    }, [playerName, playerTag, selectedAct, selectedMode, fetchInitialMatches, refreshMatches, onRefreshingChange]);
 
-        return (
-            <>
-                <TeamDisplay
-                    label={topLabel === "Victory" ? "Winning Team (Victory)" : "Losing Team (Defeat)"}
-                    players={topTeamPlayers}
-                    isVictory={topLabel === "Victory"}
-                    rounds_played={match.rounds_played}
-                    isBottom={false}
-                />
-                <TeamDisplay
-                    label={bottomLabel === "Victory" ? "Winning Team (Victory)" : "Losing Team (Defeat)"}
-                    players={bottomTeamPlayers}
-                    isVictory={bottomLabel === "Victory"}
-                    rounds_played={match.rounds_played}
-                    isBottom={true}
-                />
-            </>
-        );
-    };
-
-    // Fallback rank names for tiers 0 (Unranked), 3-27 (Iron 1 to Radiant)
     const RANK_NAMES = [
-        "Unranked", // 0
-        "", "", // 1, 2 (unused)
-        "Iron 1", "Iron 2", "Iron 3", // 3-5
-        "Bronze 1", "Bronze 2", "Bronze 3", // 6-8
-        "Silver 1", "Silver 2", "Silver 3", // 9-11
-        "Gold 1", "Gold 2", "Gold 3", // 12-14
-        "Platinum 1", "Platinum 2", "Platinum 3", // 15-17
-        "Diamond 1", "Diamond 2", "Diamond 3", // 18-20
-        "Ascendant 1", "Ascendant 2", "Ascendant 3", // 21-23
-        "Immortal 1", "Immortal 2", "Immortal 3", // 24-26
-        "Radiant" // 27
+        "Unranked",
+        "",
+        "",
+        "Iron 1", "Iron 2", "Iron 3",
+        "Bronze 1", "Bronze 2", "Bronze 3",
+        "Silver 1", "Silver 2", "Silver 3",
+        "Gold 1", "Gold 2", "Gold 3",
+        "Platinum 1", "Platinum 2", "Platinum 3",
+        "Diamond 1", "Diamond 2", "Diamond 3",
+        "Ascendant 1", "Ascendant 2", "Ascendant 3",
+        "Immortal 1", "Immortal 2", "Immortal 3",
+        "Radiant"
     ];
 
-    // Helper to get fallback rank name
     const getRankName = (match: Match) => {
         if (match.rank && match.rank.trim() !== "") return match.rank;
+
         const idx = match.ranking_in_tier;
         if (typeof idx === "number" && idx >= 0 && idx < RANK_NAMES.length) {
             return RANK_NAMES[idx];
         }
+
         return "Unranked";
     };
 
-    // Handle loading more matches
     const handleLoadMore = async () => {
+        if (!lastKey || loadingMore) return;
+
         setLoadingMore(true);
+
         try {
-            const nextPage = page + 1;
-            // Pass playerName and playerTag to fetchMoreMatches
-            const newMatches = await fetchMoreMatches(nextPage, playerName, playerTag);
-            setMatches(prev => {
-                const existingIds = new Set(prev.map(m => m.id));
-                const uniqueNewMatches = newMatches.filter(m => !existingIds.has(m.id));
-                const combined = [...prev, ...uniqueNewMatches];
+            const res = await fetch(buildMatchesUrl(lastKey));
+
+            if (!res.ok) {
+                console.error("Failed to load more matches:", res.status);
+                return;
+            }
+
+            const json = await res.json();
+            const newMatches: Match[] = Array.isArray(json?.data) ? json.data.map(normalizeMatch) : [];
+
+            setMatches((prev) => {
+                const existingIds = new Set(prev.map((m) => m.id));
+                const unique = newMatches.filter((m: Match) => !existingIds.has(m.id));
+                const combined = [...prev, ...unique];
                 combined.sort((a, b) => b.date_raw - a.date_raw);
                 return combined;
             });
-            setPage(nextPage);
-        } catch (error) {
-            console.error("Failed to load more matches:", error);
+
+            setLastKey(json?.lastKey ?? null);
+            setHasMore(!!json?.lastKey);
+        } catch (err) {
+            console.error("Failed to load more matches:", err);
         } finally {
             setLoadingMore(false);
         }
     };
+
+    const handleExpand = async (match: Match, isExpanded: boolean) => {
+        if (loadingMatchId === match.id) return;
+
+        if (!match.details) {
+            setLoadingMatchId(match.id);
+            setExpandedMatch(match.id);
+
+            try {
+                const details = await fetchMatchDetails(match.id);
+                setMatches((prev) =>
+                    prev.map((m) =>
+                        m.id === match.id
+                            ? { ...m, players: details.players, details, hasDetails: true }
+                            : m
+                    )
+                );
+            } catch (error) {
+                console.error("Failed to load match details:", error);
+            } finally {
+                setLoadingMatchId(null);
+            }
+        } else {
+            setExpandedMatch(isExpanded ? null : match.id);
+        }
+    };
+
+    const canShowLoadMore = !isInitialLoading && hasMore;
 
     return (
         <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-lg overflow-hidden">
             <div className="border-b border-[#1a1a1a] p-6">
                 <h3 className="text-white">Match History</h3>
             </div>
+
             <div className="p-6 space-y-4">
-                {isInitialLoading ? (
-                    Array.from({length: 5}).map((_, idx) => (
-                        <MatchSkeleton key={idx}/>
-                    ))
+                {isInitialLoading || (isBackgroundRefreshing && matches.length === 0) ? (
+                    Array.from({ length: 5 }).map((_, idx) => <MatchSkeleton key={idx} />)
                 ) : (
                     <>
                         {matches.map((match) => {
+                            const detailAdr = calculateADR(match, puuid ?? undefined);
+                            const displayedAdr = match.adr && match.adr > 0 ? Math.round(match.adr) : detailAdr;
                             const matchBgStyle = match.mapId
                                 ? {
                                     backgroundImage: `url(https://media.valorant-api.com/maps/${match.mapId}/splash.png)`,
                                     backgroundPosition: "center",
                                     backgroundSize: "cover",
-                                    backfaceVisibility: 'hidden' as const
+                                    backfaceVisibility: "hidden" as const
                                 }
                                 : undefined;
 
                             const isExpanded = expandedMatch === match.id;
                             const isVictory = match.result === "Victory";
                             const borderColor = isVictory ? "border-[#4ade80]" : "border-[#f87171]";
-
                             const overlayColor = isVictory
                                 ? "rgba(74, 222, 128, 0.1)"
                                 : "rgba(248, 113, 113, 0.1)";
-
                             const hoverOverlayColor = isVictory
                                 ? "rgba(74, 222, 128, 0.15)"
                                 : "rgba(248, 113, 113, 0.15)";
-
                             const resultBadgeColor = isVictory
                                 ? "bg-[#4ade80]/20 text-[#4ade80]"
                                 : "bg-[#f87171]/20 text-[#f87171]";
-
                             const rrChangeColor = match.rrChange > 0 ? "text-[#4ade80]" : "text-[#f87171]";
-
-                            // Only fetch details if not loaded yet
-                            const handleExpand = async () => {
-                                // If already loading, do nothing
-                                if (loadingMatchId === match.id) return;
-
-                                // Fetch details if players are missing or only 1 player is present
-                                if (!match.players || match.players.length <= 1) {
-                                    setLoadingMatchId(match.id);
-                                    setExpandedMatch(match.id);
-                                    try {
-                                        const playerStats = await fetchMatchDetails(match.id);
-                                        setMatches(prev =>
-                                            prev.map(m =>
-                                                m.id === match.id
-                                                    ? {...m, players: playerStats, hasDetails: true}
-                                                    : m
-                                            )
-                                        );
-                                    } catch (error) {
-                                        console.error("Failed to load match details:", error);
-                                    } finally {
-                                        setLoadingMatchId(null);
-                                    }
-                                } else {
-                                    setExpandedMatch(isExpanded ? null : match.id);
-                                }
-                            };
 
                             return (
                                 <Collapsible
                                     key={match.id}
-                                    open={isExpanded && !!match.players}
-                                    onOpenChange={handleExpand}
+                                    open={isExpanded && !!match.details}
+                                    onOpenChange={() => handleExpand(match, isExpanded)}
                                 >
                                     <div>
                                         <CollapsibleTrigger
                                             className={`w-full text-left p-0 transition-colors relative overflow-hidden ${
-                                                isExpanded && match.players
+                                                isExpanded && match.details
                                                     ? "rounded-t-lg border-t border-l border-r !border-b-0"
                                                     : "rounded-lg border"
                                             } ${borderColor}`}
-                                            style={{padding: 0}}
+                                            style={{ padding: 0 }}
                                             onMouseEnter={() => setHoveredMatch(match.id)}
                                             onMouseLeave={() => setHoveredMatch(null)}
                                         >
-                                            <div
-                                                className="relative p-5"
-                                                style={matchBgStyle}
-                                            >
-                                                {/* Background overlays */}
-                                                <div className="absolute inset-0 bg-black/75 z-0 pointer-events-none"/>
+                                            <div className="relative p-5" style={matchBgStyle}>
+                                                <div className="absolute inset-0 bg-black/75 z-0 pointer-events-none" />
                                                 <div
                                                     className="absolute inset-0 z-10 pointer-events-none"
-                                                    style={{backgroundColor: overlayColor}}
+                                                    style={{ backgroundColor: overlayColor }}
                                                 />
                                                 <div
                                                     className="absolute inset-0 z-20 transition-opacity duration-200"
                                                     style={{
                                                         backgroundColor: hoverOverlayColor,
-                                                        opacity: hoveredMatch === match.id ? 1 : 0,
+                                                        opacity: hoveredMatch === match.id ? 1 : 0
                                                     }}
                                                 />
 
-                                                {/* Match content */}
                                                 <div className="flex items-center justify-between relative z-30">
                                                     <div className="flex items-center gap-4">
-                                                        {/* Agent icon */}
-                                                        <div
-                                                            className="w-16 h-16 bg-black/30 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
+                                                        <div className="w-16 h-16 bg-black/30 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
                                                             {match.agentIcon ? (
                                                                 <img
                                                                     src={match.agentIcon}
@@ -352,27 +336,23 @@ export function MatchHistory({
                                                                 />
                                                             ) : (
                                                                 <span className="text-sm">
-                                  {match.agent && match.agent[0]}
-                                </span>
+                                                                    {match.agent && match.agent[0]}
+                                                                </span>
                                                             )}
                                                         </div>
 
-                                                        {/* Match details */}
                                                         <div>
                                                             <div className="flex items-center gap-3 mb-2">
                                                                 <span className="text-white">{match.map}</span>
-                                                                <span
-                                                                    className={`px-3 py-1 rounded ${resultBadgeColor}`}>
+                                                                <span className={`px-3 py-1 rounded ${resultBadgeColor}`}>
                                                                     {match.result}
                                                                 </span>
-                                                                <span
-                                                                    className="text-gray-400 px-2 py-1 rounded bg-black/30">
+                                                                <span className="text-gray-400 px-2 py-1 rounded bg-black/30">
                                                                     {match.score}-{match.enemy_score}
                                                                 </span>
-                                                                <div
-                                                                    className="flex items-center gap-1.5 px-2 py-1 rounded bg-black/30">
+                                                                <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-black/30">
                                                                     <img
-                                                                        src={`https://media.valorant-api.com/competitivetiers/03621f52-342b-cf4e-4f86-9350a49c6d04/${match.ranking_in_tier}/smallicon.png`}
+                                                                        src={`https://media.valorant-api.com/competitivetiers/03621f52-342b-cf4e-4f86-9350a49c6d04/${match.rank_tier}/smallicon.png`}
                                                                         alt="Rank Icon"
                                                                         className="w-3 h-3"
                                                                     />
@@ -380,14 +360,15 @@ export function MatchHistory({
                                                                         {getRankName(match)}
                                                                     </span>
                                                                 </div>
-                                                                {/* Only show RR change if not 0 */}
+
                                                                 {match.rrChange !== 0 && (
                                                                     <div
-                                                                        className={`flex items-center gap-1 px-2 py-1 rounded bg-black/30 ${rrChangeColor}`}>
+                                                                        className={`flex items-center gap-1 px-2 py-1 rounded bg-black/30 ${rrChangeColor}`}
+                                                                    >
                                                                         {match.rrChange > 0 ? (
-                                                                            <TrendingUp className="w-3 h-3"/>
+                                                                            <TrendingUp className="w-3 h-3" />
                                                                         ) : (
-                                                                            <TrendingDown className="w-3 h-3"/>
+                                                                            <TrendingDown className="w-3 h-3" />
                                                                         )}
                                                                         <span className="text-xs">
                                                                             {match.rrChange > 0 ? "+" : ""}
@@ -397,54 +378,42 @@ export function MatchHistory({
                                                                 )}
                                                             </div>
 
-                                                            {/* Match stats */}
-                                                            <div className="flex items-center gap-4">
-                                <span className="text-gray-400">
-                                  Agent: {match.agent}
-                                </span>
-                                                                <span className="text-gray-400">•</span>
-                                                                <span className="text-gray-400">
-                                  KDA: {match.kda}
-                                </span>
-                                                                <span className="text-gray-400">•</span>
-                                                                <span className="text-gray-400">
-                                  ACS: {match.acs}
-                                </span>
-                                                                <span className="text-gray-400">•</span>
-                                                                <span className="text-gray-400">
-                                  ADR: {calculateADRForMatch(match)}
-                                </span>
+                                                            <div className="flex w-full min-w-0 items-center justify-between gap-3 rounded bg-black/30 px-2 py-1 text-xs text-gray-400">
+                                                                <span className="min-w-0 truncate">Agent: {match.agent}</span>
+                                                                <span className="shrink-0 whitespace-nowrap">KDA: {match.kda}</span>
+                                                                <span className="shrink-0 whitespace-nowrap">ACS: {match.acs}</span>
+                                                                <span className="shrink-0 whitespace-nowrap">ADR: {displayedAdr || "—"}</span>
                                                             </div>
                                                         </div>
                                                     </div>
 
-                                                    {/* Timestamp and expand button */}
-                                                    <div className="flex items-center gap-4">
-                                                        <div className="flex items-center gap-2 text-gray-400">
-                                                            <Clock className="w-4 h-4"/>
-                                                            <span>{match.timestamp}</span>
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="match-server-time">
+                                                            {match.server && (
+                                                                <div className="match-server-time-row">
+                                                                    <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
+                                                                    <span className="truncate">{match.server}</span>
+                                                                </div>
+                                                            )}
+                                                            <div className="match-server-time-row">
+                                                                <Clock className="h-3.5 w-3.5" />
+                                                                <time dateTime={match.timestamp}>{formatMatchDate(match.date_raw, match.timestamp)}</time>
+                                                            </div>
                                                         </div>
-                                                        {/* Spinner stays until request finishes, even on error */}
+
                                                         {loadingMatchId === match.id ? (
-                                                            <Loader2 className="w-5 h-5 text-gray-400 animate-spin"/>
+                                                            <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
                                                         ) : (
-                                                            <ChevronDown
-                                                                className={`w-5 h-5 text-gray-400 transition-transform ${
-                                                                    isExpanded && match.players ? "rotate-180" : ""
-                                                                }`}
-                                                            />
+                                                            <ChevronDown className={`h-5 w-5 text-gray-400 transition-all duration-200 hover:text-white ${isExpanded && match.details ? "rotate-180" : ""}`} />
                                                         )}
                                                     </div>
                                                 </div>
                                             </div>
                                         </CollapsibleTrigger>
 
-                                        {/* Expanded match content only if players loaded */}
-                                        {isExpanded && match.players && (
-                                            <CollapsibleContent>
-                                                <div>
-                                                    {renderMatchTeams(match)}
-                                                </div>
+                                        {match.details && (
+                                            <CollapsibleContent className="match-details-collapsible">
+                                                <MatchDetailsPanel details={match.details} roundsPlayed={match.rounds_played} viewerPuuid={puuid} mapId={match.mapId}/>
                                             </CollapsibleContent>
                                         )}
                                     </div>
@@ -454,22 +423,22 @@ export function MatchHistory({
                     </>
                 )}
 
-                {/* Load More Button */}
-                {!isInitialLoading && (
-                    <button
-                        onClick={handleLoadMore}
-                        disabled={loadingMore}
-                        className="w-full py-4 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg text-white hover:bg-[#242424] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                    >
-                        {loadingMore ? (
-                            <>
-                                <Loader2 className="w-4 h-4 animate-spin"/>
-                                Loading more matches...
-                            </>
-                        ) : (
-                            "Load More Matches"
-                        )}
-                    </button>
+                {canShowLoadMore && (
+                    <div className="load-more-row">
+                        <span />
+                        <button
+                            onClick={handleLoadMore}
+                            disabled={loadingMore || !lastKey}
+                            className="load-more-button"
+                            aria-label={loadingMore ? "Loading more matches" : "Load more matches"}
+                        >
+                            <span className="load-more-icon">
+                                {loadingMore ? <Loader2 className="animate-spin" /> : <ChevronsDown />}
+                            </span>
+                            <span><strong>{loadingMore ? "Loading matches" : "Load more"}</strong><small>{loadingMore ? "Fetching match history…" : "Show older matches"}</small></span>
+                        </button>
+                        <span />
+                    </div>
                 )}
             </div>
         </div>

@@ -11,7 +11,7 @@ enum LambdaDeploymentMode {
             "",
             Runtime.JAVA_21,
             Architecture.ARM_64,
-            "io.micronaut.function.aws.proxy.payload2.APIGatewayV2HTTPEventFunction",
+            "com.valstats.lambda.ValStatsApiLambdaFunction",
             "com.valstats.queue.RefreshQueueHandler"
     ),
     NATIVE(

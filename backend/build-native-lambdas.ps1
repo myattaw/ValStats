@@ -31,7 +31,7 @@ function Build-NativeLambda {
 
 Build-NativeLambda `
     -Module "api-lambda" `
-    -MainClass "io.micronaut.function.aws.runtime.APIGatewayV2HTTPEventMicronautLambdaRuntime"
+    -MainClass "com.valstats.lambda.ValStatsApiLambdaRuntime"
 
 Build-NativeLambda `
     -Module "match-sync-lambda" `

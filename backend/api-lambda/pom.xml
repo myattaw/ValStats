@@ -120,7 +120,7 @@
         <profile>
             <id>native-lambda</id>
             <properties>
-                <lambda.main-class>io.micronaut.function.aws.runtime.APIGatewayV2HTTPEventMicronautLambdaRuntime</lambda.main-class>
+                <lambda.main-class>com.valstats.lambda.ValStatsApiLambdaRuntime</lambda.main-class>
                 <micronaut.runtime>lambda</micronaut.runtime>
             </properties>
             <build>

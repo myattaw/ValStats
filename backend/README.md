@@ -177,19 +177,22 @@ At minimum, production needs:
 
 Add the Cloudflare production domain to Micronaut CORS. Do not leave production CORS restricted to localhost.
 
-## GraalVM native Lambda plan
+## GraalVM native Lambda builds
 
-GraalVM native images are the intended production format for fast cold starts.
+The repository can build both Lambda modules as Linux x86_64 GraalVM native
+executables. Start Docker Desktop and run this command from `backend/`:
 
-Required work:
+```powershell
+.\build-native-lambdas.ps1
+```
 
-1. Change both deployable modules from the Netty runtime to the Micronaut Lambda/custom runtime.
-2. Remove `micronaut-http-server-netty` and other unused runtime dependencies from Lambda artifacts.
-3. Enable Micronaut AOT and GraalVM Native Build Tools.
-4. Replace `LocalRunner` with an idempotent SQS event handler.
-5. Build on Linux for the same architecture used by Lambda (`arm64` or `x86_64`).
-6. Package the executable as the custom-runtime `bootstrap` artifact.
-7. Load-test native and JVM/SnapStart variants before selecting memory. Native is expected to start faster, but measured duration and cost should decide.
+The generated deployment archives are:
+
+- `api-lambda/target/native/lambda-native.zip`
+- `match-sync-lambda/target/native/lambda-native.zip`
+
+Each archive contains the custom-runtime `bootstrap` executable at its root.
+Generated archives and other `target/` content must not be committed.
 
 GraalVM custom runtimes do not use Lambda SnapStart. SnapStart is an alternative for a managed Java runtime, not an additional optimization to combine with the native executable.
 
@@ -321,6 +324,38 @@ Then deploy the application stack:
 ```powershell
 cdk deploy ValStats-dev-Application -c environment=dev -c region=us-east-1
 ```
+
+### Parallel GraalVM native test stack
+
+Native mode creates a separate `ValStats-dev-Native-Application` stack. It uses
+the existing development DynamoDB table and Henrik secret, while creating
+separate native API/worker functions, queues, logs, and API Gateway. The live
+JVM application stack is not replaced.
+
+Build the native archives from `backend/`, then review and deploy from
+`backend/infrastructure/`:
+
+```powershell
+cd ..
+.\build-native-lambdas.ps1
+cd infrastructure
+
+& "$env:APPDATA\npm\cdk.cmd" diff `
+  ValStats-dev-Native-Application `
+  -c environment=dev `
+  -c region=us-east-1 `
+  -c lambdaRuntime=native
+
+& "$env:APPDATA\npm\cdk.cmd" deploy `
+  ValStats-dev-Native-Application `
+  -c environment=dev `
+  -c region=us-east-1 `
+  -c lambdaRuntime=native
+```
+
+Omitting `-c lambdaRuntime=native` retains the default Java 21 ARM64 JVM
+deployment. Native mode uses the `provided.al2023` x86_64 custom runtime because
+Docker Desktop builds Linux x86_64 executables.
 
 Use distinct AWS accounts where possible. At minimum, use distinct CDK context
 values and stack names for development and production. Never commit credentials,

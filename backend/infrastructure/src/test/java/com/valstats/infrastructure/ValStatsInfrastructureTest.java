@@ -47,6 +47,7 @@ class ValStatsInfrastructureTest {
         ValStatsApplicationStack stack = new ValStatsApplicationStack(
                 app, "ApplicationTest", "test", TEST_ENVIRONMENT,
                 stateful.getDataTable(), stateful.getHenrikApiSecret(),
+                LambdaDeploymentMode.JVM,
                 apiArtifact.toString(), syncArtifact.toString());
         Template template = Template.fromStack(stack);
 
@@ -57,6 +58,36 @@ class ValStatsInfrastructureTest {
         template.resourceCountIs("AWS::Lambda::EventSourceMapping", 1);
         template.hasResourceProperties("AWS::SQS::Queue", Match.objectLike(Map.of(
                 "QueueName", "valstats-test-refresh",
+                "VisibilityTimeout", 300
+        )));
+        template.hasResourceProperties("AWS::Lambda::Function", Match.objectLike(Map.of(
+                "Runtime", "java21",
+                "Architectures", java.util.List.of("arm64")
+        )));
+    }
+
+    @Test
+    void nativeApplicationStackUsesCustomRuntimeWithoutReplacingJvmResources() throws Exception {
+        App app = new App();
+        ValStatsStatefulStack stateful = new ValStatsStatefulStack(
+                app, "NativeStatefulDependency", "test", TEST_ENVIRONMENT);
+        Path apiArtifact = Files.createFile(temporaryDirectory.resolve("api-native.zip"));
+        Path syncArtifact = Files.createFile(temporaryDirectory.resolve("sync-native.zip"));
+        ValStatsApplicationStack stack = new ValStatsApplicationStack(
+                app, "NativeApplicationTest", "test", TEST_ENVIRONMENT,
+                stateful.getDataTable(), stateful.getHenrikApiSecret(),
+                LambdaDeploymentMode.NATIVE,
+                apiArtifact.toString(), syncArtifact.toString());
+        Template template = Template.fromStack(stack);
+
+        template.resourceCountIs("AWS::Lambda::Function", 2);
+        template.hasResourceProperties("AWS::Lambda::Function", Match.objectLike(Map.of(
+                "Runtime", "provided.al2023",
+                "Handler", "bootstrap",
+                "Architectures", java.util.List.of("x86_64")
+        )));
+        template.hasResourceProperties("AWS::SQS::Queue", Match.objectLike(Map.of(
+                "QueueName", "valstats-test-native-refresh",
                 "VisibilityTimeout", 300
         )));
     }

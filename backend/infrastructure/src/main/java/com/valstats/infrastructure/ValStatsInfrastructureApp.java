@@ -13,6 +13,8 @@ public final class ValStatsInfrastructureApp {
 
         String environmentName = contextValue(app, "environment", "dev");
         String region = contextValue(app, "region", "us-east-1");
+        LambdaDeploymentMode deploymentMode = LambdaDeploymentMode.fromContext(
+                contextValue(app, "lambdaRuntime", "jvm"));
         Environment awsEnvironment = Environment.builder()
                 .account(System.getenv("CDK_DEFAULT_ACCOUNT"))
                 .region(region)
@@ -27,19 +29,27 @@ public final class ValStatsInfrastructureApp {
 
         ValStatsApplicationStack application = new ValStatsApplicationStack(
                 app,
-                "ValStats-" + environmentName + "-Application",
+                "ValStats-" + environmentName
+                        + (deploymentMode.isNative() ? "-Native" : "")
+                        + "-Application",
                 environmentName,
                 awsEnvironment,
                 stateful.getDataTable(),
                 stateful.getHenrikApiSecret(),
-                artifactPath(app, "apiArtifact", "../api-lambda/target/api-lambda-0.1.jar"),
-                artifactPath(app, "syncArtifact", "../match-sync-lambda/target/match-sync-lambda-0.1.jar")
+                deploymentMode,
+                artifactPath(app, "apiArtifact", deploymentMode.isNative()
+                        ? "../api-lambda/target/native/lambda-native.zip"
+                        : "../api-lambda/target/api-lambda-0.1.jar"),
+                artifactPath(app, "syncArtifact", deploymentMode.isNative()
+                        ? "../match-sync-lambda/target/native/lambda-native.zip"
+                        : "../match-sync-lambda/target/match-sync-lambda-0.1.jar")
         );
         application.addStackDependency(stateful);
 
         Tags.of(app).add("Application", "ValStats");
         Tags.of(app).add("Environment", environmentName);
         Tags.of(app).add("ManagedBy", "AWS-CDK");
+        Tags.of(application).add("LambdaRuntime", deploymentMode.isNative() ? "graalvm-native" : "java-21");
 
         app.synth();
     }

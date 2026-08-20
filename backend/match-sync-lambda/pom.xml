@@ -25,6 +25,16 @@
         </dependency>
 
         <dependency>
+            <groupId>io.micronaut.aws</groupId>
+            <artifactId>micronaut-function-aws-custom-runtime</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.micronaut.aws</groupId>
+            <artifactId>micronaut-aws-lambda-events-serde</artifactId>
+        </dependency>
+
+        <dependency>
             <groupId>com.amazonaws</groupId>
             <artifactId>aws-lambda-java-core</artifactId>
             <version>1.3.0</version>
@@ -87,7 +97,30 @@
     <properties>
         <micronaut.aot.packageName>com.valstats</micronaut.aot.packageName>
         <micronaut.runtime>netty</micronaut.runtime>
+        <lambda.main-class>com.valstats.queue.RefreshQueueLambdaRuntime</lambda.main-class>
     </properties>
+
+    <profiles>
+        <profile>
+            <id>native-lambda</id>
+            <properties>
+                <micronaut.runtime>lambda</micronaut.runtime>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.graalvm.buildtools</groupId>
+                        <artifactId>native-maven-plugin</artifactId>
+                        <configuration>
+                            <buildArgs combine.children="append">
+                                <buildArg>--initialize-at-build-time=ch.qos.logback,org.slf4j</buildArg>
+                            </buildArgs>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
     <build>
         <plugins>
@@ -97,6 +130,10 @@
                 <groupId>io.micronaut.maven</groupId>
                 <artifactId>micronaut-maven-plugin</artifactId>
                 <version>4.10.0</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <mainClass>${lambda.main-class}</mainClass>
+                </configuration>
             </plugin>
 
             <!-- 🔥 REQUIRED for Micronaut DI -->

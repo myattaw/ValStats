@@ -1,0 +1,27 @@
+FROM ghcr.io/graalvm/native-image-community:21 AS builder
+
+USER root
+WORKDIR /workspace
+
+ARG MODULE
+ARG MAIN_CLASS
+
+COPY . .
+
+# Install the shared reactor artifacts, then compile only the selected Lambda
+# module into a Linux native executable.
+RUN ./mvnw -q -pl common -am install -DskipTests
+RUN ./mvnw -f "${MODULE}/pom.xml" package native:compile-no-fork \
+    -DskipTests \
+    -Pgraalvm,native-lambda \
+    -Dexec.mainClass="${MAIN_CLASS}"
+
+# Lambda custom runtimes require an executable called bootstrap at the root of
+# the deployment ZIP.
+RUN mkdir -p /out \
+    && cp "${MODULE}/target/${MODULE}" /out/bootstrap \
+    && chmod 755 /out/bootstrap \
+    && jar --create --no-manifest --file /out/lambda-native.zip -C /out bootstrap
+
+FROM scratch AS artifact
+COPY --from=builder /out/lambda-native.zip /

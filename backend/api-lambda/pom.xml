@@ -30,6 +30,16 @@
             <artifactId>micronaut-function-aws-api-proxy</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>io.micronaut.aws</groupId>
+            <artifactId>micronaut-function-aws-custom-runtime</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.micronaut.aws</groupId>
+            <artifactId>micronaut-aws-lambda-events-serde</artifactId>
+        </dependency>
+
         <!-- HTTP Client for API calls -->
         <dependency>
             <groupId>io.micronaut</groupId>
@@ -103,16 +113,40 @@
     <properties>
         <micronaut.aot.packageName>com.valstats</micronaut.aot.packageName>
         <micronaut.runtime>netty</micronaut.runtime>
-
+        <lambda.main-class>com.valstats.ValstatsAPIApplication</lambda.main-class>
     </properties>
+
+    <profiles>
+        <profile>
+            <id>native-lambda</id>
+            <properties>
+                <lambda.main-class>io.micronaut.function.aws.runtime.APIGatewayV2HTTPEventMicronautLambdaRuntime</lambda.main-class>
+                <micronaut.runtime>lambda</micronaut.runtime>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.graalvm.buildtools</groupId>
+                        <artifactId>native-maven-plugin</artifactId>
+                        <configuration>
+                            <buildArgs combine.children="append">
+                                <buildArg>--initialize-at-build-time=ch.qos.logback,org.slf4j</buildArg>
+                            </buildArgs>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
     <build>
         <plugins>
             <plugin>
                 <groupId>io.micronaut.maven</groupId>
                 <artifactId>micronaut-maven-plugin</artifactId>
+                <extensions>true</extensions>
                 <configuration>
-                    <mainClass>com.valstats.ValstatsAPIApplication</mainClass>
+                    <mainClass>${lambda.main-class}</mainClass>
                     <watchForChanges>false</watchForChanges>
                 </configuration>
             </plugin>

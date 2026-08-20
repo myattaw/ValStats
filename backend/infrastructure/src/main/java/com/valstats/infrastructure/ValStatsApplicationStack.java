@@ -41,28 +41,32 @@ public final class ValStatsApplicationStack extends Stack {
             Environment awsEnvironment,
             ITable dataTable,
             ISecret henrikApiSecret,
+            LambdaDeploymentMode deploymentMode,
             String apiArtifactPath,
             String syncArtifactPath
     ) {
         super(scope, id, StackProps.builder()
                 .env(awsEnvironment)
-                .description("ValStats refresh messaging resources (" + environmentName + ")")
+                .description("ValStats refresh messaging resources (" + environmentName + ", "
+                        + (deploymentMode.isNative() ? "GraalVM native" : "Java 21 JVM") + ")")
                 .build());
 
-        Queue refreshDeadLetterQueue = deadLetterQueue("RefreshDeadLetterQueue", "valstats-" + environmentName + "-refresh-dlq");
+        String deploymentName = environmentName + deploymentMode.resourceSuffix();
+
+        Queue refreshDeadLetterQueue = deadLetterQueue("RefreshDeadLetterQueue", "valstats-" + deploymentName + "-refresh-dlq");
         Queue nameHistoryDeadLetterQueue = deadLetterQueue(
                 "NameHistoryDeadLetterQueue",
-                "valstats-" + environmentName + "-name-history-dlq"
+                "valstats-" + deploymentName + "-name-history-dlq"
         );
 
         Queue refreshQueue = workerQueue(
                 "RefreshQueue",
-                "valstats-" + environmentName + "-refresh",
+                "valstats-" + deploymentName + "-refresh",
                 refreshDeadLetterQueue
         );
         Queue nameHistoryQueue = workerQueue(
                 "NameHistoryQueue",
-                "valstats-" + environmentName + "-name-history",
+                "valstats-" + deploymentName + "-name-history",
                 nameHistoryDeadLetterQueue
         );
 
@@ -74,17 +78,17 @@ public final class ValStatsApplicationStack extends Stack {
                 "HENRIK_API_SECRET_ARN", henrikApiSecret.getSecretArn()
         );
 
-        String apiFunctionName = "valstats-" + environmentName + "-api";
-        String syncFunctionName = "valstats-" + environmentName + "-match-sync";
+        String apiFunctionName = "valstats-" + deploymentName + "-api";
+        String syncFunctionName = "valstats-" + deploymentName + "-match-sync";
         LogGroup apiLogGroup = functionLogGroup("ApiLogGroup", apiFunctionName);
         LogGroup syncLogGroup = functionLogGroup("SyncLogGroup", syncFunctionName);
 
         Function apiFunction = Function.Builder.create(this, "ApiFunction")
                 .functionName(apiFunctionName)
                 .description("Cached ValStats HTTP API")
-                .runtime(Runtime.JAVA_21)
-                .architecture(Architecture.ARM_64)
-                .handler("io.micronaut.function.aws.proxy.payload2.APIGatewayV2HTTPEventFunction")
+                .runtime(deploymentMode.runtime())
+                .architecture(deploymentMode.architecture())
+                .handler(deploymentMode.apiHandler())
                 .code(Code.fromAsset(Path.of(apiArtifactPath).toAbsolutePath().normalize().toString()))
                 .memorySize(1024)
                 .timeout(Duration.seconds(30))
@@ -97,9 +101,9 @@ public final class ValStatsApplicationStack extends Stack {
         Function syncFunction = Function.Builder.create(this, "SyncFunction")
                 .functionName(syncFunctionName)
                 .description("Processes queued ValStats match refresh jobs")
-                .runtime(Runtime.JAVA_21)
-                .architecture(Architecture.ARM_64)
-                .handler("com.valstats.queue.RefreshQueueHandler")
+                .runtime(deploymentMode.runtime())
+                .architecture(deploymentMode.architecture())
+                .handler(deploymentMode.syncHandler())
                 .code(Code.fromAsset(Path.of(syncArtifactPath).toAbsolutePath().normalize().toString()))
                 .memorySize(1536)
                 .timeout(Duration.minutes(4))
@@ -119,7 +123,7 @@ public final class ValStatsApplicationStack extends Stack {
                 .build());
 
         CfnApi httpApi = CfnApi.Builder.create(this, "HttpApi")
-                .name("valstats-" + environmentName + "-api")
+                .name("valstats-" + deploymentName + "-api")
                 .protocolType("HTTP")
                 .corsConfiguration(CfnApi.CorsProperty.builder()
                         .allowHeaders(List.of("content-type"))
@@ -159,11 +163,11 @@ public final class ValStatsApplicationStack extends Stack {
                         + getAccount() + ":" + httpApi.getRef() + "/*")
                 .build();
 
-        output("RefreshQueueUrl", refreshQueue.getQueueUrl(), "ValStats-" + environmentName + "-RefreshQueueUrl");
-        output("RefreshQueueArn", refreshQueue.getQueueArn(), "ValStats-" + environmentName + "-RefreshQueueArn");
-        output("NameHistoryQueueUrl", nameHistoryQueue.getQueueUrl(), "ValStats-" + environmentName + "-NameHistoryQueueUrl");
+        output("RefreshQueueUrl", refreshQueue.getQueueUrl(), "ValStats-" + deploymentName + "-RefreshQueueUrl");
+        output("RefreshQueueArn", refreshQueue.getQueueArn(), "ValStats-" + deploymentName + "-RefreshQueueArn");
+        output("NameHistoryQueueUrl", nameHistoryQueue.getQueueUrl(), "ValStats-" + deploymentName + "-NameHistoryQueueUrl");
         output("ApiUrl", "https://" + httpApi.getRef() + ".execute-api." + getRegion()
-                + ".amazonaws.com", "ValStats-" + environmentName + "-ApiUrl");
+                + ".amazonaws.com", "ValStats-" + deploymentName + "-ApiUrl");
     }
 
     private Queue deadLetterQueue(String id, String queueName) {

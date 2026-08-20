@@ -51,6 +51,10 @@
             <groupId>com.amazonaws</groupId>
             <artifactId>aws-lambda-java-core</artifactId>
         </dependency>
+        <dependency>
+            <groupId>io.micronaut.aws</groupId>
+            <artifactId>micronaut-function-aws-custom-runtime</artifactId>
+        </dependency>
     </dependencies>
 
     <parent>

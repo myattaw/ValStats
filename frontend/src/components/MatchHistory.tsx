@@ -380,7 +380,7 @@ export function MatchHistory({
                                                         </div>
 
                                                         <div>
-                                                            <div className="flex items-center gap-3 mb-2">
+                                                            <div className="flex flex-wrap items-center gap-2 mb-2">
                                                                 <span className="text-white">{match.map}</span>
                                                                 <span className={`px-3 py-1 rounded ${resultBadgeColor}`}>
                                                                     {match.result}
@@ -401,7 +401,7 @@ export function MatchHistory({
 
                                                                 {match.rrChange !== 0 && (
                                                                     <div
-                                                                        className={`flex items-center gap-1 px-2 py-1 rounded bg-black/30 ${rrChangeColor}`}
+                                                                        className={`flex shrink-0 items-center gap-1 px-2 py-1 rounded bg-black/30 ${rrChangeColor}`}
                                                                     >
                                                                         {match.rrChange > 0 ? (
                                                                             <TrendingUp className="w-3 h-3" />
@@ -416,7 +416,7 @@ export function MatchHistory({
                                                                 )}
                                                                 {(isNew || isRecent) && (
                                                                     <div
-                                                                        className="flex items-center gap-1 px-2 py-1 rounded"
+                                                                        className="flex shrink-0 items-center gap-1 px-2 py-1 rounded"
                                                                         style={isNew
                                                                             ? { backgroundColor: "rgba(168, 85, 247, 0.25)", color: "#d8b4fe" }
                                                                             : { backgroundColor: "rgba(245, 158, 11, 0.25)", color: "#fcd34d" }}

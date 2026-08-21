@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronsDown, Clock, Loader2, MapPin, TrendingDown, TrendingUp } from "lucide-react";
+import { ChevronDown, ChevronsDown, Clock, Loader2, MapPin, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import { Match } from "./Match/types/matchTypes";
 import {
@@ -388,17 +388,6 @@ export function MatchHistory({
                                                                 <span className="text-gray-400 px-2 py-1 rounded bg-black/30">
                                                                     {match.score}-{match.enemy_score}
                                                                 </span>
-                                                                {(isNew || isRecent) && (
-                                                                    <span
-                                                                        className="px-2 py-1 rounded text-xs"
-                                                                        style={isNew
-                                                                            ? { backgroundColor: "rgba(168, 85, 247, 0.25)", color: "#d8b4fe" }
-                                                                            : { backgroundColor: "rgba(245, 158, 11, 0.25)", color: "#fcd34d" }}
-                                                                        title={isNew ? "Loaded during this refresh" : "Played within the last hour"}
-                                                                    >
-                                                                        {isNew ? "New" : "Recent"}
-                                                                    </span>
-                                                                )}
                                                                 <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-black/30">
                                                                     <img
                                                                         src={`https://media.valorant-api.com/competitivetiers/03621f52-342b-cf4e-4f86-9350a49c6d04/${match.rank_tier}/smallicon.png`}
@@ -423,6 +412,22 @@ export function MatchHistory({
                                                                             {match.rrChange > 0 ? "+" : ""}
                                                                             {match.rrChange} RR
                                                                         </span>
+                                                                    </div>
+                                                                )}
+                                                                {(isNew || isRecent) && (
+                                                                    <div
+                                                                        className="flex items-center gap-1 px-2 py-1 rounded"
+                                                                        style={isNew
+                                                                            ? { backgroundColor: "rgba(168, 85, 247, 0.25)", color: "#d8b4fe" }
+                                                                            : { backgroundColor: "rgba(245, 158, 11, 0.25)", color: "#fcd34d" }}
+                                                                        title={isNew ? "Loaded during this refresh" : "Played within the last hour"}
+                                                                    >
+                                                                        {isNew ? (
+                                                                            <Sparkles className="w-3 h-3" />
+                                                                        ) : (
+                                                                            <Clock className="w-3 h-3" />
+                                                                        )}
+                                                                        <span className="text-xs">{isNew ? "New" : "Recent"}</span>
                                                                     </div>
                                                                 )}
                                                             </div>

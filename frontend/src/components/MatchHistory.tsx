@@ -153,8 +153,6 @@ export function MatchHistory({
             const deadline = Date.now() + 2 * 60 * 1000;
             while (Date.now() < deadline) {
                 await new Promise((resolve) => window.setTimeout(resolve, 2500));
-                await fetchInitialMatches(false);
-
                 const nextStatusResponse = await fetch(`${baseUrl}/refresh-status`);
                 if (!nextStatusResponse.ok) continue;
                 const nextStatus = await nextStatusResponse.json();

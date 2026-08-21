@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronsDown, Clock, Loader2, MapPin, TrendingDown, TrendingUp } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import { Match } from "./Match/types/matchTypes";
@@ -47,6 +47,18 @@ function formatMatchDate(dateRaw: number, timestamp?: string) {
     }).format(date);
 }
 
+function isRecentMatch(match: Match) {
+    const raw = Number(match.date_raw);
+    const occurredAt = Number.isFinite(raw) && raw > 0
+        ? (raw > 10_000_000_000 ? raw : raw * 1000)
+        : match.timestamp
+            ? new Date(match.timestamp).getTime()
+            : 0;
+
+    const age = Date.now() - occurredAt;
+    return occurredAt > 0 && age >= 0 && age <= 60 * 60 * 1000;
+}
+
 export function MatchHistory({
                                  puuid,
                                  playerName,
@@ -70,6 +82,8 @@ export function MatchHistory({
     const [isInitialLoading, setIsInitialLoading] = useState(true);
     const [isBackgroundRefreshing, setIsBackgroundRefreshing] = useState(false);
     const [matches, setMatches] = useState<Match[]>([]);
+    const [newMatchIds, setNewMatchIds] = useState<Set<string>>(() => new Set());
+    const visibleMatchIds = useRef<Set<string>>(new Set());
     const [hoveredMatch, setHoveredMatch] = useState<string | null>(null);
     const [lastKey, setLastKey] = useState<LastKey>(null);
     const [hasMore, setHasMore] = useState(true);
@@ -115,6 +129,15 @@ export function MatchHistory({
             data.sort((a: Match, b: Match) => b.date_raw - a.date_raw);
 
             if (showLoading || data.length > 0) {
+                if (!showLoading) {
+                    const addedIds = data
+                        .filter((match) => !visibleMatchIds.current.has(match.id))
+                        .map((match) => match.id);
+                    if (addedIds.length > 0) {
+                        setNewMatchIds((current) => new Set([...current, ...addedIds]));
+                    }
+                }
+                visibleMatchIds.current = new Set(data.map((match) => match.id));
                 setMatches(data);
                 // Season mode is still not cursor-paginated on the backend, so don't show load-more there.
                 setLastKey(json?.lastKey ?? null);
@@ -171,6 +194,8 @@ export function MatchHistory({
 
     useEffect(() => {
         setMatches([]);
+        setNewMatchIds(new Set());
+        visibleMatchIds.current = new Set();
         setExpandedMatch(null);
         setLoadingMatchId(null);
         setLoadingMore(false);
@@ -227,6 +252,7 @@ export function MatchHistory({
                 const unique = newMatches.filter((m: Match) => !existingIds.has(m.id));
                 const combined = [...prev, ...unique];
                 combined.sort((a, b) => b.date_raw - a.date_raw);
+                visibleMatchIds.current = new Set(combined.map((match) => match.id));
                 return combined;
             });
 
@@ -291,6 +317,8 @@ export function MatchHistory({
                                 : undefined;
 
                             const isExpanded = expandedMatch === match.id;
+                            const isNew = newMatchIds.has(match.id);
+                            const isRecent = isRecentMatch(match);
                             const isVictory = match.result === "Victory";
                             const borderColor = isVictory ? "border-[#4ade80]" : "border-[#f87171]";
                             const overlayColor = isVictory
@@ -357,6 +385,18 @@ export function MatchHistory({
                                                                 <span className={`px-3 py-1 rounded ${resultBadgeColor}`}>
                                                                     {match.result}
                                                                 </span>
+                                                                {(isNew || isRecent) && (
+                                                                    <span
+                                                                        className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                                                                            isNew
+                                                                                ? "border-cyan-400/50 bg-cyan-400/15 text-cyan-300"
+                                                                                : "border-amber-400/50 bg-amber-400/15 text-amber-300"
+                                                                        }`}
+                                                                        title={isNew ? "Loaded during this refresh" : "Played within the last hour"}
+                                                                    >
+                                                                        {isNew ? "New" : "Recent"}
+                                                                    </span>
+                                                                )}
                                                                 <span className="text-gray-400 px-2 py-1 rounded bg-black/30">
                                                                     {match.score}-{match.enemy_score}
                                                                 </span>

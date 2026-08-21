@@ -242,6 +242,12 @@ public class PlayerCacheService {
                 .build());
         if (!response.hasItem()) return Optional.empty();
         Map<String, AttributeValue> item = response.item();
+        // Identity resolution creates a minimal PROFILE row. Do not mistake it
+        // for a complete account response or the card and account level will
+        // remain missing indefinitely.
+        if (!item.containsKey("accountLevel") || !item.containsKey("cardSmall")) {
+            return Optional.empty();
+        }
         Map<String, Object> data = new HashMap<>();
         data.put("puuid", puuid.get());
         data.put("name", item.getOrDefault("name", AttributeValue.fromS(name)).s());

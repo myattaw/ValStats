@@ -1,6 +1,7 @@
 package com.valstats.service.match;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.valstats.client.ValorantApiClient;
 import com.valstats.client.HenrikApiRequestQueue;
 import com.valstats.model.response.MatchResponses;
@@ -173,24 +174,26 @@ public class MatchDataService {
         try {
             String decoded = URLDecoder.decode(json, StandardCharsets.UTF_8);
 
-            MatchResponses.Cursor cursor = new ObjectMapper().readValue(
-                    decoded,
-                    MatchResponses.Cursor.class
-            );
+            JsonNode cursor = new ObjectMapper().readTree(decoded);
 
             Map<String, AttributeValue> result = new HashMap<>();
 
-            if (cursor.pk() != null && !cursor.pk().isBlank()) {
-                result.put("PK", AttributeValue.fromS(cursor.pk()));
+            String pk = textValue(cursor, "PK");
+            String sk = textValue(cursor, "SK");
+            String gsi1Pk = textValue(cursor, "GSI1PK");
+            JsonNode gsi1Sk = cursor.get("GSI1SK");
+
+            if (pk != null && !pk.isBlank()) {
+                result.put("PK", AttributeValue.fromS(pk));
             }
-            if (cursor.sk() != null && !cursor.sk().isBlank()) {
-                result.put("SK", AttributeValue.fromS(cursor.sk()));
+            if (sk != null && !sk.isBlank()) {
+                result.put("SK", AttributeValue.fromS(sk));
             }
-            if (cursor.gsi1Pk() != null && !cursor.gsi1Pk().isBlank()) {
-                result.put("GSI1PK", AttributeValue.fromS(cursor.gsi1Pk()));
+            if (gsi1Pk != null && !gsi1Pk.isBlank()) {
+                result.put("GSI1PK", AttributeValue.fromS(gsi1Pk));
             }
-            if (cursor.gsi1Sk() != null) {
-                result.put("GSI1SK", AttributeValue.fromN(String.valueOf(cursor.gsi1Sk())));
+            if (gsi1Sk != null && !gsi1Sk.isNull()) {
+                result.put("GSI1SK", AttributeValue.fromN(gsi1Sk.asText()));
             }
 
             return result;
@@ -199,6 +202,11 @@ public class MatchDataService {
             LOG.error("Failed to parse lastKey: {}", json, e);
             return null;
         }
+    }
+
+    private static String textValue(JsonNode json, String field) {
+        JsonNode value = json.get(field);
+        return value == null || value.isNull() ? null : value.asText();
     }
 
     /**

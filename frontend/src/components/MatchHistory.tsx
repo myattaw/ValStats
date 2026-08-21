@@ -143,14 +143,26 @@ export function MatchHistory({
             if (statusPayload?.data?.refreshRequired !== true) return;
 
             onRefreshingChange?.(true);
-            const poll = window.setInterval(() => void fetchInitialMatches(false), 2500);
-            try {
-                await fetch(`${baseUrl}/refresh`, { method: "POST" });
-            } finally {
-                window.clearInterval(poll);
+            const refreshResponse = await fetch(`${baseUrl}/refresh`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: "{}"
+            });
+            if (!refreshResponse.ok) return;
+
+            const deadline = Date.now() + 2 * 60 * 1000;
+            while (Date.now() < deadline) {
+                await new Promise((resolve) => window.setTimeout(resolve, 2500));
                 await fetchInitialMatches(false);
-                onRefreshComplete?.();
+
+                const nextStatusResponse = await fetch(`${baseUrl}/refresh-status`);
+                if (!nextStatusResponse.ok) continue;
+                const nextStatus = await nextStatusResponse.json();
+                if (nextStatus?.data?.refreshRequired !== true) break;
             }
+
+            await fetchInitialMatches(false);
+            onRefreshComplete?.();
         } catch (error) {
             console.error("Background match refresh failed", error);
         } finally {

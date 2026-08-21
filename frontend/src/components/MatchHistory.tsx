@@ -387,10 +387,10 @@ export function MatchHistory({
                                                                 </span>
                                                                 {(isNew || isRecent) && (
                                                                     <span
-                                                                        className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                                                                        className={`px-3 py-1 rounded ${
                                                                             isNew
-                                                                                ? "border-cyan-400/50 bg-cyan-400/15 text-cyan-300"
-                                                                                : "border-amber-400/50 bg-amber-400/15 text-amber-300"
+                                                                                ? "bg-purple-400/20 text-purple-300"
+                                                                                : "bg-amber-400/20 text-amber-300"
                                                                         }`}
                                                                         title={isNew ? "Loaded during this refresh" : "Played within the last hour"}
                                                                     >

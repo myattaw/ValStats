@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { ActSelector } from './components/ActSelector';
 import { GameModeSelector } from './components/GameModeSelector';
@@ -16,11 +16,16 @@ export default function App() {
   const [act, setAct] = useState<{ id: string; label: string; seasonKey?: string }>({ id: 'all', label: 'Current act' });
   const [mode, setMode] = useState({ id: 'competitive', label: 'Competitive' });
   const [matchesRefreshing, setMatchesRefreshing] = useState(false);
+  const [nameHistoryRefreshVersion, setNameHistoryRefreshVersion] = useState(0);
   const [inputError, setInputError] = useState<string | null>(null);
   const { profile, stats, mmr, error, rankLoading, loadState, updatedAt, resolvedPlayer, region, refreshPlayerData } = usePlayerData(player, act.id, mode.id);
   const activePlayer = resolvedPlayer ?? player;
   const visibleLoadState = loadState === 'initial-loading' ? loadState : matchesRefreshing ? 'refreshing' : loadState;
   const statsWaitingForMatches = matchesRefreshing && (!stats || stats.matches_played === 0);
+  const handleMatchRefreshComplete = useCallback(() => {
+    refreshPlayerData();
+    setNameHistoryRefreshVersion((value) => value + 1);
+  }, [refreshPlayerData]);
 
   useEffect(() => {
     const syncFromHistory = () => setPlayer(parsePlayerFromUrl());
@@ -58,7 +63,7 @@ export default function App() {
         ) : (
           <div className="dashboard">
             {(inputError || error) && <div className="error-banner"><AlertCircle size={18} />{inputError || error}</div>}
-            <PlayerProfile profile={profile} mmr={mmr} seasonKey={act.seasonKey} actLabel={act.label} loading={loadState === 'initial-loading'} loadState={visibleLoadState} updatedAt={updatedAt} />
+            <PlayerProfile profile={profile} mmr={mmr} seasonKey={act.seasonKey} actLabel={act.label} loading={loadState === 'initial-loading'} loadState={visibleLoadState} updatedAt={updatedAt} nameHistoryRefreshVersion={nameHistoryRefreshVersion} />
             <section className="overview-panel">
               <div className="section-toolbar">
                 <div><span className="eyebrow">Performance</span><h2>{mode.label} overview</h2></div>
@@ -69,7 +74,7 @@ export default function App() {
               </div>
               <StatsOverview stats={stats} loading={rankLoading || statsWaitingForMatches} />
             </section>
-            {activePlayer?.name && activePlayer.tag && <MatchHistory puuid={profile?.puuid ?? player.puuid} playerName={activePlayer.name} playerTag={activePlayer.tag} selectedAct={act.id} selectedMode={mode.id} onRefreshingChange={setMatchesRefreshing} onRefreshComplete={refreshPlayerData} />}
+            {activePlayer?.name && activePlayer.tag && <MatchHistory puuid={profile?.puuid ?? player.puuid} playerName={activePlayer.name} playerTag={activePlayer.tag} selectedAct={act.id} selectedMode={mode.id} onRefreshingChange={setMatchesRefreshing} onRefreshComplete={handleMatchRefreshComplete} />}
           </div>
         )}
       </main>

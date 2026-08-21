@@ -15,7 +15,7 @@ function formatDate(timestamp: number) {
   return timestamp ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(timestamp * 1000) : 'Unknown';
 }
 
-export function PlayerNameHistory({ puuid, refreshing = false }: { puuid?: string; refreshing?: boolean }) {
+export function PlayerNameHistory({ puuid, refreshVersion = 0 }: { puuid?: string; refreshVersion?: number }) {
   const [names, setNames] = useState<NameObservation[]>([]);
   const [open, setOpen] = useState(false);
 
@@ -38,7 +38,7 @@ export function PlayerNameHistory({ puuid, refreshing = false }: { puuid?: strin
   }, [puuid]);
 
   useEffect(() => {
-    if (!puuid || !refreshing) return;
+    if (!puuid || refreshVersion === 0) return;
     const controller = new AbortController();
     const baseUrl = `${API_BASE_URL}/players/${encodeURIComponent(puuid)}/names`;
 
@@ -49,7 +49,13 @@ export function PlayerNameHistory({ puuid, refreshing = false }: { puuid?: strin
         const status = await statusResponse.json();
         if (status?.data?.refreshRequired !== true) return;
 
-        const refreshResponse = await fetch(`${baseUrl}/refresh`, { method: 'POST', signal: controller.signal });
+        // Do not abort the POST when React re-renders; the backend refresh should
+        // be allowed to finish once it has started.
+        const refreshResponse = await fetch(`${baseUrl}/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}'
+        });
         if (!refreshResponse.ok || controller.signal.aborted) return;
 
         const namesResponse = await fetch(baseUrl, { signal: controller.signal });
@@ -63,7 +69,7 @@ export function PlayerNameHistory({ puuid, refreshing = false }: { puuid?: strin
 
     void refreshNames();
     return () => controller.abort();
-  }, [puuid, refreshing]);
+  }, [puuid, refreshVersion]);
 
   const previousNames = names.filter((name) => !name.current);
   if (!previousNames.length) return null;

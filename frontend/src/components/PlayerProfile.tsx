@@ -90,7 +90,7 @@ function seasonPeakOrder(season: import('../types/player').SeasonRank) {
   );
 }
 
-export function PlayerProfile({ profile, mmr, seasonKey, actLabel, loading, loadState, updatedAt }: {
+export function PlayerProfile({ profile, mmr, seasonKey, actLabel, loading, loadState, updatedAt, nameHistoryRefreshVersion }: {
   profile: ProfileData | null;
   mmr: MmrData | null;
   seasonKey?: string;
@@ -98,6 +98,7 @@ export function PlayerProfile({ profile, mmr, seasonKey, actLabel, loading, load
   loading: boolean;
   loadState: 'initial-loading' | 'refreshing' | 'updated';
   updatedAt: Date | null;
+  nameHistoryRefreshVersion: number;
 }) {
   const validSeasonEntries = Object.entries(mmr?.by_season ?? {})
     .filter(([, value]) => !value.error)
@@ -131,7 +132,7 @@ export function PlayerProfile({ profile, mmr, seasonKey, actLabel, loading, load
           </div>
           <div className="profile-name-row">
             <h1>{profile?.name ?? 'Loading player'}<span>#{profile?.tag ?? ''}</span></h1>
-            <PlayerNameHistory puuid={profile?.puuid} refreshing={loadState === 'refreshing'} />
+            <PlayerNameHistory puuid={profile?.puuid} refreshVersion={nameHistoryRefreshVersion} />
           </div>
           {profile?.account_level && <p>Account level {profile.account_level}</p>}
         </div>

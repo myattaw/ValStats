@@ -1,6 +1,7 @@
 package com.valstats.model.response;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.micronaut.core.annotation.Introspected;
 import io.micronaut.serde.annotation.Serdeable;
 
@@ -16,6 +17,7 @@ public final class MatchResponses {
     public record MatchHistoryResponse(
             int status,
             boolean cached,
+            @JsonInclude(JsonInclude.Include.ALWAYS)
             List<MatchSummary> data,
             Cursor lastKey
     ) {

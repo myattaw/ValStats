@@ -10,6 +10,9 @@ import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 @Singleton
 public class RefreshQueuePublisher {
 
@@ -39,11 +42,21 @@ public class RefreshQueuePublisher {
         try {
             sqsClient.sendMessage(SendMessageRequest.builder()
                     .queueUrl(queueUrl)
-                    .messageBody(objectMapper.writeValueAsString(job))
+                    .messageBody(messageBody(job))
                     .build());
             LOG.info("Queued match refresh for {}#{}", job.name(), job.tag());
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("Unable to serialize refresh job", e);
         }
+    }
+
+    String messageBody(RefreshJob job) throws JsonProcessingException {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("puuid", job.puuid());
+        payload.put("region", job.region());
+        payload.put("name", job.name());
+        payload.put("tag", job.tag());
+        payload.put("requestedAt", job.requestedAt());
+        return objectMapper.writeValueAsString(payload);
     }
 }

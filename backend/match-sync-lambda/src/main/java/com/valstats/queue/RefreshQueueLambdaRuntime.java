@@ -22,6 +22,7 @@ public final class RefreshQueueLambdaRuntime
     @Override
     @Nullable
     protected RequestHandler<SQSEvent, Void> createRequestHandler(String... args) {
-        return new RefreshQueueHandler();
+        var applicationContext = createApplicationContextBuilderWithArgs(args).build().start();
+        return new RefreshQueueHandler(applicationContext);
     }
 }

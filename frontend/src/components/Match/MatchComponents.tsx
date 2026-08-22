@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent} from "react";
+import {useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type UIEvent as ReactUIEvent} from "react";
 import {Crosshair, Crown, RotateCcw, Shield, ZoomIn, ZoomOut} from "lucide-react";
 import {Skeleton} from "../ui/skeleton";
 import {EventLocation, MatchDetails, MatchRound, PlayerStats, RoundKill} from './types/matchTypes';
@@ -237,6 +237,8 @@ const formatRoundTime = (milliseconds: number) => {
 export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: { details: MatchDetails; roundsPlayed: number; viewerPuuid?: string | null; mapId?: string }) => {
     const [selectedRound, setSelectedRound] = useState(1);
     const [selectedEvent, setSelectedEvent] = useState(0);
+    const detailsElement = useRef<HTMLDivElement | null>(null);
+    const synchronizingTimelines = useRef(false);
     const viewer = details.players.find((player) => player.puuid === viewerPuuid);
     const ownTeamName = viewer?.team?.toLowerCase() || details.players[0]?.team?.toLowerCase();
     const ownTeam = details.players.filter((player) => player.team?.toLowerCase() === ownTeamName).sort((a, b) => b.score - a.score);
@@ -248,8 +250,27 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: {
 
     useEffect(() => setSelectedEvent(0), [selectedRound]);
 
+    const synchronizeTimelineScroll = (event: ReactUIEvent<HTMLDivElement>) => {
+        const source = event.target;
+        if (!(source instanceof HTMLElement)
+            || (!source.classList.contains("player-round-track")
+                && !source.classList.contains("scoreboard-round-numbers"))
+            || synchronizingTimelines.current) return;
+
+        synchronizingTimelines.current = true;
+        const scrollLeft = source.scrollLeft;
+        detailsElement.current
+            ?.querySelectorAll<HTMLElement>(".player-round-track, .scoreboard-round-numbers")
+            .forEach((timeline) => {
+                if (timeline !== source) timeline.scrollLeft = scrollLeft;
+            });
+        window.requestAnimationFrame(() => {
+            synchronizingTimelines.current = false;
+        });
+    };
+
     return (
-        <div className="rounded-b-lg bg-[#0b0f15] overflow-hidden">
+        <div ref={detailsElement} onScrollCapture={synchronizeTimelineScroll} className="rounded-b-lg bg-[#0b0f15] overflow-hidden">
             <div className="compact-match-details">
                 <TeamDisplay label="Your team" players={ownTeam} isVictory={true} rounds_played={roundsPlayed} isBottom={false} rounds={details.rounds} selectedRound={round?.number} onRoundSelect={setSelectedRound}/>
                 {round ? <article className="round-card selected-round inline-round-detail">

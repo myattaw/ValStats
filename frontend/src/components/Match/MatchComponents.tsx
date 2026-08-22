@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type UIEvent as ReactUIEvent} from "react";
-import {Crosshair, Crown, RotateCcw, Shield, ZoomIn, ZoomOut} from "lucide-react";
+import {ChevronDown, Crosshair, Crown, Map as MapIcon, RotateCcw, Shield, ZoomIn, ZoomOut} from "lucide-react";
 import {Skeleton} from "../ui/skeleton";
 import {EventLocation, MatchDetails, MatchRound, PlayerStats, RoundKill} from './types/matchTypes';
 import {playerUuidPath} from '../../lib/player';
@@ -237,6 +237,7 @@ const formatRoundTime = (milliseconds: number) => {
 export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: { details: MatchDetails; roundsPlayed: number; viewerPuuid?: string | null; mapId?: string }) => {
     const [selectedRound, setSelectedRound] = useState(1);
     const [selectedEvent, setSelectedEvent] = useState(0);
+    const [mobileMapOpen, setMobileMapOpen] = useState(false);
     const detailsElement = useRef<HTMLDivElement | null>(null);
     const synchronizingTimelines = useRef(false);
     const viewer = details.players.find((player) => player.puuid === viewerPuuid);
@@ -296,7 +297,19 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: {
                                 </button>
                             )) : <p className="empty-round">No kill events recorded for this round.</p>}
                         </div>
-                        <TacticalMap mapId={mapId} event={round.kills[selectedEvent]} players={details.players} ownTeam={ownTeamName}/>
+                        <button
+                            type="button"
+                            className="mobile-map-toggle"
+                            aria-expanded={mobileMapOpen}
+                            onClick={() => setMobileMapOpen((open) => !open)}
+                        >
+                            <MapIcon/>
+                            <span>{mobileMapOpen ? "Hide minimap" : "View minimap"}</span>
+                            <ChevronDown className={mobileMapOpen ? "open" : ""}/>
+                        </button>
+                        <div className={`mobile-map-shell ${mobileMapOpen ? "open" : ""}`}>
+                            <TacticalMap mapId={mapId} event={round.kills[selectedEvent]} players={details.players} ownTeam={ownTeamName}/>
+                        </div>
                         </div>
                     </article> : <div className="empty-details compact-empty">Round data was not supplied by the match provider.</div>}
                 <TeamDisplay label="Enemy team" players={enemyTeam} isVictory={false} rounds_played={roundsPlayed} isBottom={true} rounds={details.rounds} selectedRound={round?.number} onRoundSelect={setSelectedRound}/>

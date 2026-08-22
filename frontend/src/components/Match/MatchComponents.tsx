@@ -19,6 +19,8 @@ const TacticalMap = ({mapId, event, players, ownTeam}: { mapId?: string; event?:
     const [zoom, setZoom] = useState(1);
     const [pan, setPan] = useState({x: 0, y: 0});
     const drag = useRef<{pointerId: number; x: number; y: number; originX: number; originY: number} | null>(null);
+    const pointers = useRef(new Map<number, {x: number; y: number}>());
+    const pinch = useRef<{distance: number; zoom: number} | null>(null);
     const mapElement = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
@@ -72,20 +74,43 @@ const TacticalMap = ({mapId, event, players, ownTeam}: { mapId?: string; event?:
     const handlePointerDown = (pointerEvent: ReactPointerEvent<HTMLDivElement>) => {
         if (pointerEvent.button !== 0) return;
         pointerEvent.currentTarget.setPointerCapture(pointerEvent.pointerId);
-        drag.current = {pointerId: pointerEvent.pointerId, x: pointerEvent.clientX, y: pointerEvent.clientY, originX: pan.x, originY: pan.y};
+        pointers.current.set(pointerEvent.pointerId, {x: pointerEvent.clientX, y: pointerEvent.clientY});
+        if (pointers.current.size === 1) {
+            drag.current = {pointerId: pointerEvent.pointerId, x: pointerEvent.clientX, y: pointerEvent.clientY, originX: pan.x, originY: pan.y};
+        } else if (pointers.current.size === 2) {
+            const [first, second] = [...pointers.current.values()];
+            pinch.current = {distance: Math.hypot(second.x - first.x, second.y - first.y), zoom};
+            drag.current = null;
+        }
     };
     const handlePointerMove = (pointerEvent: ReactPointerEvent<HTMLDivElement>) => {
+        if (!pointers.current.has(pointerEvent.pointerId)) return;
+        pointers.current.set(pointerEvent.pointerId, {x: pointerEvent.clientX, y: pointerEvent.clientY});
+        if (pointers.current.size >= 2 && pinch.current) {
+            const [first, second] = [...pointers.current.values()];
+            const distance = Math.hypot(second.x - first.x, second.y - first.y);
+            if (pinch.current.distance > 0) {
+                setZoom(Math.max(.75, Math.min(2.5, pinch.current.zoom * distance / pinch.current.distance)));
+            }
+            return;
+        }
         if (!drag.current || drag.current.pointerId !== pointerEvent.pointerId) return;
         setPan({x: drag.current.originX + pointerEvent.clientX - drag.current.x, y: drag.current.originY + pointerEvent.clientY - drag.current.y});
     };
     const handlePointerUp = (pointerEvent: ReactPointerEvent<HTMLDivElement>) => {
+        pointers.current.delete(pointerEvent.pointerId);
+        pinch.current = null;
         if (drag.current?.pointerId === pointerEvent.pointerId) drag.current = null;
+        if (pointers.current.size === 1) {
+            const [pointerId, remaining] = [...pointers.current.entries()][0];
+            drag.current = {pointerId, x: remaining.x, y: remaining.y, originX: pan.x, originY: pan.y};
+        }
         if (pointerEvent.currentTarget.hasPointerCapture(pointerEvent.pointerId)) pointerEvent.currentTarget.releasePointerCapture(pointerEvent.pointerId);
     };
 
     return (
         <div className="map-stage">
-        <div ref={mapElement} className="tactical-map" onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerCancel={handlePointerUp} onDoubleClick={resetView} title="Scroll to zoom · Drag to pan · Double-click to reset">
+        <div ref={mapElement} className="tactical-map" onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerCancel={handlePointerUp} onDoubleClick={resetView} title="Pinch or scroll to zoom · Drag to pan · Double-click to reset">
             <div className="map-canvas" style={{transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px)) scale(${zoom})`}}>
             <img src={map.displayIcon} alt="Round tactical map"/>
             {event?.playerLocations.map((entry) => {

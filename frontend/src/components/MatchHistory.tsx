@@ -233,6 +233,18 @@ export function MatchHistory({
         return "Unranked";
     };
 
+    const getCompactRankName = (match: Match) => {
+        const rank = getRankName(match);
+        const matchResult = rank.match(/^(Iron|Bronze|Silver|Gold|Platinum|Diamond|Ascendant|Immortal)\s+(\d)$/i);
+        if (!matchResult) return rank.toLowerCase() === "radiant" ? "RAD" : "UR";
+        const [, tier, division] = matchResult;
+        const abbreviations: Record<string, string> = {
+            iron: "I", bronze: "B", silver: "S", gold: "G", platinum: "P",
+            diamond: "D", ascendant: "A", immortal: "IMM"
+        };
+        return `${abbreviations[tier.toLowerCase()]}${division}`;
+    };
+
     const handleLoadMore = async () => {
         if (!lastKey || loadingMore) return;
 
@@ -296,12 +308,12 @@ export function MatchHistory({
     const canShowLoadMore = !isInitialLoading && hasMore;
 
     return (
-        <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-lg overflow-hidden">
-            <div className="border-b border-[#1a1a1a] p-6">
+        <section className="match-history-panel">
+            <div className="match-history-heading">
                 <h3 className="text-white">Match History</h3>
             </div>
 
-            <div className="p-6 space-y-4">
+            <div className="match-history-content space-y-4">
                 {isInitialLoading || (isBackgroundRefreshing && matches.length === 0) ? (
                     Array.from({ length: 5 }).map((_, idx) => <MatchSkeleton key={idx} />)
                 ) : (
@@ -351,7 +363,7 @@ export function MatchHistory({
                                             onMouseEnter={() => setHoveredMatch(match.id)}
                                             onMouseLeave={() => setHoveredMatch(null)}
                                         >
-                                            <div className="relative p-5" style={matchBgStyle}>
+                                            <div className="match-card-body relative p-5" style={matchBgStyle}>
                                                 <div className="absolute inset-0 bg-black/75 z-0 pointer-events-none" />
                                                 <div
                                                     className="absolute inset-0 z-10 pointer-events-none"
@@ -365,9 +377,9 @@ export function MatchHistory({
                                                     }}
                                                 />
 
-                                                <div className="flex items-center justify-between relative z-30">
-                                                    <div className="flex items-center gap-4">
-                                                        <div className="w-16 h-16 bg-black/30 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
+                                                <div className="match-card-summary flex items-center justify-between relative z-30">
+                                                    <div className="match-card-primary flex items-center gap-4">
+                                                        <div className="match-card-agent w-16 h-16 bg-black/30 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
                                                             {match.agentIcon ? (
                                                                 <img
                                                                     src={match.agentIcon}
@@ -381,8 +393,8 @@ export function MatchHistory({
                                                             )}
                                                         </div>
 
-                                                        <div>
-                                                            <div className="flex flex-wrap items-center gap-2 mb-2">
+                                                        <div className="match-card-copy">
+                                                            <div className="match-card-badges flex flex-wrap items-center gap-2 mb-2">
                                                                 <span className="text-white">{match.map}</span>
                                                                 <span className={`px-3 py-1 rounded ${resultBadgeColor}`}>
                                                                     {match.result}
@@ -396,8 +408,11 @@ export function MatchHistory({
                                                                         alt="Rank Icon"
                                                                         className="w-3 h-3"
                                                                     />
-                                                                    <span className="text-xs text-gray-300">
+                                                                    <span className="rank-name-full text-xs text-gray-300">
                                                                         {getRankName(match)}
+                                                                    </span>
+                                                                    <span className="rank-name-compact text-xs text-gray-300" aria-label={getRankName(match)}>
+                                                                        {getCompactRankName(match)}
                                                                     </span>
                                                                 </div>
 
@@ -434,7 +449,7 @@ export function MatchHistory({
                                                                 )}
                                                             </div>
 
-                                                            <div className="flex w-full min-w-0 items-center justify-between gap-3 rounded bg-black/30 px-2 py-1 text-xs text-gray-400">
+                                                            <div className="match-card-stats flex w-full min-w-0 items-center justify-between gap-3 rounded bg-black/30 px-2 py-1 text-xs text-gray-400">
                                                                 <span className="min-w-0 truncate">Agent: {match.agent}</span>
                                                                 <span className="shrink-0 whitespace-nowrap">KDA: {match.kda}</span>
                                                                 <span className="shrink-0 whitespace-nowrap">ACS: {match.acs}</span>
@@ -443,7 +458,7 @@ export function MatchHistory({
                                                         </div>
                                                     </div>
 
-                                                    <div className="flex items-center gap-3">
+                                                    <div className="match-card-meta flex items-center gap-3">
                                                         <div className="match-server-time">
                                                             {match.server && (
                                                                 <div className="match-server-time-row">
@@ -497,6 +512,6 @@ export function MatchHistory({
                     </div>
                 )}
             </div>
-        </div>
+        </section>
     );
 }

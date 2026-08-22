@@ -48,33 +48,44 @@ function ActRankCard({ label, season, loading }: { label: string; season?: impor
     .filter((entry) => entry.patched_tier && entry.patched_tier !== 'Unrated')
     .sort((a, b) => rankOrder(b.patched_tier) - rankOrder(a.patched_tier))
     .slice(0, 9);
-  const rows: typeof wins[] = [];
-  for (let size = 1, offset = 0; offset < wins.length; size += 2) {
-    rows.push(wins.slice(offset, offset + size));
-    offset += size;
-  }
+  // Build partial act ranks from the bottom upward so every marker is
+  // supported by a complete, symmetric row instead of collapsing vertically.
+  const triangleSlots = [
+    { left: 34, top: 44, direction: 'up' as const },
+    { left: 22, top: 44, direction: 'down' as const },
+    { left: 46, top: 44, direction: 'down' as const },
+    { left: 10, top: 44, direction: 'up' as const },
+    { left: 58, top: 44, direction: 'up' as const },
+    { left: 34, top: 22, direction: 'down' as const },
+    { left: 22, top: 22, direction: 'up' as const },
+    { left: 46, top: 22, direction: 'up' as const },
+    { left: 34, top: 0, direction: 'up' as const },
+  ];
   const peak = wins[0]?.patched_tier ?? season?.final_rank_patched ?? 'Unranked';
 
   return (
     <div className="rank-card act-rank-card">
       <div className="act-rank-triangle" aria-label={`${peak} act rank with ${season?.wins ?? 0} wins`}>
-        {loading ? <Skeleton className="h-11 w-16" /> : rows.length ? rows.map((row, index) => (
-          <div className="act-rank-row" key={index}>
-            {row.map((win, winIndex) => (
-              <img
-                key={`${index}-${winIndex}`}
-                src={rankTriangleIcon(win.patched_tier, winIndex % 2 === 0 ? 'up' : 'down')}
-                alt=""
-                title={win.patched_tier}
-              />
-            ))}
-          </div>
-        )) : <Shield size={22} />}
-        {!loading && rows.length > 0 && (
+        {loading ? <Skeleton className="h-11 w-16" /> : wins.length ? wins.map((win, index) => {
+          const slot = triangleSlots[index];
+          return (
+            <img
+              className="act-rank-win"
+              key={`${win.patched_tier}-${index}`}
+              src={rankTriangleIcon(win.patched_tier, slot.direction)}
+              style={{ left: slot.left, top: slot.top }}
+              alt=""
+              title={win.patched_tier}
+              onError={(event) => { event.currentTarget.style.display = 'none'; }}
+            />
+          );
+        }) : <Shield size={22} />}
+        {!loading && wins.length > 0 && (
           <img
             className="act-rank-center-icon"
             src={rankLargeIcon(peak)}
             alt={`${peak} rank icon`}
+            onError={(event) => { event.currentTarget.style.display = 'none'; }}
           />
         )}
       </div>

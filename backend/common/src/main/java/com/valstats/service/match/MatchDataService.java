@@ -132,15 +132,16 @@ public class MatchDataService {
         if (!succeeded) return false;
 
         dynamoDbService.updatePlayerLastRecentMatchUpdate(region, name, tag);
-        if (dynamoDbService.getMMRHistory(puuid).isEmpty()) {
-            try {
-                Map<String, Object> mmrHistory = apiRequestQueue.execute(
-                        "MMR history for " + name + "#" + tag,
-                        () -> apiClient.getMMRHistory(region, name, tag));
-                cacheMMRHistory(puuid, mmrHistory);
-            } catch (Exception e) {
-                LOG.warn("MMR refresh failed for {}#{}: {}", name, tag, e.getMessage());
-            }
+        // Match history and MMR history are separate Henrik datasets. Refresh MMR
+        // after every successful match sync so newly discovered matches receive
+        // their RR changes even when older MMR records already exist in DynamoDB.
+        try {
+            Map<String, Object> mmrHistory = apiRequestQueue.execute(
+                    "MMR history for " + name + "#" + tag,
+                    () -> apiClient.getMMRHistory(region, name, tag));
+            cacheMMRHistory(puuid, mmrHistory);
+        } catch (Exception e) {
+            LOG.warn("MMR refresh failed for {}#{}: {}", name, tag, e.getMessage());
         }
         return true;
     }

@@ -61,6 +61,7 @@ function isRecentMatch(match: Match) {
 
 export function MatchHistory({
                                  puuid,
+                                 region,
                                  playerName,
                                  playerTag,
                                  selectedAct,
@@ -69,6 +70,7 @@ export function MatchHistory({
                                  onRefreshComplete
                              }: {
     puuid?: string | null;
+    region: string;
     playerName: string;
     playerTag: string;
     selectedAct: string;
@@ -102,9 +104,9 @@ export function MatchHistory({
                 params.set("lastKey", encodeURIComponent(JSON.stringify(cursor)));
             }
 
-            return `${API_BASE_URL}/matches/na/${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}?${params.toString()}`;
+            return `${API_BASE_URL}/matches/${encodeURIComponent(region)}/${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}?${params.toString()}`;
         },
-        [playerName, playerTag, selectedAct, selectedMode]
+        [region, playerName, playerTag, selectedAct, selectedMode]
     );
 
     const fetchInitialMatches = useCallback(async (showLoading = true) => {
@@ -159,7 +161,7 @@ export function MatchHistory({
     const refreshMatches = useCallback(async () => {
         setIsBackgroundRefreshing(true);
         try {
-            const baseUrl = `${API_BASE_URL}/matches/na/${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}`;
+            const baseUrl = `${API_BASE_URL}/matches/${encodeURIComponent(region)}/${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}`;
             const statusResponse = await fetch(`${baseUrl}/refresh-status`);
             if (!statusResponse.ok) return;
             const statusPayload = await statusResponse.json();
@@ -190,7 +192,7 @@ export function MatchHistory({
             setIsBackgroundRefreshing(false);
             onRefreshingChange?.(false);
         }
-    }, [playerName, playerTag, fetchInitialMatches, onRefreshingChange, onRefreshComplete]);
+    }, [region, playerName, playerTag, fetchInitialMatches, onRefreshingChange, onRefreshComplete]);
 
     useEffect(() => {
         setMatches([]);

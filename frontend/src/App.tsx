@@ -74,7 +74,7 @@ export default function App() {
               </div>
               <StatsOverview stats={stats} loading={rankLoading || statsWaitingForMatches} />
             </section>
-            {activePlayer?.name && activePlayer.tag && <MatchHistory puuid={profile?.puuid ?? player.puuid} playerName={activePlayer.name} playerTag={activePlayer.tag} selectedAct={act.id} selectedMode={mode.id} onRefreshingChange={setMatchesRefreshing} onRefreshComplete={handleMatchRefreshComplete} />}
+            {region && activePlayer?.name && activePlayer.tag && <MatchHistory puuid={profile?.puuid ?? player.puuid} region={region} playerName={activePlayer.name} playerTag={activePlayer.tag} selectedAct={act.id} selectedMode={mode.id} onRefreshingChange={setMatchesRefreshing} onRefreshComplete={handleMatchRefreshComplete} />}
           </div>
         )}
       </main>

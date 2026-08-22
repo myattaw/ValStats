@@ -64,6 +64,17 @@ class ValStatsInfrastructureTest {
                 "Runtime", "java21",
                 "Architectures", java.util.List.of("arm64")
         )));
+        template.hasResourceProperties("AWS::ApiGatewayV2::Stage", Match.objectLike(Map.of(
+                "StageName", "$default",
+                "DefaultRouteSettings", Map.of(
+                        "ThrottlingRateLimit", 50,
+                        "ThrottlingBurstLimit", 100
+                )
+        )));
+        template.hasResourceProperties("AWS::Lambda::EventSourceMapping", Match.objectLike(Map.of(
+                "BatchSize", 1,
+                "ScalingConfig", Map.of("MaximumConcurrency", 2)
+        )));
     }
 
     @Test

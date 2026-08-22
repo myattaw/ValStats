@@ -34,6 +34,9 @@ import java.util.List;
 import java.util.Map;
 
 public final class ValStatsApplicationStack extends Stack {
+    private static final double API_RATE_LIMIT_PER_SECOND = 50.0;
+    private static final int API_BURST_LIMIT = 100;
+
     public ValStatsApplicationStack(
             Construct scope,
             String id,
@@ -153,6 +156,10 @@ public final class ValStatsApplicationStack extends Stack {
                 .apiId(httpApi.getRef())
                 .stageName("$default")
                 .autoDeploy(true)
+                .defaultRouteSettings(CfnStage.RouteSettingsProperty.builder()
+                        .throttlingRateLimit(API_RATE_LIMIT_PER_SECOND)
+                        .throttlingBurstLimit(API_BURST_LIMIT)
+                        .build())
                 .build();
 
         CfnPermission.Builder.create(this, "ApiInvokePermission")

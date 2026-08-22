@@ -15,6 +15,7 @@ export function GameModeSelector({ value, onChange, region, name, tag }: {
   const [modes, setModes] = useState<GameMode[]>([{ value: 'competitive', label: 'Competitive' }]);
 
   useEffect(() => {
+    if (!region || !name || !tag) return;
     const controller = new AbortController();
     fetch(`${API_BASE_URL}/modes/${encodeURIComponent(region)}/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`, { signal: controller.signal })
       .then((response) => response.ok ? response.json() : Promise.reject(new Error('Failed to load modes')))

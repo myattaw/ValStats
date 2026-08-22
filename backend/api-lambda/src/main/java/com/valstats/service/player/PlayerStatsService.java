@@ -42,6 +42,16 @@ public class PlayerStatsService {
             if (!"all".equals(normalizedMode)
                     && !normalizedMode.equals(stringValue(item, "mode"))) continue;
             add(stats, "matches_played", 1);
+            String team = stringValue(item, "team").toLowerCase(Locale.ROOT);
+            long redRounds = numberValue(item, "redRoundsWon");
+            long blueRounds = numberValue(item, "blueRoundsWon");
+            boolean hasRoundResult = item.containsKey("redRoundsWon") && item.containsKey("blueRoundsWon");
+            if (hasRoundResult && ("red".equals(team) || "blue".equals(team)) && redRounds != blueRounds) {
+                boolean won = "red".equals(team) ? redRounds > blueRounds : blueRounds > redRounds;
+                add(stats, won ? "wins" : "losses", 1);
+            } else if (hasRoundResult && ("red".equals(team) || "blue".equals(team)) && redRounds == blueRounds) {
+                add(stats, "draws", 1);
+            }
             add(stats, "total_kills", numberValue(item, "kills"));
             add(stats, "total_deaths", numberValue(item, "deaths"));
             add(stats, "total_assists", numberValue(item, "assists"));
@@ -75,6 +85,9 @@ public class PlayerStatsService {
         long kills = stats.getOrDefault("total_kills", 0L);
         long deaths = stats.getOrDefault("total_deaths", 0L);
         long matches = stats.getOrDefault("matches_played", 0L);
+        long wins = stats.getOrDefault("wins", 0L);
+        long losses = stats.getOrDefault("losses", 0L);
+        long draws = stats.getOrDefault("draws", 0L);
         long score = stats.getOrDefault("total_score", 0L);
         long damage = stats.getOrDefault("total_damage", 0L);
         long totalRounds = stats.getOrDefault("total_rounds", 0L);
@@ -90,9 +103,14 @@ public class PlayerStatsService {
         double acs = totalRounds > 0 ? (double) score / totalRounds : 0;
         double kpr = totalRounds > 0 ? (double) kills / totalRounds : 0;
         double adr = totalRounds > 0 ? (double) damage / totalRounds : 0;
+        double winRate = wins + losses > 0 ? (double) wins / (wins + losses) * 100 : 0;
 
         Map<String, Object> data = new HashMap<>();
         data.put("matches_played", matches);
+        data.put("wins", wins);
+        data.put("losses", losses);
+        data.put("draws", draws);
+        data.put("win_rate", round(winRate));
         data.put("kd_ratio", round(kd));
         data.put("headshot_percent", round(hs));
         data.put("avg_combat_score", round(acs));

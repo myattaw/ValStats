@@ -9,13 +9,18 @@ function rankIcon(tier?: number) {
   return tier ? `https://media.valorant-api.com/competitivetiers/${TIER_SET}/${tier}/smallicon.png` : undefined;
 }
 
-function RankCard({ label, name, icon, loading }: { label: string; name: string; icon?: string; loading: boolean }) {
+function RankCard({ label, name, icon, loading, rr }: { label: string; name: string; icon?: string; loading: boolean; rr?: number }) {
+  const showProgress = rr !== undefined && rr >= 0 && !/^(Immortal|Radiant)/i.test(name);
   return (
     <div className="rank-card compact-rank-card">
       <div className="rank-icon">
         {loading ? <Skeleton className="h-10 w-10 rounded-full" /> : icon ? <img src={icon} alt="" /> : <Shield size={22} />}
       </div>
-      <div><span>{label}</span><strong>{loading ? 'Loading…' : name}</strong></div>
+      <div className="rank-copy">
+        <span>{label}</span><strong>{loading ? 'Loading…' : name}</strong>
+        {!loading && rr !== undefined && <small>{rr} RR{showProgress ? ` · ${Math.max(0, 100 - rr)} to rank up` : ''}</small>}
+        {!loading && showProgress && <div className="rr-progress" aria-label={`${rr} out of 100 rank rating`}><i style={{ width: `${Math.min(rr, 100)}%` }} /></div>}
+      </div>
     </div>
   );
 }
@@ -139,7 +144,7 @@ export function PlayerProfile({ profile, mmr, seasonKey, actLabel, loading, load
       </div>
       <div className="rank-grid">
         <ActRankCard label="Peak" season={peakActSeason} loading={loading} />
-        <RankCard label={actLabel} name={currentName} icon={season ? rankIcon(currentTier) : mmr?.current_data?.images?.small} loading={loading} />
+        <RankCard label={actLabel} name={currentName} icon={season ? rankIcon(currentTier) : mmr?.current_data?.images?.small} loading={loading} rr={seasonKey ? undefined : mmr?.current_data?.ranking_in_tier} />
         <div className="rank-card compact-rank-card win-rate">
           <div className="win-ring" style={{ '--progress': `${winRate * 3.6}deg` } as React.CSSProperties}>{winRate}%</div>
           <div><span>Win rate</span><strong>{games ? `${wins}W · ${games - wins}L` : 'No games'}</strong></div>

@@ -349,7 +349,7 @@ export const TeamDisplay = ({
         <div
             className={`p-3 border-l border-r ${isBottom ? "border-b rounded-b-lg" : ""} ${bgColor} ${borderColor}`}>
             <div className="scoreboard-team-header">
-                <h4>{label}</h4>
+                <h4>{label}<small className="timeline-scroll-hint" aria-hidden="true">Swipe rounds <span>↔</span></small></h4>
                 <div className="scoreboard-round-numbers" aria-label="Round numbers">
                     {rounds.map((round) => <span key={round.number}>{round.number}</span>)}
                 </div>

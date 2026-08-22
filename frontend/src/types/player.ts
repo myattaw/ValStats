@@ -2,6 +2,7 @@ export interface PlayerIdentifier {
   name: string;
   tag: string;
   puuid?: string;
+  region?: string;
 }
 
 export interface ProfileData extends PlayerIdentifier {

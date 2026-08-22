@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { API_BASE_URL } from '../components/Match/utils/matchUtils';
 import type { MmrData, PlayerIdentifier, PlayerStats, ProfileData } from '../types/player';
 
-const REGION = 'na';
-
 async function request<T>(path: string, signal: AbortSignal): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, { signal });
   if (!response.ok) throw new Error(`Request failed (${response.status})`);
@@ -21,6 +19,7 @@ function isAbortError(reason: unknown) {
 
 export function usePlayerData(player: PlayerIdentifier | null, actId: string, mode: string) {
   const [resolvedPlayer, setResolvedPlayer] = useState<PlayerIdentifier | null>(player);
+  const [region, setRegion] = useState<string | null>(player?.region ?? null);
   const [identityLoading, setIdentityLoading] = useState(false);
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [stats, setStats] = useState<PlayerStats | null>(null);
@@ -35,6 +34,7 @@ export function usePlayerData(player: PlayerIdentifier | null, actId: string, mo
   useEffect(() => {
     if (!player) {
       setResolvedPlayer(null);
+      setRegion(null);
       return;
     }
     if (player.name && player.tag) {
@@ -51,7 +51,9 @@ export function usePlayerData(player: PlayerIdentifier | null, actId: string, mo
       controller.signal
     ).then((identity) => {
       if (!identity?.name || !identity?.tag) throw new Error('No identity is stored for this UUID.');
-      setResolvedPlayer({name: identity.name, tag: identity.tag, puuid: player.puuid});
+      const resolvedRegion = identity.region?.trim().toLowerCase() || 'na';
+      setRegion(resolvedRegion);
+      setResolvedPlayer({name: identity.name, tag: identity.tag, puuid: player.puuid, region: resolvedRegion});
     }).catch((reason) => {
       if (!isAbortError(reason)) {
         console.error('Failed to resolve player UUID', reason);
@@ -69,6 +71,7 @@ export function usePlayerData(player: PlayerIdentifier | null, actId: string, mo
     setStats(null);
     setMmr(null);
     setUpdatedAt(null);
+    setRegion(player?.region ?? null);
   }, [player]);
 
   useEffect(() => {
@@ -89,7 +92,10 @@ export function usePlayerData(player: PlayerIdentifier | null, actId: string, mo
     setError(null);
 
     request<ProfileData>(`/account/${name}/${tag}`, controller.signal)
-      .then(setProfile)
+      .then((loadedProfile) => {
+        setProfile(loadedProfile);
+        setRegion(loadedProfile.region?.trim().toLowerCase() || resolvedPlayer.region || 'na');
+      })
       .catch((reason) => {
         if (!isAbortError(reason)) {
           console.error('Failed to load player account', reason);
@@ -104,7 +110,7 @@ export function usePlayerData(player: PlayerIdentifier | null, actId: string, mo
   }, [resolvedPlayer, refreshVersion]);
 
   useEffect(() => {
-    if (!resolvedPlayer?.name || !resolvedPlayer.tag) return;
+    if (!resolvedPlayer?.name || !resolvedPlayer.tag || !region) return;
     const controller = new AbortController();
     const name = encodeURIComponent(resolvedPlayer.name);
     const tag = encodeURIComponent(resolvedPlayer.tag);
@@ -113,8 +119,8 @@ export function usePlayerData(player: PlayerIdentifier | null, actId: string, mo
     setRankLoading(true);
 
     Promise.allSettled([
-      request<PlayerStats>(`/stats/${REGION}/${name}/${tag}?seasonId=${season}&mode=${encodeURIComponent(mode)}`, controller.signal),
-      request<MmrData>(`/mmr/${REGION}/${name}/${tag}?seasonId=${season}`, controller.signal),
+      request<PlayerStats>(`/stats/${encodeURIComponent(region)}/${name}/${tag}?seasonId=${season}&mode=${encodeURIComponent(mode)}`, controller.signal),
+      request<MmrData>(`/mmr/${encodeURIComponent(region)}/${name}/${tag}?seasonId=${season}`, controller.signal),
     ]).then(([statsResult, mmrResult]) => {
       if (controller.signal.aborted) return;
 
@@ -129,7 +135,7 @@ export function usePlayerData(player: PlayerIdentifier | null, actId: string, mo
     });
 
     return () => controller.abort();
-  }, [resolvedPlayer, actId, mode, refreshVersion]);
+  }, [resolvedPlayer, region, actId, mode, refreshVersion]);
 
   const loadState = useMemo<'initial-loading' | 'refreshing' | 'updated'>(() => {
     if ((identityLoading || profileLoading || rankLoading) && !profile && !stats && !mmr) return 'initial-loading';
@@ -147,7 +153,7 @@ export function usePlayerData(player: PlayerIdentifier | null, actId: string, mo
     loadState,
     updatedAt,
     resolvedPlayer,
-    region: REGION,
+    region: region ?? '',
     refreshPlayerData,
   };
 }

@@ -24,7 +24,7 @@ export function StatsOverview({ stats, loading = false }: StatsOverviewProps) {
         {
             label: 'Win Rate',
             value: `${(stats.win_rate ?? 0).toFixed(1)}%`,
-            detail: `${stats.wins ?? 0}W · ${stats.losses ?? 0}L${stats.draws ? ` · ${stats.draws}D` : ''}`,
+            detail: `${stats.wins ?? 0}W / ${stats.losses ?? 0}L${stats.draws ? ` / ${stats.draws}D` : ''}`,
             icon: Swords,
         },
         {

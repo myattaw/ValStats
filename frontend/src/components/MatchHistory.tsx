@@ -427,7 +427,7 @@ export function MatchHistory({
                                                                         )}
                                                                         <span className="text-xs">
                                                                             {match.rrChange > 0 ? "+" : ""}
-                                                                            {match.rrChange} RR
+                                                                            {match.rrChange}<span className="rr-suffix"> RR</span>
                                                                         </span>
                                                                     </div>
                                                                 )}

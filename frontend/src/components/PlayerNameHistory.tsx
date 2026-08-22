@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ChevronDown, X } from 'lucide-react';
 import { API_BASE_URL } from './Match/utils/matchUtils';
 
 interface NameObservation {
@@ -18,6 +18,25 @@ function formatDate(timestamp: number) {
 export function PlayerNameHistory({ puuid, refreshVersion = 0 }: { puuid?: string; refreshVersion?: number }) {
   const [names, setNames] = useState<NameObservation[]>([]);
   const [open, setOpen] = useState(false);
+  const historyElement = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (event.target instanceof Node && !historyElement.current?.contains(event.target)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePress);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePress);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [open]);
+
+  useEffect(() => setOpen(false), [puuid]);
 
   useEffect(() => {
     if (!puuid) return;
@@ -78,7 +97,7 @@ export function PlayerNameHistory({ puuid, refreshVersion = 0 }: { puuid?: strin
     .sort((a, b) => b.lastSeen - a.lastSeen);
 
   return (
-    <div className="name-history">
+    <div ref={historyElement} className="name-history">
       <button
         className="name-history-toggle"
         onClick={() => setOpen((value) => !value)}
@@ -92,8 +111,13 @@ export function PlayerNameHistory({ puuid, refreshVersion = 0 }: { puuid?: strin
         <ChevronDown className={open ? 'open' : ''} />
       </button>
       {open && (
-        <div className="name-history-list">
-          <p className="name-history-heading">This player has also played as:</p>
+        <div className="name-history-list" role="dialog" aria-label="Previous Riot IDs">
+          <div className="name-history-list-header">
+            <p className="name-history-heading">This player has also played as:</p>
+            <button type="button" className="name-history-close" onClick={() => setOpen(false)} aria-label="Close name history">
+              <X />
+            </button>
+          </div>
           {previousTimeline.map((entry) => (
             <div key={`${entry.name}#${entry.tag}-${entry.firstSeen}`}>
               <strong>{entry.name}<span>#{entry.tag}</span></strong>

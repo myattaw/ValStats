@@ -46,28 +46,35 @@ function rankLargeIcon(name: string) {
 function ActRankCard({ label, season, loading }: { label: string; season?: import('../types/player').SeasonRank; loading: boolean }) {
   const wins = [...(season?.act_rank_wins ?? [])]
     .filter((entry) => entry.patched_tier && entry.patched_tier !== 'Unrated')
-    .sort((a, b) => rankOrder(b.patched_tier) - rankOrder(a.patched_tier))
     .slice(0, 9);
-  // Build partial act ranks from the bottom upward so every marker is
-  // supported by a complete, symmetric row instead of collapsing vertically.
+  // These slots follow Valorant's 1/3/5 act-rank triangle. The API win order
+  // is preserved: the newest win occupies the top, and empty slots trail at
+  // the end of the bottom row.
   const triangleSlots = [
-    { left: 34, top: 44, direction: 'up' as const },
-    { left: 22, top: 44, direction: 'down' as const },
-    { left: 46, top: 44, direction: 'down' as const },
-    { left: 10, top: 44, direction: 'up' as const },
-    { left: 58, top: 44, direction: 'up' as const },
-    { left: 34, top: 22, direction: 'down' as const },
-    { left: 22, top: 22, direction: 'up' as const },
-    { left: 46, top: 22, direction: 'up' as const },
     { left: 34, top: 0, direction: 'up' as const },
+    { left: 22, top: 22, direction: 'up' as const },
+    { left: 34, top: 22, direction: 'down' as const },
+    { left: 46, top: 22, direction: 'up' as const },
+    { left: 10, top: 44, direction: 'up' as const },
+    { left: 22, top: 44, direction: 'down' as const },
+    { left: 34, top: 44, direction: 'up' as const },
+    { left: 46, top: 44, direction: 'down' as const },
+    { left: 58, top: 44, direction: 'up' as const },
   ];
-  const peak = wins[0]?.patched_tier ?? season?.final_rank_patched ?? 'Unranked';
+  const peakWin = wins.reduce<(typeof wins)[number] | undefined>(
+    (best, win) => !best || rankOrder(win.patched_tier) > rankOrder(best.patched_tier) ? win : best,
+    undefined
+  );
+  const peak = peakWin?.patched_tier ?? season?.final_rank_patched ?? 'Unranked';
 
   return (
     <div className="rank-card act-rank-card">
       <div className="act-rank-triangle" aria-label={`${peak} act rank with ${season?.wins ?? 0} wins`}>
-        {loading ? <Skeleton className="h-11 w-16" /> : wins.length ? wins.map((win, index) => {
-          const slot = triangleSlots[index];
+        {loading ? <Skeleton className="h-11 w-16" /> : wins.length ? triangleSlots.map((slot, index) => {
+          const win = wins[index];
+          if (!win) {
+            return <span className="act-rank-win act-rank-placeholder" key={`empty-${index}`} style={{ left: slot.left, top: slot.top }} aria-hidden="true" />;
+          }
           return (
             <img
               className="act-rank-win"

@@ -245,11 +245,12 @@
 .compact-team-table { border:0; border-radius:0; background:transparent; }
 .compact-team-table.enemy { padding-left:6px; border-left:1px solid var(--line); }
 .compact-team-table.ally { padding-right:6px; }
-.compact-team-table>h4 { padding-inline:8px; background:transparent; }
+.compact-team-table>h4 { padding-inline:8px; border-radius:6px 6px 0 0; background:transparent; }
 .compact-team-columns { background:rgba(255,255,255,.012); }
 .compact-score-row { position:relative; border-bottom:0; background:transparent; }
-.compact-score-row::after { content:""; position:absolute; right:0; bottom:0; left:8px; height:1px; background:rgba(255,255,255,.045); }
+.compact-score-row::after { content:""; position:absolute; right:8px; bottom:0; left:8px; height:1px; background:rgba(255,255,255,.045); }
 .compact-score-row:last-child::after { display:none; }
+.compact-score-row:hover { border-radius:6px; }
 .compact-score-row.is-viewer { border-radius:6px; }
 
 .round-strip-header { background:transparent; }

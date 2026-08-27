@@ -122,7 +122,7 @@
   .compact-team-columns { min-height:27px; font-size:6px; letter-spacing:.035em; }
   .compact-team-columns span:nth-child(2) { font-size:0; }.compact-team-columns span:nth-child(2)::after { content:"R"; font-size:6px; }
   .compact-score-row { min-height:43px; font-size:7px; }
-  .compact-score-row::after { left:6px; }
+  .compact-score-row::after { right:6px; left:6px; }
   .compact-score-player { gap:5px; }.compact-score-player>img,.compact-score-player>span { width:25px; height:25px; flex-basis:25px; }.compact-score-player a { font-size:8px; line-height:1.05; }.compact-score-player small { margin-top:3px; font-size:6px; }
   .compact-score-rank { gap:0; }.compact-score-rank img,.compact-score-rank svg { width:17px; height:17px; flex-basis:17px; }.compact-score-rank span { display:none; }
   .compact-score-player b { margin-left:3px; padding:1px 3px; font-size:5px; }

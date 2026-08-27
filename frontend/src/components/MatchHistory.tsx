@@ -334,13 +334,9 @@ export function MatchHistory({
                             const isNew = newMatchIds.has(match.id);
                             const isRecent = isRecentMatch(match);
                             const isVictory = match.result === "Victory";
-                            const borderColor = isVictory ? "border-[#4ade80]" : "border-[#f87171]";
-                            const overlayColor = isVictory
-                                ? "rgba(74, 222, 128, 0.1)"
-                                : "rgba(248, 113, 113, 0.1)";
-                            const hoverOverlayColor = isVictory
-                                ? "rgba(74, 222, 128, 0.15)"
-                                : "rgba(248, 113, 113, 0.15)";
+                            const borderColor = isVictory ? "match-victory" : "match-defeat";
+                            const overlayColor = "rgba(8, 13, 18, 0.70)";
+                            const hoverOverlayColor = "rgba(255, 255, 255, 0.025)";
                             const resultBadgeColor = isVictory
                                 ? "bg-[#4ade80]/20 text-[#4ade80]"
                                 : "bg-[#f87171]/20 text-[#f87171]";
@@ -364,7 +360,7 @@ export function MatchHistory({
                                             onMouseLeave={() => setHoveredMatch(null)}
                                         >
                                             <div className="match-card-body relative p-5" style={matchBgStyle}>
-                                                <div className="absolute inset-0 bg-black/75 z-0 pointer-events-none" />
+                                                <div className="match-map-dimmer absolute inset-0 z-0 pointer-events-none" />
                                                 <div
                                                     className="absolute inset-0 z-10 pointer-events-none"
                                                     style={{ backgroundColor: overlayColor }}
@@ -395,11 +391,11 @@ export function MatchHistory({
 
                                                         <div className="match-card-copy">
                                                             <div className="match-card-badges flex flex-wrap items-center gap-2 mb-2">
-                                                                <span className="text-white">{match.map}</span>
+                                                                <span className="match-map-name text-white">{match.map}</span>
                                                                 <span className={`px-3 py-1 rounded ${resultBadgeColor}`}>
                                                                     {match.result}
                                                                 </span>
-                                                                <span className="text-gray-400 px-2 py-1 rounded bg-black/30">
+                                                                <span className="match-score text-gray-400 px-2 py-1 rounded bg-black/30">
                                                                     {match.score}-{match.enemy_score}
                                                                 </span>
                                                                 <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-black/30">
@@ -450,10 +446,10 @@ export function MatchHistory({
                                                             </div>
 
                                                             <div className="match-card-stats flex w-full min-w-0 items-center justify-between gap-3 rounded bg-black/30 px-2 py-1 text-xs text-gray-400">
-                                                                <span className="min-w-0 truncate">Agent: {match.agent}</span>
-                                                                <span className="shrink-0 whitespace-nowrap">KDA: {match.kda}</span>
-                                                                <span className="shrink-0 whitespace-nowrap">ACS: {match.acs}</span>
-                                                                <span className="shrink-0 whitespace-nowrap">ADR: {displayedAdr || "—"}</span>
+                                                                <span className="match-agent-name min-w-0 truncate">{match.agent}</span>
+                                                                <span className="shrink-0 whitespace-nowrap"><small>KDA</small>{match.kda}</span>
+                                                                <span className="shrink-0 whitespace-nowrap"><small>ACS</small>{match.acs}</span>
+                                                                <span className="shrink-0 whitespace-nowrap"><small>ADR</small>{displayedAdr || "—"}</span>
                                                             </div>
                                                         </div>
                                                     </div>

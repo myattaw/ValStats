@@ -1,8 +1,9 @@
-import { Search, Target } from 'lucide-react';
+import { Search, Target, X } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 
 export function SiteHeader({ compact, onSearch }: { compact: boolean; onSearch: (query: string) => void }) {
   const [query, setQuery] = useState('');
+  const [mobileSearch, setMobileSearch] = useState(false);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     onSearch(query);
@@ -16,12 +17,13 @@ export function SiteHeader({ compact, onSearch }: { compact: boolean; onSearch: 
           <span>VAL<span>STATS</span></span>
         </a>
         {compact && (
-          <form className="header-search" onSubmit={submit}>
+          <form className={`header-search ${mobileSearch ? 'mobile-open' : ''}`} onSubmit={submit}>
             <Search size={17} aria-hidden="true" />
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Player#Tag" aria-label="Riot ID" />
-            <button type="submit">Search</button>
+            <button type="submit" aria-label="Search player"><Search size={15}/><span>Search</span></button>
           </form>
         )}
+        {compact && <button className="mobile-header-action mobile-search-action" type="button" aria-label="Search players" aria-expanded={mobileSearch} onClick={() => setMobileSearch((open) => !open)}>{mobileSearch ? <X/> : <Search/>}</button>}
       </div>
     </header>
   );

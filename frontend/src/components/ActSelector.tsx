@@ -33,7 +33,7 @@ export function ActSelector({
                             }: ActSelectorProps) {
 
     const [acts, setActs] = useState<Act[]>([
-        { value: 'all', label: 'Current' } // cleaner than "All Acts"
+        { value: 'all', label: 'All Acts' }
     ]);
 
     // Fetch acts dynamically
@@ -81,7 +81,7 @@ export function ActSelector({
 
                 if (!cancelled) {
                     setActs([
-                        { value: 'all', label: 'Current' },
+                        { value: 'all', label: 'All Acts' },
                         ...sorted
                     ]);
                 }
@@ -102,7 +102,7 @@ export function ActSelector({
 
     // Reset to default when player changes
     useEffect(() => {
-        onActChange('all', 'Current');
+        onActChange('all', 'All Acts');
     }, [region, name, tag]);
 
     return (
@@ -112,7 +112,7 @@ export function ActSelector({
                 value={selectedAct}
                 onValueChange={(value) => {
                     const selected = acts.find(a => a.value === value);
-                    onActChange(value, selected?.label || "Current", selected?.seasonKey);
+                    onActChange(value, selected?.label || "All Acts", selected?.seasonKey);
                 }}
             >
                 <SelectTrigger

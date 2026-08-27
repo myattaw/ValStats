@@ -1,0 +1,45 @@
+@media (max-width: 560px) {
+  .compact-team-columns,
+  .compact-score-row {
+    grid-template-columns: minmax(110px, 1fr) 26px 60px 36px 36px 36px;
+    gap: 3px;
+    padding-inline: 6px;
+  }
+
+  .compact-team-columns {
+    min-height: 27px;
+    font-size: 7px;
+    letter-spacing: .035em;
+  }
+
+  .compact-team-columns > span:nth-child(7),
+  .compact-team-columns > span:nth-child(8),
+  .compact-team-columns > span:nth-child(9),
+  .compact-score-row > span:nth-child(7),
+  .compact-score-row > span:nth-child(8),
+  .compact-score-row > strong:last-child {
+    display: none;
+  }
+
+  .compact-score-row {
+    min-height: 43px;
+    font-size: 8px;
+  }
+
+  .compact-score-player a { font-size: 9px; }
+  .compact-score-player small { font-size: 7px; }
+}
+
+@media (max-width: 767px) {
+  .timeline-match-score {
+    width: 100%;
+    align-self: center;
+    justify-content: center;
+    padding-left: 0;
+    text-align: center;
+  }
+
+  .timeline-match-score::before {
+    display: none;
+  }
+}

@@ -427,20 +427,37 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: {
         }
     };
 
+    const firstEngagements = new Map<string, {kills: number; deaths: number}>();
+    details.rounds.forEach((matchRound) => {
+        const firstKill = matchRound.kills.reduce<RoundKill | undefined>((earliest, kill) => !earliest || kill.time < earliest.time ? kill : earliest, undefined);
+        if (!firstKill) return;
+        if (firstKill.killerPuuid) {
+            const entry = firstEngagements.get(firstKill.killerPuuid) ?? {kills: 0, deaths: 0};
+            entry.kills += 1;
+            firstEngagements.set(firstKill.killerPuuid, entry);
+        }
+        if (firstKill.victimPuuid) {
+            const entry = firstEngagements.get(firstKill.victimPuuid) ?? {kills: 0, deaths: 0};
+            entry.deaths += 1;
+            firstEngagements.set(firstKill.victimPuuid, entry);
+        }
+    });
+
     const renderScoreboardTeam = (label: string, players: PlayerStats[], relation: 'ally' | 'enemy') => {
         const averageAcs = players.length ? Math.round(players.reduce((sum, player) => sum + (player.rounds_played ?? roundsPlayed ? player.score / (player.rounds_played ?? roundsPlayed) : 0), 0) / players.length) : 0;
         const averageAdr = players.length ? Math.round(players.reduce((sum, player) => sum + (player.rounds_played ?? roundsPlayed ? player.damage_made / (player.rounds_played ?? roundsPlayed) : 0), 0) / players.length) : 0;
         return <section className={`compact-team-table ${relation}`}>
         <h4><span>{label}</span><small>Avg ACS {averageAcs} · Avg ADR {averageAdr}</small></h4>
-        <div className="compact-team-columns"><span>Player</span><span>Rank</span><span>KDA</span><span>ACS</span><span>ADR</span><span>HS%</span><span>+/-</span></div>
+        <div className="compact-team-columns"><span>Player</span><span>Rank</span><span>KDA</span><span>ACS</span><span>ADR</span><span>HS%</span><span>FK</span><span>FD</span><span>+/-</span></div>
         <div className="compact-team-players">{players.map((player) => {
             const rp = player.rounds_played ?? roundsPlayed;
             const differential = player.kills - player.deaths;
+            const firsts = firstEngagements.get(player.puuid) ?? {kills: 0, deaths: 0};
             const isViewer = Boolean(viewerPuuid && player.puuid === viewerPuuid);
             return <div className={`compact-score-row ${isViewer ? 'is-viewer' : ''}`} key={player.puuid || `${player.name}-${player.agent}`}>
                 <div className="compact-score-player">{player.agentIcon ? <img src={player.agentIcon} alt={player.agent}/> : <span>{player.agent[0]}</span>}<div><a href={playerUuidPath(player.puuid)}>{player.name}{player.tag && <i>#{player.tag}</i>}</a>{isViewer && <b>You</b>}<small>{player.agent}</small></div></div>
                 <div className="compact-score-rank">{player.currentTier ? <img src={`https://media.valorant-api.com/competitivetiers/${TIER_SET}/${player.currentTier}/smallicon.png`} alt={player.currentTierName || 'Rank'}/> : <Shield/>}<span>{player.currentTierName || 'Unranked'}</span></div>
-                <span>{player.kills}/{player.deaths}/{player.assists}</span><span>{rp ? Math.round(player.score / rp) : 0}</span><span>{rp ? Math.round(player.damage_made / rp) : 0}</span><span>{getHeadshotPercentage(player)}</span><strong className={differential >= 0 ? 'positive' : 'negative'}>{differential > 0 ? '+' : ''}{differential}</strong>
+                <span>{player.kills}/{player.deaths}/{player.assists}</span><span>{rp ? Math.round(player.score / rp) : 0}</span><span>{rp ? Math.round(player.damage_made / rp) : 0}</span><span>{getHeadshotPercentage(player)}</span><span>{firsts.kills}</span><span>{firsts.deaths}</span><strong className={differential >= 0 ? 'positive' : 'negative'}>{differential > 0 ? '+' : ''}{differential}</strong>
             </div>;
         })}</div>
     </section>;
@@ -480,7 +497,13 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: {
         dragged.current = false;
         return true;
     };
-    const renderRoundButton = (item: MatchRound) => <button type="button" key={item.number} className={`${isOwnTeamWin(item.winningTeam) ? 'ally' : 'enemy'} ${item.number === round?.number ? 'selected' : ''}`} onClick={() => { if (!consumeDrag()) setSelectedRound(item.number); }} aria-label={`Round ${item.number}`}><span>{item.number}</span><small>{isOwnTeamWin(item.winningTeam) ? '✓' : '×'}</small></button>;
+    const renderRoundButton = (item: MatchRound) => {
+        const kills = item.kills.filter((kill) => kill.killerPuuid === viewerPuuid).length;
+        const died = item.kills.some((kill) => kill.victimPuuid === viewerPuuid);
+        const visibleKillDots = Math.min(kills, died ? 5 : 6);
+        const combatLabel = kills || died ? `${kills} ${kills === 1 ? 'kill' : 'kills'}${died ? ', died' : ', survived'}` : 'No kills or death recorded';
+        return <button type="button" key={item.number} className={`${isOwnTeamWin(item.winningTeam) ? 'ally' : 'enemy'} ${item.number === round?.number ? 'selected' : ''}`} onClick={() => { if (!consumeDrag()) setSelectedRound(item.number); }} aria-label={`Round ${item.number}: ${combatLabel}`} title={`Round ${item.number} · ${combatLabel}`}><span>{item.number}</span>{kills || died ? <small className={`round-combat-marker ${kills && died ? 'split' : died ? 'death' : 'kills'}`}><img className="round-skull-image" src={kills && died ? '/icons/rounds/skull-kill-death.svg' : '/icons/rounds/skull.svg'} alt="" draggable={false}/><i className="round-combat-dots" aria-hidden="true">{Array.from({length: visibleKillDots}, (_, index) => <i className="kill-dot" key={`kill-${index}`}/>)}{died && <i className="death-dot"/>}</i></small> : <small className="round-combat-empty" aria-hidden="true"/>}</button>;
+    };
     const moveRoundStrip = (action: 'start' | 'previous' | 'next' | 'end') => {
         const strip = roundStripRef.current;
         if (!strip) return;

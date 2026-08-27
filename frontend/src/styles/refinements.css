@@ -1,0 +1,273 @@
+/* Round analysis sits between teams; the minimap is opt-in on every viewport. */
+@media (min-width:1200px) {
+  .main-content.page-shell,
+  .header-inner.page-shell { width:min(calc(100% - 48px),1250px); }
+}
+
+.combined-match-view {
+  display: block;
+}
+
+.match-map-toggle {
+  width: 100%;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: rgba(255,255,255,.018);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.match-map-toggle:hover {
+  background: rgba(255,255,255,.035);
+  color: #eef3f4;
+}
+
+.match-map-toggle > svg:first-child { width: 14px; color: var(--accent); }
+.match-map-toggle > span { flex: 1; text-align: left; }
+.match-map-toggle > svg:last-child { width: 15px; transition: transform .18s ease; }
+.match-map-toggle > svg:last-child.open { transform: rotate(180deg); }
+
+.collapsible-match-map {
+  max-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  opacity: 0;
+  transition: max-height .22s ease, opacity .16s ease, visibility 0s linear .22s;
+}
+
+.collapsible-match-map.open {
+  max-height: 420px;
+  visibility: visible;
+  opacity: 1;
+  border-top: 1px solid var(--line);
+  transition-delay: 0s;
+}
+
+.collapsible-match-map .map-stage,
+.collapsible-match-map .tactical-map {
+  min-height: 320px;
+}
+
+.mobile-round-heading { display:none; }
+.round-events-list > header { min-height:42px; display:flex; align-items:center; gap:9px; padding:7px 11px; }
+.round-events-list > header > div { min-width:0; flex:1; }
+.round-events-list > header strong,.round-events-list > header small { display:block; }
+.round-events-list > header strong { color:#e8edf0; font-size:11px; }
+.round-events-list > header small,.round-events-list > header > span:last-child { color:var(--faint); font-size:8px; }
+.round-map-layout { display:block; }
+
+@media (min-width:768px) {
+  .combined-round-events.map-open .round-map-layout { display:grid; grid-template-columns:minmax(260px,35fr) minmax(420px,65fr); align-items:stretch; }
+  .combined-round-events.map-open .round-events-list { min-width:0; border-right:1px solid var(--line); }
+  .combined-round-events.map-open .round-events-list .kill-feed { grid-template-columns:1fr; }
+  .combined-round-events.map-open .collapsible-match-map { min-width:0; }
+}
+
+.scoreboard-player-identity > div:last-child { min-width:0; }
+.scoreboard-player-link { display:inline-flex; vertical-align:middle; }
+.scoreboard-player-row .you-pill { display:inline-flex; margin:0 0 0 5px; vertical-align:middle; }
+
+.desktop-timeline-toolbar { display:grid; grid-template-columns:minmax(190px,220px) minmax(0,1fr) 190px; align-items:center; gap:12px; min-height:32px; padding:4px 12px; border-bottom:1px solid var(--line); color:var(--faint); font-size:8px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
+.desktop-timeline-toolbar>div { grid-column:2; display:flex; justify-content:flex-end; gap:3px; }
+.desktop-timeline-toolbar>button,.desktop-timeline-toolbar button { width:25px; height:23px; display:grid; place-items:center; border:1px solid var(--line); border-radius:4px; background:rgba(255,255,255,.025); color:var(--muted); cursor:pointer; }
+.desktop-timeline-toolbar button:hover { border-color:rgba(102,227,180,.3); background:var(--accent-soft); color:var(--accent); }
+.desktop-timeline-toolbar button svg { width:13px; height:13px; }
+.scoreboard-timeline-controls { display:flex; align-items:center; justify-content:flex-start; gap:3px; }
+.timeline-header-shell { position:relative; min-width:0; width:100%; display:block; }
+.timeline-header-shell .scoreboard-timeline-controls { position:absolute; z-index:3; top:calc(50% - 8px); transform:translateY(-50%); }
+.timeline-header-shell .scoreboard-timeline-controls.before { right:calc(100% + 7px); }
+.timeline-header-shell .scoreboard-timeline-controls.after { left:calc(100% + 7px); }
+.scoreboard-timeline-controls button { width:24px; height:22px; display:grid; place-items:center; border:1px solid var(--line); border-radius:4px; background:rgba(255,255,255,.025); color:var(--muted); cursor:pointer; }
+.scoreboard-timeline-controls button:hover { border-color:rgba(102,227,180,.3); background:var(--accent-soft); color:var(--accent); }
+.scoreboard-timeline-controls svg { width:12px; height:12px; }
+
+.section-toolbar .eyebrow,
+.match-history-heading h3 {
+  font-size: 13px;
+  line-height: 1;
+  letter-spacing: .1em;
+}
+
+.section-toolbar,
+.match-history-heading {
+  padding-left:18px;
+  padding-right:18px;
+}
+
+@media (min-width:768px) {
+  .scoreboard-only.timeline-overflowing .player-round-track { padding-inline:6px; }
+
+  .combined-match-view .scoreboard-player-row,
+  .combined-match-view .scoreboard-team-header {
+    grid-template-columns: minmax(190px,220px) minmax(0,1fr) 190px;
+  }
+
+  .combined-match-view .player-round-track,
+  .combined-match-view .scoreboard-round-numbers {
+    width:100%;
+    max-width:100%;
+    min-width:0;
+    justify-content:safe center;
+    justify-self:stretch;
+    align-self:center;
+    overflow-x:auto;
+    padding-inline:6px;
+    scroll-padding-inline:6px;
+    overscroll-behavior-inline:contain;
+  }
+
+  .combined-match-view .scoreboard-round-numbers span,
+  .combined-match-view .player-round-track button {
+    width:19px;
+    flex:0 0 19px;
+  }
+}
+
+@media (max-width: 767px) {
+  .desktop-timeline-toolbar { display:none; }
+  .scoreboard-timeline-controls { display:none; }
+  .combined-match-view .scoreboard-only .player-round-track,
+  .combined-match-view .scoreboard-only .scoreboard-round-numbers {
+    display: none !important;
+  }
+
+  .match-card-badges > span:nth-child(3),
+  .match-card-badges > div:nth-child(4),
+  .match-card-badges > div:nth-child(5) {
+    display: flex !important;
+  }
+
+  .match-card-badges > div:nth-child(n + 6) {
+    display: none !important;
+  }
+
+  .match-card-stats .match-agent-name,
+  .match-card-stats span:nth-child(2),
+  .match-card-stats span:nth-child(3) {
+    display: block !important;
+  }
+
+  .collapsible-match-map.open { max-height: 330px; }
+  .collapsible-match-map .map-stage,
+  .collapsible-match-map .tactical-map { min-height: 280px; }
+
+  .rank-name-full { display:inline!important; }
+  .rank-name-compact { display:none!important; }
+  .combined-match-view .scoreboard-player-link { max-width:none; }
+  .mobile-round-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 9px 3px; color:#dce3e7; font-size:10px; font-weight:750; }
+  .mobile-round-heading small { color:var(--faint); font-size:8px; font-weight:500; white-space:nowrap; }
+  .round-map-layout { display:block; }
+  .round-events-list > header { padding-inline:8px; }
+}
+
+/* Tabbed expanded match details */
+.tabbed-match-details .match-tabs { height:46px; }
+.tab-scoreboard > div { border-color:var(--line)!important; border-radius:0!important; background:transparent!important; }
+.tab-scoreboard .scoreboard-player-row,.tab-scoreboard .scoreboard-team-header { grid-template-columns:minmax(220px,1fr) auto; }
+.tab-scoreboard .player-round-track,.tab-scoreboard .scoreboard-round-numbers,.tab-scoreboard .timeline-header-shell { display:none!important; }
+.tab-scoreboard .scoreboard-player-stats { min-width:300px; justify-content:space-between; }
+
+.tab-round-strip { display:flex; gap:4px; padding:12px 14px 14px; overflow-x:auto; border-bottom:1px solid var(--line); scrollbar-width:thin; scrollbar-color:#35434d transparent; }
+.tab-round-strip button { position:relative; width:34px; height:32px; flex:0 0 34px; border:0; border-radius:5px; background:transparent; color:#7f8c97; font-size:10px; font-weight:700; cursor:pointer; }
+.tab-round-strip button:after { content:""; position:absolute; right:6px; bottom:1px; left:6px; height:3px; border-radius:99px; background:#53616c; }
+.tab-round-strip button.ally:after { background:var(--victory); }.tab-round-strip button.enemy:after { background:var(--defeat); }
+.tab-round-strip button:hover { background:rgba(255,255,255,.035); color:#dbe2e6; }.tab-round-strip button.selected { background:rgba(255,255,255,.06); color:#fff; }.tab-round-strip button.selected:after { right:4px; left:4px; height:4px; }
+.tab-round-analysis { display:grid; grid-template-columns:minmax(320px,42fr) minmax(420px,58fr); min-height:320px; }
+.tab-round-events { min-width:0; border-right:1px solid var(--line); }.tab-round-events>header { min-height:48px; display:flex; align-items:center; gap:10px; padding:8px 12px; border-bottom:1px solid var(--line); }.tab-round-events>header>div { min-width:0; flex:1; }.tab-round-events>header strong,.tab-round-events>header small { display:block; }.tab-round-events>header strong { color:#e8edf0; font-size:12px; }.tab-round-events>header small,.tab-round-events>header>span:last-child { color:var(--faint); font-size:9px; text-transform:capitalize; }.tab-round-events .kill-feed { grid-template-columns:1fr; border-top:0; }.tab-round-events .kill-event { width:100%; border:0; border-bottom:1px solid rgba(255,255,255,.045); font-family:inherit; cursor:pointer; }.tab-round-events .kill-event:hover,.tab-round-events .kill-event.selected { background:rgba(255,255,255,.04); }.tab-round-events .kill-event.selected { box-shadow:inset 2px 0 var(--accent); }
+.tab-round-map { min-width:0; background:#080e13; }.tab-round-map .map-stage,.tab-round-map .tactical-map { min-height:320px; }
+
+@media (max-width:767px) {
+  .tabbed-match-details .match-tabs { gap:16px; padding-inline:12px; overflow-x:auto; }.tabbed-match-details .match-tabs button { flex:0 0 auto; }
+  .tab-scoreboard { min-width:560px; overflow-x:auto; }.tab-scoreboard .scoreboard-player-row,.tab-scoreboard .scoreboard-team-header { grid-template-columns:minmax(190px,1fr) auto; }.tab-scoreboard .scoreboard-player-stats { min-width:270px; display:flex; }
+  .tab-round-strip { padding:9px 8px 12px; }.tab-round-analysis { display:block; min-height:0; }.tab-round-events { border-right:0; }.tab-round-map { border-top:1px solid var(--line); }.tab-round-map .map-stage,.tab-round-map .tactical-map { min-height:280px; }
+}
+
+/* Scoreboard and round-timeline reference layout */
+.tab-scoreboard { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; padding:14px; }
+.compact-team-table { min-width:0; overflow:hidden; border:1px solid var(--line); border-radius:8px; background:rgba(255,255,255,.012); }
+.compact-team-table>h4 { margin:0; padding:10px 11px; border-bottom:1px solid var(--line); color:#aeb9c1; font-size:9px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }.compact-team-table.ally>h4 { color:var(--victory); }.compact-team-table.enemy>h4 { color:var(--defeat); }
+.compact-team-columns,.compact-score-row { display:grid; grid-template-columns:minmax(145px,1.7fr) minmax(75px,.8fr) 68px 42px 42px 40px 34px; align-items:center; gap:5px; }
+.compact-team-columns { min-height:28px; padding:0 8px; border-bottom:1px solid var(--line); color:var(--faint); font-size:7px; font-weight:750; letter-spacing:.055em; text-transform:uppercase; }.compact-team-columns span:not(:first-child) { text-align:center; }
+.compact-score-row { min-height:46px; padding:5px 8px; border-bottom:1px solid rgba(255,255,255,.045); color:#d9e0e4; font-size:9px; font-variant-numeric:tabular-nums; }.compact-score-row:last-child { border-bottom:0; }.compact-score-row:hover { background:rgba(255,255,255,.02); }.compact-score-row.is-viewer { background:rgba(102,227,180,.065); box-shadow:inset 2px 0 var(--accent); }.compact-score-row>span,.compact-score-row>strong { text-align:center; font-weight:600; }.compact-score-row>strong.positive { color:var(--victory); }.compact-score-row>strong.negative { color:var(--defeat); }
+.compact-score-player { min-width:0; display:flex; align-items:center; gap:7px; }.compact-score-player>img,.compact-score-player>span { width:30px; height:30px; flex:0 0 30px; display:grid; place-items:center; border-radius:5px; object-fit:cover; background:#121c24; }.compact-score-player>div { min-width:0; line-height:1; }.compact-score-player a { display:inline-block; max-width:105px; overflow:hidden; color:#edf2f3; font-size:10px; font-weight:650; text-decoration:none; text-overflow:ellipsis; white-space:nowrap; vertical-align:middle; }.compact-score-player a i { color:var(--faint); font-style:normal; font-weight:500; }.compact-score-player b { display:inline-block; margin-left:4px; padding:2px 4px; border-radius:3px; background:var(--accent-soft); color:var(--accent); font-size:6px; text-transform:uppercase; vertical-align:middle; }.compact-score-player small { display:block; margin-top:4px; color:var(--faint); font-size:7px; }
+.compact-score-rank { min-width:0; display:flex; align-items:center; justify-content:center; gap:4px; }.compact-score-rank img,.compact-score-rank svg { width:18px; height:18px; flex:0 0 18px; }.compact-score-rank span { overflow:hidden; color:#aeb8bf; font-size:7px; text-overflow:ellipsis; white-space:nowrap; }
+
+.round-strip-header { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:18px; padding:12px 14px; border-bottom:1px solid var(--line); }.round-strip-header .tab-round-strip { min-width:0; padding:0; border:0; }
+.tab-round-strip button { width:40px; height:44px; flex-basis:40px; display:grid; place-items:center; align-content:center; gap:3px; border:1px solid rgba(255,255,255,.08); border-radius:6px; background:#101922; }.tab-round-strip button:after { display:none; }.tab-round-strip button span { color:#a9b4bc; font-size:10px; font-weight:800; }.tab-round-strip button small { color:#65737e; font-size:10px; line-height:1; }.tab-round-strip button.ally { border-color:rgba(69,212,131,.18); background:rgba(69,212,131,.06); }.tab-round-strip button.ally small { color:var(--victory); }.tab-round-strip button.enemy { border-color:rgba(240,100,104,.18); background:rgba(240,100,104,.055); }.tab-round-strip button.enemy small { color:var(--defeat); }.tab-round-strip button.selected { transform:translateY(-1px); background:#15222b; box-shadow:0 0 0 1px var(--accent),0 3px 8px rgba(0,0,0,.2); }.tab-round-strip button.selected.enemy { box-shadow:0 0 0 1px var(--defeat),0 3px 8px rgba(0,0,0,.2); }
+.timeline-match-score { min-width:150px; display:flex; align-items:center; justify-content:flex-end; gap:12px; }.timeline-match-score>div { text-align:center; }.timeline-match-score strong,.timeline-match-score span { display:block; }.timeline-match-score strong { color:var(--victory); font-size:21px; line-height:1; font-variant-numeric:tabular-nums; }.timeline-match-score>div:last-child strong { color:var(--defeat); }.timeline-match-score span { margin-top:4px; color:var(--faint); font-size:7px; text-transform:uppercase; }.timeline-match-score>i { color:#46535d; font-style:normal; }
+.tab-round-analysis { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; min-height:0; padding:12px; }.tab-round-events,.tab-round-map { overflow:hidden; border:1px solid var(--line); border-radius:8px; background:rgba(255,255,255,.012); }.tab-round-events { border-right:1px solid var(--line); }.tab-round-events>header { min-height:54px; }.tab-round-events .kill-feed { max-height:290px; overflow-y:auto; }.tab-round-events .kill-event { min-height:34px; grid-template-columns:38px minmax(0,1fr) 58px minmax(0,1fr); padding:6px 9px; }
+.tab-round-map>header { min-height:46px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 11px; border-bottom:1px solid var(--line); }.tab-round-map>header strong { color:#e6ecef; font-size:11px; }.tab-round-map>header small { color:var(--faint); font-size:8px; }.round-map-body { display:grid; grid-template-columns:minmax(0,1fr) 110px; align-items:center; min-height:300px; }.round-map-stage { min-width:0; }.round-map-stage .map-stage,.round-map-stage .tactical-map { min-height:280px; }.round-map-legend { display:grid; gap:9px; padding:12px; border-left:1px solid var(--line); color:#8d99a2; font-size:9px; }.round-map-legend span { white-space:nowrap; }.round-map-legend span.ally { color:var(--victory); }.round-map-legend span.enemy { color:var(--defeat); }.round-map-legend i { margin-left:4px; color:#8d99a2; font-style:normal; }
+
+@media (max-width:899px) {
+  .tab-scoreboard { min-width:0; grid-template-columns:1fr; overflow-x:auto; }.compact-team-table { min-width:600px; }
+  .round-strip-header { grid-template-columns:1fr; gap:10px; }.timeline-match-score { justify-content:flex-start; }.tab-round-analysis { grid-template-columns:1fr; }.round-map-body { grid-template-columns:minmax(0,1fr) 100px; }
+}
+
+/* Final scoreboard/timeline polish */
+.compact-team-columns,.compact-score-row { grid-template-columns:minmax(0,39fr) minmax(0,13fr) minmax(0,11fr) minmax(0,7fr) minmax(0,7fr) minmax(0,7fr) minmax(0,5fr) minmax(0,5fr) minmax(0,6fr); gap:4px; }
+.compact-team-columns { min-height:30px; color:#8997a1; font-size:8px; font-weight:800; letter-spacing:.065em; }
+.compact-team-table>h4 { min-height:42px; display:flex; align-items:center; justify-content:space-between; gap:10px; }.compact-team-table>h4 span { font-size:10px; }.compact-team-table>h4 small { color:var(--faint); font-size:7px; font-weight:550; letter-spacing:.02em; text-transform:none; white-space:nowrap; }.compact-team-table.ally>h4 { background:linear-gradient(90deg,rgba(69,212,131,.045),transparent 70%); }.compact-team-table.enemy>h4 { background:linear-gradient(90deg,rgba(240,100,104,.04),transparent 70%); }
+.compact-score-player a { max-width:calc(100% - 4px); }.compact-score-rank span { max-width:58px; }
+
+.round-strip-header { grid-template-columns:auto minmax(0,1fr) auto; gap:14px; }.round-strip-copy span,.round-strip-copy small { display:block; white-space:nowrap; }.round-strip-copy span { color:#dfe6e9; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.07em; }.round-strip-copy small { margin-top:3px; color:var(--faint); font-size:7px; }
+.tab-round-strip { align-items:center; gap:4px; }
+.tab-round-strip button,.tab-round-strip button.ally,.tab-round-strip button.enemy { width:38px; height:42px; flex-basis:38px; display:grid; place-items:center; align-content:center; gap:3px; border:1px solid rgba(255,255,255,.075); border-radius:6px; background:#101922; }
+.tab-round-strip button small { display:block; font-size:10px; }.tab-round-strip button:after { display:none; }.tab-round-strip button.ally { border-color:rgba(69,212,131,.18); background:rgba(69,212,131,.055); }.tab-round-strip button.enemy { border-color:rgba(240,100,104,.18); background:rgba(240,100,104,.05); }.tab-round-strip button:hover { transform:translateY(-1px); background:#15212a; }.tab-round-strip button.selected { transform:translateY(-1px); border-color:var(--accent); background:rgba(102,227,180,.1); box-shadow:0 0 0 1px rgba(102,227,180,.28); }.tab-round-strip button.selected.enemy { border-color:var(--defeat); background:rgba(240,100,104,.09); box-shadow:0 0 0 1px rgba(240,100,104,.24); }
+.round-phase-divider { width:28px; height:42px; flex:0 0 28px; display:grid; place-items:end center; padding-bottom:2px; border-left:1px solid rgba(255,255,255,.12); color:#667581; font-size:6px; line-height:1.05; text-align:center; text-transform:uppercase; writing-mode:vertical-rl; transform:rotate(180deg); }.round-phase-divider.overtime { color:#9c8bb6; }
+.timeline-match-score>small { color:var(--faint); font-size:7px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
+
+.tab-round-events>header .round-title { color:#edf2f3; font-size:12px; font-weight:800; white-space:nowrap; }.tab-round-events>header strong { display:inline-flex; padding:3px 6px; border-radius:4px; font-size:9px; }.tab-round-events>header strong.ally-result { background:rgba(69,212,131,.1); color:var(--victory); }.tab-round-events>header strong.enemy-result { background:rgba(240,100,104,.1); color:var(--defeat); }.tab-round-events>header>span:last-child { font-weight:750; text-transform:uppercase; white-space:nowrap; }
+.tab-round-events .kill-event { grid-template-columns:42px minmax(0,1fr) 64px minmax(0,1fr); }.tab-round-events .kill-event img { max-width:48px; max-height:18px; }
+.map-player.unrelated { opacity:.25; filter:saturate(.3); }.map-player.killer,.map-player.victim { opacity:1; filter:none; }
+.round-map-body { grid-template-columns:minmax(0,1fr) 96px; }.round-map-stage .map-stage,.round-map-stage .tactical-map { min-height:310px; }.round-map-stage .map-stage .map-canvas { width:min(100%,315px); }.round-map-legend { padding:10px; }
+
+@media (max-width:1100px) {
+  .round-strip-header { grid-template-columns:1fr auto; }.round-strip-copy { grid-column:1/-1; }.compact-team-table>h4 small { display:none; }
+}
+
+@media (max-width:899px) {
+  .round-strip-header { grid-template-columns:1fr; }.round-strip-copy { grid-column:auto; }.timeline-match-score { justify-content:flex-start; }
+}
+
+@media (max-width:560px) {
+  .tab-scoreboard { padding:8px; }.round-strip-header { padding:9px 8px; }.tab-round-analysis { padding:8px; }.round-map-body { grid-template-columns:1fr; }.round-map-legend { grid-template-columns:repeat(2,minmax(0,1fr)); border-top:1px solid var(--line); border-left:0; }
+}
+
+/* Flatten nested match-detail cards and simplify the round selector. */
+.tab-scoreboard { gap:0; padding:6px; }
+.compact-team-table { border:0; border-radius:0; background:transparent; }
+.compact-team-table.enemy { padding-left:6px; border-left:1px solid var(--line); }
+.compact-team-table.ally { padding-right:6px; }
+.compact-team-table>h4 { padding-inline:8px; background:transparent; }
+.compact-team-columns { background:rgba(255,255,255,.012); }
+.compact-score-row { position:relative; border-bottom:0; background:transparent; }
+.compact-score-row::after { content:""; position:absolute; right:0; bottom:0; left:8px; height:1px; background:rgba(255,255,255,.045); }
+.compact-score-row:last-child::after { display:none; }
+.compact-score-row.is-viewer { border-radius:6px; }
+
+.round-strip-header { background:transparent; }
+.tab-round-strip { gap:3px; }
+.tab-round-strip button,.tab-round-strip button.ally,.tab-round-strip button.enemy { width:34px; height:34px; flex-basis:34px; gap:0; border:0; border-radius:4px; background:transparent; box-shadow:none; transform:none; }
+.tab-round-strip button small { display:none; }
+.tab-round-strip button:after { content:""; position:absolute; right:6px; bottom:1px; left:6px; display:block; height:3px; border-radius:999px; background:#53616c; opacity:.78; }
+.tab-round-strip button.ally:after { background:var(--victory); }.tab-round-strip button.enemy:after { background:var(--defeat); }
+.tab-round-strip button:hover { background:rgba(255,255,255,.025); }.tab-round-strip button.selected { background:rgba(255,255,255,.035); box-shadow:none; }.tab-round-strip button.selected:after,.tab-round-strip button.selected.enemy:after { right:3px; left:3px; height:4px; opacity:1; }
+
+.tab-round-analysis { gap:0; padding:0; }
+.tab-round-events,.tab-round-map { border:0; border-radius:0; background:transparent; }
+.tab-round-events { padding:12px; }
+.tab-round-map { padding:12px; border-left:1px solid var(--line); }
+.tab-round-events>header,.tab-round-map>header { padding-inline:0; background:transparent; }
+.round-map-body { background:rgba(0,0,0,.08); }
+
+@media (max-width:899px) {
+  .compact-team-table.enemy { padding-top:12px; padding-left:0; border-top:1px solid var(--line); border-left:0; }.compact-team-table.ally { padding-right:0; padding-bottom:12px; }
+  .tab-round-map { border-top:1px solid var(--line); border-left:0; }
+}

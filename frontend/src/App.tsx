@@ -13,7 +13,7 @@ import type { PlayerIdentifier } from './types/player';
 
 export default function App() {
   const [player, setPlayer] = useState<PlayerIdentifier | null>(() => parsePlayerFromUrl());
-  const [act, setAct] = useState<{ id: string; label: string; seasonKey?: string }>({ id: 'all', label: 'Current act' });
+  const [act, setAct] = useState<{ id: string; label: string; seasonKey?: string }>({ id: 'all', label: 'All Acts' });
   const [mode, setMode] = useState({ id: 'competitive', label: 'Competitive' });
   const [matchesRefreshing, setMatchesRefreshing] = useState(false);
   const [nameHistoryRefreshVersion, setNameHistoryRefreshVersion] = useState(0);
@@ -48,7 +48,7 @@ export default function App() {
       return;
     }
     setInputError(null);
-    setAct({ id: 'all', label: 'Current act' });
+    setAct({ id: 'all', label: 'All Acts' });
     setMode({ id: 'competitive', label: 'Competitive' });
     setPlayer(next);
     window.history.pushState(null, '', playerPath(next));
@@ -66,7 +66,7 @@ export default function App() {
             <PlayerProfile profile={profile} mmr={mmr} seasonKey={act.seasonKey} actLabel={act.label} loading={loadState === 'initial-loading'} loadState={visibleLoadState} updatedAt={updatedAt} nameHistoryRefreshVersion={nameHistoryRefreshVersion} />
             <section className="overview-panel">
               <div className="section-toolbar">
-                <div><span className="eyebrow">Performance</span><h2>{mode.label} overview</h2></div>
+                <div><span className="eyebrow">Performance overview</span><h2>{mode.label} statistics</h2></div>
                 <div className="history-filters">
                   <GameModeSelector value={mode.id} onChange={(id, label) => setMode({ id, label })} region={region} name={activePlayer?.name ?? ''} tag={activePlayer?.tag ?? ''}/>
                   <ActSelector selectedAct={act.id} onActChange={(id, label, seasonKey) => setAct({ id, label, seasonKey })} region={region} name={activePlayer?.name ?? ''} tag={activePlayer?.tag ?? ''} />

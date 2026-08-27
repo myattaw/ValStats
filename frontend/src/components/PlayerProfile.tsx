@@ -139,7 +139,6 @@ export function PlayerProfile({
                                   profile,
                                   mmr,
                                   seasonKey,
-                                  actLabel,
                                   loading,
                                   loadState,
                                   updatedAt,
@@ -176,10 +175,11 @@ export function PlayerProfile({
                 <div className="player-card">
                     {loading ? <Skeleton className="h-full w-full"/> : profile?.card?.small ?
                         <img src={profile.card.small} alt="Player card"/> : <Trophy/>}
+                    {profile?.account_level && <span className="level-badge">{profile.account_level}</span>}
                 </div>
                 <div>
                     <div className="profile-status-row">
-                        <span className="eyebrow">Competitive profile</span>
+                        <span className="eyebrow">Player profile</span>
                         <span className={`load-status ${loadState}`}
                               title={updatedAt ? `Last updated ${updatedAt.toLocaleTimeString()}` : undefined}
                               aria-live="polite">
@@ -191,12 +191,11 @@ export function PlayerProfile({
                         <h1>{profile?.name ?? 'Loading player'}<span>#{profile?.tag ?? ''}</span></h1>
                         <PlayerNameHistory puuid={profile?.puuid} refreshVersion={nameHistoryRefreshVersion}/>
                     </div>
-                    {profile?.account_level && <p>Account level {profile.account_level}</p>}
+                    {profile?.account_level && <p>Account Level {profile.account_level}</p>}
                 </div>
             </div>
             <div className="rank-grid">
-                <ActRankCard label="Peak" season={peakActSeason} loading={loading}/>
-                <RankCard label={actLabel} name={currentName}
+                <RankCard label="Current rank" name={currentName}
                           icon={season ? rankIcon(currentTier) : mmr?.current_data?.images?.small} loading={loading}
                           rr={seasonKey ? undefined : mmr?.current_data?.ranking_in_tier}/>
                 <div className="rank-card compact-rank-card win-rate">
@@ -206,6 +205,7 @@ export function PlayerProfile({
                     <div><span>Win rate</span><strong>{games ? `${wins}W · ${games - wins}L` : 'No games'}</strong>
                     </div>
                 </div>
+                <ActRankCard label="Peak" season={peakActSeason} loading={loading}/>
             </div>
         </section>
     );

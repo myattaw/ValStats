@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type UIEvent as ReactUIEvent} from "react";
-import {ChevronDown, Crosshair, Crown, Map as MapIcon, RotateCcw, Shield, ZoomIn, ZoomOut} from "lucide-react";
+import {ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Crosshair, Crown, Map as MapIcon, RotateCcw, Shield, ZoomIn, ZoomOut} from "lucide-react";
 import {Skeleton} from "../ui/skeleton";
 import {EventLocation, MatchDetails, MatchRound, PlayerStats, RoundKill} from './types/matchTypes';
 import {playerUuidPath} from '../../lib/player';
@@ -157,7 +157,7 @@ function getHeadshotPercentage(player: PlayerStats): string {
 }
 
 // Component for displaying match player data
-export const MatchPlayerRow = ({player, teamStyle, partyColor, rounds_played, rounds = [], selectedRound, onRoundSelect}: {
+export const MatchPlayerRow = ({player, teamStyle, partyColor, rounds_played, rounds = [], selectedRound, onRoundSelect, isViewer = false}: {
     player: PlayerStats;
     teamStyle: string;
     partyColor?: string;
@@ -165,11 +165,12 @@ export const MatchPlayerRow = ({player, teamStyle, partyColor, rounds_played, ro
     rounds?: MatchRound[];
     selectedRound?: number;
     onRoundSelect?: (round: number) => void;
+    isViewer?: boolean;
 }) => {
     const rp = player.rounds_played ?? rounds_played;
     return (
         <div
-            className={`scoreboard-player-row ${partyColor ? "has-party" : ""}`}
+            className={`scoreboard-player-row ${partyColor ? "has-party" : ""} ${isViewer ? "is-viewer" : ""}`}
             style={partyColor ? {"--party-color": partyColor} as CSSProperties : undefined}
         >
             <div className="scoreboard-player-identity">
@@ -194,6 +195,7 @@ export const MatchPlayerRow = ({player, teamStyle, partyColor, rounds_played, ro
                             <span>{player.name}</span>{player.tag && <span>#{player.tag}</span>}
                         </a>
                     ) : <div className="text-white text-sm">{player.name}</div>}
+                    {isViewer && <span className="you-pill">You</span>}
                     <div className="player-rank-line">
                         {player.currentTier ? <img src={`https://media.valorant-api.com/competitivetiers/${TIER_SET}/${player.currentTier}/smallicon.png`} alt=""/> : <Shield/>}
                         <span>{player.currentTierName || "Unranked"}</span>
@@ -235,9 +237,11 @@ const formatRoundTime = (milliseconds: number) => {
 };
 
 export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: { details: MatchDetails; roundsPlayed: number; viewerPuuid?: string | null; mapId?: string }) => {
+    const [activeTab] = useState<'scoreboard' | 'timeline'>('scoreboard');
     const [selectedRound, setSelectedRound] = useState(1);
     const [selectedEvent, setSelectedEvent] = useState(0);
     const [mobileMapOpen, setMobileMapOpen] = useState(false);
+    const [timelineOverflow, setTimelineOverflow] = useState(false);
     const detailsElement = useRef<HTMLDivElement | null>(null);
     const synchronizingTimelines = useRef(false);
     const viewer = details.players.find((player) => player.puuid === viewerPuuid);
@@ -250,6 +254,19 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: {
     const relationshipClass = (puuid?: string) => playerTeam(puuid) === ownTeamName ? "teammate" : "enemy";
 
     useEffect(() => setSelectedEvent(0), [selectedRound]);
+
+    useEffect(() => {
+        const root = detailsElement.current;
+        if (!root) return;
+        const updateOverflow = () => {
+            const timeline = root.querySelector<HTMLElement>(".player-round-track");
+            setTimelineOverflow(Boolean(timeline && timeline.scrollWidth > timeline.clientWidth + 1));
+        };
+        updateOverflow();
+        const observer = new ResizeObserver(updateOverflow);
+        observer.observe(root);
+        return () => observer.disconnect();
+    }, [details.rounds.length]);
 
     const synchronizeTimelineScroll = (event: ReactUIEvent<HTMLDivElement>) => {
         const source = event.target;
@@ -270,10 +287,35 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: {
         });
     };
 
+    const moveTimelines = (action: 'start' | 'previous' | 'next' | 'end') => {
+        const timelines = detailsElement.current?.querySelectorAll<HTMLElement>(".player-round-track, .scoreboard-round-numbers");
+        if (!timelines?.length) return;
+        const source = timelines[0];
+        const step = 22;
+        const target = action === 'start' ? 0 : action === 'end' ? source.scrollWidth : source.scrollLeft + (action === 'previous' ? -step : step);
+        timelines.forEach((timeline) => timeline.scrollTo({left: target, behavior: 'smooth'}));
+    };
+
     return (
-        <div ref={detailsElement} onScrollCapture={synchronizeTimelineScroll} className="rounded-b-lg bg-[#0b0f15] overflow-hidden">
-            <div className="compact-match-details">
-                <TeamDisplay label="Your team" players={ownTeam} isVictory={true} rounds_played={roundsPlayed} isBottom={false} rounds={details.rounds} selectedRound={round?.number} onRoundSelect={setSelectedRound}/>
+        <div ref={detailsElement} onScrollCapture={synchronizeTimelineScroll} className="match-details-panel">
+            <div className="scoreboard-layout combined-match-view">
+                <div className={`compact-match-details scoreboard-only ${timelineOverflow ? "timeline-overflowing" : ""}`}>
+                    <TeamDisplay label="Your team" players={ownTeam} isVictory={true} rounds_played={roundsPlayed} isBottom={false} viewerPuuid={viewerPuuid} rounds={details.rounds} selectedRound={round?.number} onRoundSelect={setSelectedRound} showTimelineControls={timelineOverflow} onTimelineMove={moveTimelines}/>
+                    <section className={`combined-round-events ${mobileMapOpen ? "map-open" : ""}`} aria-label={`Round ${round?.number ?? 1} events`}>
+                        <div className="mobile-round-heading"><span>Round timeline</span><small>Swipe to explore rounds →</small></div>
+                        <div className="mobile-shared-rounds" aria-label="Select round">
+                            {details.rounds.map((item) => <button type="button" key={item.number} className={`${isOwnTeamWin(item.winningTeam) ? 'ally' : 'enemy'} ${item.number === round?.number ? 'selected' : ''}`} onClick={() => setSelectedRound(item.number)}>{item.number}</button>)}
+                        </div>
+                        {round && <>
+                            <button type="button" className="match-map-toggle" aria-expanded={mobileMapOpen} onClick={() => setMobileMapOpen((open) => !open)}><MapIcon/><span>{mobileMapOpen ? "Hide minimap" : "Show minimap"}</span><ChevronDown className={mobileMapOpen ? "open" : ""}/></button>
+                            <div className="round-map-layout"><div className="round-events-list"><header><span className={`round-number ${isOwnTeamWin(round.winningTeam) ? "ally" : "enemy"}`}>{round.number}</span><div><strong>{isOwnTeamWin(round.winningTeam) ? "Your team" : "Enemy team"} won round {round.number}</strong><small>{round.endType.replaceAll("_", " ")}</small></div><span>{round.kills.length} kills</span></header><div className="kill-feed">{round.kills.length ? round.kills.map((kill, index) => <button className={`kill-event ${selectedEvent === index ? "selected" : ""}`} key={`${round.number}-${index}`} onClick={() => setSelectedEvent(index)}><time>{formatRoundTime(kill.time)}</time><span className={relationshipClass(kill.killerPuuid)}>{kill.killerName}</span><span className={kill.headshot ? "headshot" : ""}>{kill.weaponIcon ? <img src={kill.weaponIcon} alt={kill.weaponName}/> : <Crosshair/>}{kill.headshot && <b>HS</b>}</span><span className={relationshipClass(kill.victimPuuid)}>{kill.victimName}</span></button>) : <p className="empty-round">No kill events recorded for this round.</p>}</div></div><div className={`collapsible-match-map ${mobileMapOpen ? "open" : ""}`}><TacticalMap mapId={mapId} event={round.kills[selectedEvent]} players={details.players} ownTeam={ownTeamName}/></div></div>
+                        </>}
+                    </section>
+                    <TeamDisplay label="Enemy team" players={enemyTeam} isVictory={false} rounds_played={roundsPlayed} isBottom={true} viewerPuuid={viewerPuuid} rounds={details.rounds} selectedRound={round?.number} onRoundSelect={setSelectedRound}/>
+                </div>
+            </div>
+            {activeTab === 'timeline' && <div className="timeline-panel">
+                <div className="round-selector" aria-label="Select round">{details.rounds.map((item) => <button type="button" key={item.number} className={`${isOwnTeamWin(item.winningTeam) ? 'ally' : 'enemy'} ${item.number === round?.number ? 'selected' : ''}`} onClick={() => setSelectedRound(item.number)}><span>{item.number}</span><small>{item.kills.length}</small></button>)}</div>
                 {round ? <article className="round-card selected-round inline-round-detail">
                         <header>
                             <span className={`round-number ${isOwnTeamWin(round.winningTeam) ? "ally" : "enemy"}`}>{round.number}</span>
@@ -312,8 +354,7 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: {
                         </div>
                         </div>
                     </article> : <div className="empty-details compact-empty">Round data was not supplied by the match provider.</div>}
-                <TeamDisplay label="Enemy team" players={enemyTeam} isVictory={false} rounds_played={roundsPlayed} isBottom={true} rounds={details.rounds} selectedRound={round?.number} onRoundSelect={setSelectedRound}/>
-            </div>
+            </div>}
         </div>
     );
 };
@@ -335,7 +376,10 @@ export const TeamDisplay = ({
                                 isBottom,
                                 rounds = [],
                                 selectedRound,
-                                onRoundSelect
+                                onRoundSelect,
+                                viewerPuuid,
+                                showTimelineControls = false,
+                                onTimelineMove
                             }: {
     label: string;
     players: PlayerStats[];
@@ -345,6 +389,9 @@ export const TeamDisplay = ({
     rounds?: MatchRound[];
     selectedRound?: number;
     onRoundSelect?: (round: number) => void;
+    viewerPuuid?: string | null;
+    showTimelineControls?: boolean;
+    onTimelineMove?: (action: 'start' | 'previous' | 'next' | 'end') => void;
 }) => {
     const borderColor = isVictory ? "border-[#4ade80]" : "border-[#f87171]";
     const bgColor = isVictory ? "bg-[#4ade80]/10" : "bg-[#f87171]/10";
@@ -363,8 +410,10 @@ export const TeamDisplay = ({
             className={`p-3 border-l border-r ${isBottom ? "border-b rounded-b-lg" : ""} ${bgColor} ${borderColor}`}>
             <div className="scoreboard-team-header">
                 <h4>{label}<small className="timeline-scroll-hint" aria-hidden="true">Swipe rounds <span>↔</span></small></h4>
-                <div className="scoreboard-round-numbers" aria-label="Round numbers">
-                    {rounds.map((round) => <span key={round.number}>{round.number}</span>)}
+                <div className="timeline-header-shell">
+                    {showTimelineControls && <span className="scoreboard-timeline-controls before" aria-label="Previous timeline navigation"><button type="button" onClick={() => onTimelineMove?.('start')} aria-label="First round"><ChevronsLeft/></button><button type="button" onClick={() => onTimelineMove?.('previous')} aria-label="Previous round"><ChevronLeft/></button></span>}
+                    <div className="scoreboard-round-numbers" aria-label="Round numbers">{rounds.map((round) => <span key={round.number}>{round.number}</span>)}</div>
+                    {showTimelineControls && <span className="scoreboard-timeline-controls after" aria-label="Next timeline navigation"><button type="button" onClick={() => onTimelineMove?.('next')} aria-label="Next round"><ChevronRight/></button><button type="button" onClick={() => onTimelineMove?.('end')} aria-label="Last round"><ChevronsRight/></button></span>}
                 </div>
                 <span aria-hidden="true" />
             </div>
@@ -379,6 +428,7 @@ export const TeamDisplay = ({
                         rounds={rounds}
                         selectedRound={selectedRound}
                         onRoundSelect={onRoundSelect}
+                        isViewer={Boolean(viewerPuuid && player.puuid === viewerPuuid)}
                     />
                 ))}
             </div>

@@ -39,7 +39,17 @@ public class RefreshJobProcessor {
         } else {
             continuation = job.withProgress(result.nextPage(), result.targetSeen());
         }
-        queuePublisher.enqueue(continuation, "HISTORY".equalsIgnoreCase(continuation.kind()));
+        matchDataService.markBackfillQueued(continuation);
+        try {
+            queuePublisher.enqueue(continuation, "HISTORY".equalsIgnoreCase(continuation.kind()));
+        } catch (RuntimeException failure) {
+            try {
+                matchDataService.markBackfillFailed(continuation);
+            } catch (RuntimeException stateFailure) {
+                failure.addSuppressed(stateFailure);
+            }
+            throw failure;
+        }
     }
 
     private boolean isBlank(String value) {

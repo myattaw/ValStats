@@ -113,6 +113,7 @@ export function MatchHistory({
     const [loadingMore, setLoadingMore] = useState(false);
     const [isInitialLoading, setIsInitialLoading] = useState(true);
     const [isBackgroundRefreshing, setIsBackgroundRefreshing] = useState(false);
+    const [isHistoryBackfilling, setIsHistoryBackfilling] = useState(false);
     const [matches, setMatches] = useState<Match[]>([]);
     const [newMatchIds, setNewMatchIds] = useState<Set<string>>(() => new Set());
     const visibleMatchIds = useRef<Set<string>>(new Set());
@@ -121,6 +122,33 @@ export function MatchHistory({
     const [hasMore, setHasMore] = useState(true);
 
     const isSeasonMode = selectedAct !== "all";
+
+    const checkHistoryBackfill = useCallback(async () => {
+        const baseUrl = `${API_BASE_URL}/matches/${encodeURIComponent(region)}/${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}`;
+        try {
+            const response = await fetch(`${baseUrl}/backfill-status`);
+            if (!response.ok) return;
+            const payload = await response.json();
+            const state = payload?.data?.status;
+            setIsHistoryBackfilling(state === "QUEUED" || state === "RUNNING");
+        } catch (error) {
+            console.error("Failed to check match-history backfill", error);
+        }
+    }, [region, playerName, playerTag]);
+
+    useEffect(() => {
+        onRefreshingChange?.(isBackgroundRefreshing || isHistoryBackfilling);
+    }, [isBackgroundRefreshing, isHistoryBackfilling, onRefreshingChange]);
+
+    useEffect(() => {
+        void checkHistoryBackfill();
+    }, [checkHistoryBackfill]);
+
+    useEffect(() => {
+        if (!isHistoryBackfilling) return;
+        const timer = window.setInterval(() => void checkHistoryBackfill(), 15_000);
+        return () => window.clearInterval(timer);
+    }, [isHistoryBackfilling, checkHistoryBackfill]);
 
     const buildMatchesUrl = useCallback(
         (cursor?: LastKey) => {
@@ -190,7 +218,6 @@ export function MatchHistory({
 
     const refreshMatches = useCallback(async () => {
         setIsBackgroundRefreshing(true);
-        onRefreshingChange?.(true);
         try {
             const baseUrl = `${API_BASE_URL}/matches/${encodeURIComponent(region)}/${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}`;
             if (selectedAct !== "all") {
@@ -267,14 +294,14 @@ export function MatchHistory({
             }
 
             await fetchInitialMatches(false);
+            await checkHistoryBackfill();
             onRefreshComplete?.();
         } catch (error) {
             console.error("Background match refresh failed", error);
         } finally {
             setIsBackgroundRefreshing(false);
-            onRefreshingChange?.(false);
         }
-    }, [region, playerName, playerTag, selectedAct, fetchInitialMatches, onRefreshingChange, onRefreshComplete]);
+    }, [region, playerName, playerTag, selectedAct, fetchInitialMatches, checkHistoryBackfill, onRefreshComplete]);
 
     useEffect(() => {
         setMatches([]);
@@ -286,8 +313,11 @@ export function MatchHistory({
         setLastKey(null);
         setHasMore(true);
         void fetchInitialMatches().then(refreshMatches);
-        return () => onRefreshingChange?.(false);
-    }, [playerName, playerTag, selectedAct, selectedMode, fetchInitialMatches, refreshMatches, onRefreshingChange]);
+        return () => {
+            setIsBackgroundRefreshing(false);
+            setIsHistoryBackfilling(false);
+        };
+    }, [playerName, playerTag, selectedAct, selectedMode, fetchInitialMatches, refreshMatches]);
 
     const RANK_NAMES = [
         "Unranked",

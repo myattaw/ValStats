@@ -220,6 +220,12 @@ public class MatchDataService {
                 job.puuid(), syncScope(job), "FAILED", Math.max(1, job.page()));
     }
 
+    /** Makes a continuation visible to status clients before it reaches SQS. */
+    public void markBackfillQueued(RefreshJob job) {
+        dynamoDbService.updateBackfillState(
+                job.puuid(), syncScope(job), "QUEUED", Math.max(1, job.page()));
+    }
+
     private void refreshMmrHistory(String puuid, String region, String name, String tag) {
         try {
             Map<String, Object> mmrHistory = apiRequestQueue.execute(

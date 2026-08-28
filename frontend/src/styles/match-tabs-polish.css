@@ -93,10 +93,10 @@
 .tab-round-strip button,.tab-round-strip button.ally,.tab-round-strip button.enemy { height:50px; }
 .tab-round-strip button,.tab-round-strip button.ally,.tab-round-strip button.enemy { gap:0; }
 .round-combat-marker { position:relative; width:27px; height:29px; display:block; color:#eef2f3!important; transform:translateY(-2px); }
-.round-combat-marker .round-skull-image { position:absolute; inset:0; width:26px; height:26px; object-fit:contain; user-select:none; pointer-events:none; filter:drop-shadow(0 1px 1px rgba(0,0,0,.28)); }
+.round-combat-marker .round-skull-image { position:absolute; top:0; left:.5px; width:26px; height:26px; object-fit:contain; user-select:none; pointer-events:none; filter:drop-shadow(0 1px 1px rgba(0,0,0,.28)); }
 .round-combat-marker.kills .round-skull-image { filter:brightness(0) invert(1) drop-shadow(0 1px 1px rgba(0,0,0,.28)); }
 .round-combat-marker.death .round-skull-image { opacity:0; }
-.round-combat-marker.death::before { content:""; position:absolute; inset:0; width:26px; height:26px; background:#e53935; -webkit-mask:url('/icons/rounds/skull.svg') center/contain no-repeat; mask:url('/icons/rounds/skull.svg') center/contain no-repeat; filter:drop-shadow(0 1px 1px rgba(0,0,0,.28)); }
+.round-combat-marker.death::before { content:""; position:absolute; top:0; left:.5px; width:26px; height:26px; background:#e53935; -webkit-mask:url('/icons/rounds/skull.svg') center/contain no-repeat; mask:url('/icons/rounds/skull.svg') center/contain no-repeat; filter:drop-shadow(0 1px 1px rgba(0,0,0,.28)); }
 .round-combat-marker.death { color:var(--death-skull)!important; }
 .round-combat-dots { position:absolute; z-index:2; right:0; bottom:1px; left:0; height:3px; display:flex; align-items:center; justify-content:center; gap:1.5px; }
 .round-combat-dots>i { width:3px; height:3px; flex:0 0 3px; display:block; border-radius:50%; background:#f4f7f8; }

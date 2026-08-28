@@ -361,6 +361,8 @@ const LegacyMatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: { 
 
 export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: { details: MatchDetails; roundsPlayed: number; viewerPuuid?: string | null; mapId?: string }) => {
     const [activeTab, setActiveTab] = useState<'scoreboard' | 'timeline' | 'performance'>('scoreboard');
+    const [tabIndicator, setTabIndicator] = useState({left: 0, width: 0});
+    const tabsRef = useRef<HTMLDivElement | null>(null);
     const firstRound = details.rounds[0]?.number ?? 1;
     const [selectedRound, setSelectedRound] = useState(firstRound);
     const [selectedEvent, setSelectedEvent] = useState<number | null>(null);
@@ -418,6 +420,19 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: {
         observer.observe(strip);
         return () => { cancelAnimationFrame(frame); observer.disconnect(); };
     }, [activeTab, details.rounds.length]);
+
+    useEffect(() => {
+        const tabs = tabsRef.current;
+        if (!tabs) return;
+        const updateIndicator = () => {
+            const selected = tabs.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+            if (selected) setTabIndicator({left: selected.offsetLeft, width: selected.offsetWidth});
+        };
+        updateIndicator();
+        const observer = new ResizeObserver(updateIndicator);
+        observer.observe(tabs);
+        return () => observer.disconnect();
+    }, [activeTab]);
 
     const selectTab = (tab: 'scoreboard' | 'timeline' | 'performance') => {
         setActiveTab(tab);
@@ -512,10 +527,11 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: {
     };
 
     return <div className="match-details-panel tabbed-match-details">
-        <div className="match-tabs" role="tablist" aria-label="Match details">
+        <div ref={tabsRef} className="match-tabs" role="tablist" aria-label="Match details">
             <button type="button" role="tab" aria-selected={activeTab === 'scoreboard'} className={activeTab === 'scoreboard' ? 'active' : ''} onClick={() => selectTab('scoreboard')}>Scoreboard</button>
             <button type="button" role="tab" aria-selected={activeTab === 'timeline'} className={activeTab === 'timeline' ? 'active' : ''} onClick={() => selectTab('timeline')}>Round Timeline</button>
             <button type="button" role="tab" aria-selected={activeTab === 'performance'} className={activeTab === 'performance' ? 'active' : ''} onClick={() => selectTab('performance')}>Performance</button>
+            <span className="match-tab-indicator" style={{left: tabIndicator.left, width: tabIndicator.width}} aria-hidden="true"/>
         </div>
 
         {activeTab === 'scoreboard' && <div className="tab-scoreboard">
@@ -620,29 +636,43 @@ export const TeamDisplay = ({
 
 // Loading skeleton component
 export const MatchSkeleton = () => (
-    <div className="rounded-lg border border-[#2a2a2a] bg-[#1a1a1a] p-5">
-        <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4 flex-1">
-                <Skeleton className="w-16 h-16 rounded-lg bg-[#2a2a2a]"/>
-                <div className="flex-1 space-y-3">
-                    <div className="flex items-center gap-3">
-                        <Skeleton className="h-5 w-16 bg-[#2a2a2a]"/>
-                        <Skeleton className="h-8 w-16 bg-[#2a2a2a]"/>
-                        <Skeleton className="h-8 w-12 bg-[#2a2a2a]"/>
-                        <Skeleton className="h-5 w-20 bg-[#2a2a2a]"/>
-                        <Skeleton className="h-5 w-16 bg-[#2a2a2a]"/>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <Skeleton className="h-4 w-24 bg-[#2a2a2a]"/>
-                        <Skeleton className="h-4 w-32 bg-[#2a2a2a]"/>
-                        <Skeleton className="h-4 w-20 bg-[#2a2a2a]"/>
-                    </div>
+    <div className="match-skeleton-card">
+        <div className="match-skeleton-grid">
+            <div className="match-skeleton-agent">
+                <Skeleton className="match-skeleton-portrait"/>
+                <div className="match-skeleton-agent-copy">
+                    <Skeleton className="match-skeleton-agent-name"/>
+                    <Skeleton className="match-skeleton-badge"/>
                 </div>
             </div>
-            <div className="flex items-center gap-4">
-                <Skeleton className="h-4 w-24 bg-[#2a2a2a]"/>
-                <Skeleton className="h-5 w-5 rounded bg-[#2a2a2a]"/>
+
+            <span className="match-skeleton-separator" aria-hidden="true"/>
+
+            <div className="match-skeleton-main">
+                <div className="match-skeleton-map-group">
+                    <Skeleton className="match-skeleton-map"/>
+                    <Skeleton className="match-skeleton-kda"/>
+                </div>
+                <div className="match-skeleton-section-separator" aria-hidden="true"/>
+                <div className="match-skeleton-result-group">
+                    <div><Skeleton/><Skeleton/></div>
+                    <div><Skeleton/><span/><Skeleton/></div>
+                </div>
+                <div className="match-skeleton-section-separator" aria-hidden="true"/>
+                <div className="match-skeleton-rank-group">
+                    <div><Skeleton/><Skeleton/></div>
+                    <Skeleton/>
+                </div>
             </div>
+
+            <span className="match-skeleton-meta-gap" aria-hidden="true"/>
+
+            <div className="match-skeleton-meta">
+                <Skeleton/>
+                <Skeleton/>
+            </div>
+
+            <Skeleton className="match-skeleton-chevron"/>
         </div>
     </div>
 );

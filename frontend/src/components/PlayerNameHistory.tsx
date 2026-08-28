@@ -90,22 +90,22 @@ export function PlayerNameHistory({
         }
 
         setIsScanning(true);
-        let complete = false;
-        while (!complete && !controller.signal.aborted) {
-          // Each request processes at most five full-match checkpoints. Keep the
-          // UI in the Names state until the backend confirms the entire timeline.
-          const refreshResponse = await fetch(`${baseUrl}/refresh${force ? '?force=true' : ''}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: '{}',
-            signal: controller.signal
-          });
-          if (!refreshResponse.ok || controller.signal.aborted) return;
-          const refreshPayload = await refreshResponse.json();
-          complete = refreshPayload?.data?.complete === true;
-          if (!complete) {
-            await new Promise((resolve) => window.setTimeout(resolve, 1000));
-          }
+        // This only enqueues the low-priority worker. Henrik is never called by
+        // the browser-facing Lambda, so Retry-After delays cannot cause a 503.
+        const refreshResponse = await fetch(`${baseUrl}/refresh${force ? '?force=true' : ''}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+          signal: controller.signal
+        });
+        if (!refreshResponse.ok || controller.signal.aborted) return;
+
+        while (!controller.signal.aborted) {
+          await new Promise((resolve) => window.setTimeout(resolve, 2500));
+          const progressResponse = await fetch(`${baseUrl}/refresh-status`, { signal: controller.signal });
+          if (!progressResponse.ok) return;
+          const progress = await progressResponse.json();
+          if (progress?.data?.refreshing !== true) break;
         }
 
         // The scan writes new observations before reporting completion. Bypass

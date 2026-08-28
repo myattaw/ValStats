@@ -190,6 +190,7 @@ export function MatchHistory({
 
     const refreshMatches = useCallback(async () => {
         setIsBackgroundRefreshing(true);
+        onRefreshingChange?.(true);
         try {
             const baseUrl = `${API_BASE_URL}/matches/${encodeURIComponent(region)}/${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}`;
             const statusResponse = await fetch(`${baseUrl}/refresh-status`);
@@ -197,7 +198,6 @@ export function MatchHistory({
             const statusPayload = await statusResponse.json();
             if (statusPayload?.data?.refreshRequired !== true) return;
 
-            onRefreshingChange?.(true);
             const refreshResponse = await fetch(`${baseUrl}/refresh`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -208,6 +208,12 @@ export function MatchHistory({
             const deadline = Date.now() + 2 * 60 * 1000;
             while (Date.now() < deadline) {
                 await new Promise((resolve) => window.setTimeout(resolve, 2500));
+
+                // The sync worker stores each match as it processes it. Read
+                // those partial results on every poll instead of hiding all
+                // recent matches until the entire historical backfill ends.
+                await fetchInitialMatches(false);
+
                 const nextStatusResponse = await fetch(`${baseUrl}/refresh-status`);
                 if (!nextStatusResponse.ok) continue;
                 const nextStatus = await nextStatusResponse.json();
@@ -345,7 +351,14 @@ export function MatchHistory({
 
             <div className="match-history-content space-y-4">
                 {isInitialLoading || (isBackgroundRefreshing && matches.length === 0) ? (
-                    Array.from({ length: 5 }).map((_, idx) => <MatchSkeleton key={idx} />)
+                    <>
+                        <p className="match-loading-message" role="status" aria-live="polite">
+                            {isBackgroundRefreshing
+                                ? "Loading this account's recent matches. Results will appear here as they are processed."
+                                : "Checking for recent matches..."}
+                        </p>
+                        {Array.from({ length: 5 }).map((_, idx) => <MatchSkeleton key={idx} />)}
+                    </>
                 ) : (
                     <>
                         {matches.map((match) => {

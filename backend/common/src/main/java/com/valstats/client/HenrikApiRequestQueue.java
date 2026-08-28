@@ -68,6 +68,7 @@ public class HenrikApiRequestQueue {
     }
 
     private <T> T execute(String operation, Callable<T> request, boolean lowPriority) {
+        long operationStartedAt = System.nanoTime();
         Semaphore capacity = lowPriority ? lowQueueCapacity : normalQueueCapacity;
         if (!capacity.tryAcquire()) {
             throw new HenrikApiQueueFullException("Henrik API request queue is full: " + operation);
@@ -79,7 +80,9 @@ public class HenrikApiRequestQueue {
                     acquireRequestSlot(lowPriority);
                     try {
                         awaitNextRequestSlot();
-                        return request.call();
+                        T result = request.call();
+                        logSlowRequest(operation, operationStartedAt, attempt);
+                        return result;
                     } finally {
                         releaseRequestSlot();
                     }
@@ -116,6 +119,13 @@ public class HenrikApiRequestQueue {
             throw new HenrikApiRequestException("Interrupted while waiting for Henrik API: " + operation, exception);
         } finally {
             capacity.release();
+        }
+    }
+
+    private void logSlowRequest(String operation, long operationStartedAt, int retryCount) {
+        long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - operationStartedAt);
+        if (elapsedMillis >= 1_000) {
+            LOG.info("Henrik API completed {} in {}ms (retries={})", operation, elapsedMillis, retryCount);
         }
     }
 

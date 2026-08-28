@@ -203,15 +203,27 @@ export function MatchHistory({
                 if (!refreshResponse.ok) return;
 
                 const deadline = Date.now() + 2 * 60 * 1000;
+                const delays = [3000, 5000, 8000, 10000];
+                let poll = 0;
+                let lastProgress = "";
                 while (Date.now() < deadline) {
-                    await new Promise((resolve) => window.setTimeout(resolve, 2500));
-                    await fetchInitialMatches(false);
+                    await new Promise((resolve) => window.setTimeout(
+                        resolve, delays[Math.min(poll++, delays.length - 1)]));
                     const statusResponse = await fetch(
                         `${baseUrl}/backfill-status?seasonId=${encodedAct}`
                     );
                     if (!statusResponse.ok) continue;
                     const status = await statusResponse.json();
-                    if (status?.data?.status === "COMPLETE") break;
+                    const state = status?.data?.status;
+                    const progress = `${status?.data?.nextPage ?? ""}:${status?.data?.updatedAt ?? ""}`;
+                    if (progress !== lastProgress) {
+                        lastProgress = progress;
+                        await fetchInitialMatches(false);
+                    }
+                    if (state === "COMPLETE") break;
+                    if (state === "FAILED" || state === "STALLED") {
+                        throw new Error(`Match backfill ${state.toLowerCase()}`);
+                    }
                 }
                 await fetchInitialMatches(false);
                 onRefreshComplete?.();
@@ -231,18 +243,27 @@ export function MatchHistory({
             if (!refreshResponse.ok) return;
 
             const deadline = Date.now() + 2 * 60 * 1000;
+            const delays = [3000, 5000, 8000, 10000];
+            let poll = 0;
+            let lastProgress = "";
             while (Date.now() < deadline) {
-                await new Promise((resolve) => window.setTimeout(resolve, 2500));
-
-                // The sync worker stores each match as it processes it. Read
-                // those partial results on every poll instead of hiding all
-                // recent matches until the entire historical backfill ends.
-                await fetchInitialMatches(false);
+                await new Promise((resolve) => window.setTimeout(
+                    resolve, delays[Math.min(poll++, delays.length - 1)]));
 
                 const nextStatusResponse = await fetch(`${baseUrl}/refresh-status`);
                 if (!nextStatusResponse.ok) continue;
                 const nextStatus = await nextStatusResponse.json();
-                if (nextStatus?.data?.refreshRequired !== true) break;
+                const data = nextStatus?.data ?? {};
+                const state = data.backfillStatus ?? data.status;
+                const progress = `${data.nextPage ?? ""}:${data.updatedAt ?? ""}`;
+                if (progress !== lastProgress) {
+                    lastProgress = progress;
+                    await fetchInitialMatches(false);
+                }
+                if (state === "FAILED" || state === "STALLED") {
+                    throw new Error(`Match refresh ${state.toLowerCase()}`);
+                }
+                if (state === "COMPLETE" || data.refreshRequired !== true) break;
             }
 
             await fetchInitialMatches(false);

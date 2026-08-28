@@ -66,7 +66,7 @@ public class MatchProcessor {
         int tier = stats.tier();
         long gameStart = parseDateRaw(meta.startedAt());
 
-        processPlayerMatch(
+        boolean newlyProcessed = processPlayerMatch(
                 puuid,
                 seasonId,
                 seasonShort,
@@ -94,12 +94,25 @@ public class MatchProcessor {
                 tier
         );
 
+        if (newlyProcessed) {
+            String outcome = outcome(str(stats.team()), redRounds, blueRounds);
+            updateDimensionAggregate("PLAYER#" + puuid, "MAP#" + dimensionKey(
+                            mapObj != null ? str(mapObj.id()) : str(mapObj != null ? mapObj.name() : "unknown")),
+                    "mapName", mapObj != null ? str(mapObj.name()) : "Unknown",
+                    outcome, stats.kills(), stats.deaths(), stats.assists());
+            updateDimensionAggregate("PLAYER#" + puuid, "AGENT#" + dimensionKey(
+                            character != null ? str(character.id()) : str(character != null ? character.name() : "unknown")),
+                    "agentName", character != null ? str(character.name()) : "Unknown",
+                    outcome, stats.kills(), stats.deaths(), stats.assists());
+            updateSocialAggregates(match, puuid, str(stats.team()), outcome);
+        }
+
         recordPlayerNames(match, gameStart);
 
         return true;
     }
 
-    public void processPlayerMatch(
+    public boolean processPlayerMatch(
             String puuid,
             String seasonId,
             String seasonShort,
@@ -182,10 +195,10 @@ public class MatchProcessor {
                     pk, sk, seasonShort, seasonName, mode, modeName,
                     server, damageMade, roundsPlayed, adr);
             LOG.debug("Match {} already processed for {}", matchId, puuid);
-            return;
+            return false;
         } catch (DynamoDbException e) {
             LOG.error("Failed to write marker for match {}", matchId, e);
-            return; // do NOT continue if marker fails
+            return false; // do NOT continue if marker fails
         }
 
         // =========================
@@ -207,6 +220,84 @@ public class MatchProcessor {
         );
 
         LOG.debug("Processed match {} for player {}", matchId, puuid);
+        return true;
+    }
+
+    private void updateDimensionAggregate(
+            String pk, String sk, String labelField, String label, String outcome,
+            long kills, long deaths, long assists) {
+        Map<String, String> names = Map.of("#label", labelField);
+        Map<String, AttributeValue> values = aggregateValues(label, outcome, kills, deaths, assists);
+        String update = "SET #label = :label, games = if_not_exists(games, :zero) + :one, "
+                + "wins = if_not_exists(wins, :zero) + :wins, losses = if_not_exists(losses, :zero) + :losses, "
+                + "draws = if_not_exists(draws, :zero) + :draws, kills = if_not_exists(kills, :zero) + :kills, "
+                + "deaths = if_not_exists(deaths, :zero) + :deaths, assists = if_not_exists(assists, :zero) + :assists";
+        updateItem(pk, sk, update, names, values);
+    }
+
+    private void updateSocialAggregates(
+            StoredMatchesResponse.StoredMatch match, String playerPuuid, String playerTeam, String outcome) {
+        if (match.players() == null) return;
+        for (StoredMatchesResponse.Player other : match.players()) {
+            if (other == null || str(other.puuid()).isBlank() || playerPuuid.equals(other.puuid())) continue;
+            boolean teammate = str(other.team()).equalsIgnoreCase(playerTeam);
+            String sk = (teammate ? "SOCIAL#WITH#" : "SOCIAL#AGAINST#") + other.puuid();
+            Map<String, AttributeValue> values = aggregateValues(
+                    str(other.name()) + "#" + str(other.tag()), outcome, 0, 0, 0);
+            values.remove(":label");
+            values.remove(":kills");
+            values.remove(":deaths");
+            values.remove(":assists");
+            values.put(":name", AttributeValue.fromS(str(other.name())));
+            values.put(":tag", AttributeValue.fromS(str(other.tag())));
+            values.put(":puuid", AttributeValue.fromS(str(other.puuid())));
+            String update = "SET playerPuuid = :puuid, #n = :name, tag = :tag, games = if_not_exists(games, :zero) + :one, "
+                    + "wins = if_not_exists(wins, :zero) + :wins, losses = if_not_exists(losses, :zero) + :losses, "
+                    + "draws = if_not_exists(draws, :zero) + :draws";
+            updateItem("PLAYER#" + playerPuuid, sk, update, Map.of("#n", "name"), values);
+        }
+    }
+
+    private Map<String, AttributeValue> aggregateValues(
+            String label, String outcome, long kills, long deaths, long assists) {
+        Map<String, AttributeValue> values = new HashMap<>();
+        values.put(":label", AttributeValue.fromS(label == null ? "" : label));
+        values.put(":zero", AttributeValue.fromN("0"));
+        values.put(":one", AttributeValue.fromN("1"));
+        values.put(":wins", AttributeValue.fromN("win".equals(outcome) ? "1" : "0"));
+        values.put(":losses", AttributeValue.fromN("loss".equals(outcome) ? "1" : "0"));
+        values.put(":draws", AttributeValue.fromN("draw".equals(outcome) ? "1" : "0"));
+        values.put(":kills", AttributeValue.fromN(String.valueOf(kills)));
+        values.put(":deaths", AttributeValue.fromN(String.valueOf(deaths)));
+        values.put(":assists", AttributeValue.fromN(String.valueOf(assists)));
+        return values;
+    }
+
+    private void updateItem(String pk, String sk, String expression,
+                            Map<String, String> names, Map<String, AttributeValue> values) {
+        try {
+            UpdateItemRequest.Builder request = UpdateItemRequest.builder()
+                    .tableName(tableName)
+                    .key(Map.of("PK", AttributeValue.fromS(pk), "SK", AttributeValue.fromS(sk)))
+                    .updateExpression(expression)
+                    .expressionAttributeValues(values);
+            if (!names.isEmpty()) request.expressionAttributeNames(names);
+            ddb.updateItem(request.build());
+        } catch (DynamoDbException e) {
+            LOG.warn("Failed to update breakdown {} for {}", sk, pk, e);
+        }
+    }
+
+    private String outcome(String team, int redRounds, int blueRounds) {
+        if (redRounds == blueRounds) return "draw";
+        boolean redWon = redRounds > blueRounds;
+        boolean playerRed = "red".equalsIgnoreCase(team);
+        return redWon == playerRed ? "win" : "loss";
+    }
+
+    private String dimensionKey(String value) {
+        String normalized = value == null ? "" : value.replaceAll("[^A-Za-z0-9-]", "").toLowerCase();
+        return normalized.isBlank() ? "unknown" : normalized;
     }
 
     private void updateExistingMatchMetadata(

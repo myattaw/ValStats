@@ -112,15 +112,23 @@ public final class ValStatsApplicationStack extends Stack {
                 .timeout(Duration.minutes(4))
                 .tracing(Tracing.ACTIVE)
                 .logGroup(syncLogGroup)
-                .environment(sharedEnvironment)
+                .environment(mergeEnvironment(sharedEnvironment, Map.of(
+                        "REFRESH_QUEUE_URL", refreshQueue.getQueueUrl(),
+                        "HISTORY_QUEUE_URL", nameHistoryQueue.getQueueUrl())))
                 .build();
 
         dataTable.grantReadWriteData(apiFunction);
         dataTable.grantReadWriteData(syncFunction);
         refreshQueue.grantSendMessages(apiFunction);
+        refreshQueue.grantSendMessages(syncFunction);
+        nameHistoryQueue.grantSendMessages(syncFunction);
         henrikApiSecret.grantRead(apiFunction);
         henrikApiSecret.grantRead(syncFunction);
         syncFunction.addEventSource(SqsEventSource.Builder.create(refreshQueue)
+                .batchSize(1)
+                .maxConcurrency(2)
+                .build());
+        syncFunction.addEventSource(SqsEventSource.Builder.create(nameHistoryQueue)
                 .batchSize(1)
                 .maxConcurrency(2)
                 .build());

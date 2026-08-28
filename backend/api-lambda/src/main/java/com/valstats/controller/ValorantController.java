@@ -60,6 +60,25 @@ public class ValorantController {
         return valorantService.getMatchRefreshStatus(region, name, tag);
     }
 
+    @Post("/matches/{region}/{name}/{tag}/acts/{seasonId}/refresh")
+    public HttpResponse<Map<String, Object>> refreshActMatches(
+            @PathVariable String region,
+            @PathVariable String name,
+            @PathVariable String tag,
+            @PathVariable String seasonId) {
+        Map<String, Object> response = valorantService.refreshActMatches(region, name, tag, seasonId);
+        return Integer.valueOf(202).equals(response.get("status"))
+                ? HttpResponse.<Map<String, Object>>status(HttpStatus.ACCEPTED).body(response)
+                : HttpResponse.ok(response);
+    }
+
+    @Get("/matches/{region}/{name}/{tag}/backfill-status")
+    public Map<String, Object> getBackfillStatus(
+            @PathVariable String region, @PathVariable String name, @PathVariable String tag,
+            @QueryValue(defaultValue = "all") String seasonId) {
+        return valorantService.getBackfillStatus(region, name, tag, seasonId);
+    }
+
     @Get("/modes/{region}/{name}/{tag}")
     public Object getModes(@PathVariable String region, @PathVariable String name, @PathVariable String tag) {
         return valorantService.getAvailableModes(region, name, tag);
@@ -134,6 +153,12 @@ public class ValorantController {
             @QueryValue(defaultValue = "all") String seasonId
     ) {
         return valorantService.getPlayerMMR(region, name, tag, seasonId);
+    }
+
+    @Get("/insights/{region}/{name}/{tag}")
+    public Map<String, Object> getPlayerInsights(
+            @PathVariable String region, @PathVariable String name, @PathVariable String tag) {
+        return valorantService.getPlayerInsights(region, name, tag);
     }
 
 }

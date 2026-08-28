@@ -100,6 +100,84 @@ public class DynamoDbService {
                 .build());
     }
 
+    public List<Map<String, AttributeValue>> queryByPkPrefix(String pk, String skPrefix) {
+        List<Map<String, AttributeValue>> items = new ArrayList<>();
+        Map<String, AttributeValue> cursor = null;
+        do {
+            QueryRequest.Builder request = QueryRequest.builder()
+                    .tableName(tableName)
+                    .keyConditionExpression("PK = :pk AND begins_with(SK, :prefix)")
+                    .expressionAttributeValues(Map.of(
+                            ":pk", AttributeValue.fromS(pk),
+                            ":prefix", AttributeValue.fromS(skPrefix)));
+            if (cursor != null && !cursor.isEmpty()) request.exclusiveStartKey(cursor);
+            QueryResponse response = dbClient.query(request.build());
+            items.addAll(response.items());
+            cursor = response.lastEvaluatedKey();
+        } while (cursor != null && !cursor.isEmpty());
+        return items;
+    }
+
+    public boolean tryQueueBackfill(String puuid, String scope) {
+        long now = Instant.now().getEpochSecond();
+        try {
+            dbClient.updateItem(UpdateItemRequest.builder()
+                    .tableName(tableName)
+                    .key(Map.of("PK", AttributeValue.fromS("PLAYER#" + puuid),
+                            "SK", AttributeValue.fromS("SYNC#" + scope)))
+                    .updateExpression("SET #status = :queued, leaseUntil = :lease, updatedAt = :updated")
+                    .conditionExpression("attribute_not_exists(#status) OR #status IN (:complete, :failed) OR leaseUntil < :now")
+                    .expressionAttributeNames(Map.of("#status", "status"))
+                    .expressionAttributeValues(Map.of(
+                            ":queued", AttributeValue.fromS("QUEUED"),
+                            ":complete", AttributeValue.fromS("COMPLETE"),
+                            ":failed", AttributeValue.fromS("FAILED"),
+                            ":now", AttributeValue.fromN(String.valueOf(now)),
+                            ":lease", AttributeValue.fromN(String.valueOf(now + 600)),
+                            ":updated", AttributeValue.fromS(Instant.now().toString())))
+                    .build());
+            return true;
+        } catch (ConditionalCheckFailedException ignored) {
+            return false;
+        }
+    }
+
+    public void updateBackfillState(String puuid, String scope, String status, int nextPage) {
+        long now = Instant.now().getEpochSecond();
+        dbClient.updateItem(UpdateItemRequest.builder()
+                .tableName(tableName)
+                .key(Map.of("PK", AttributeValue.fromS("PLAYER#" + puuid),
+                        "SK", AttributeValue.fromS("SYNC#" + scope)))
+                .updateExpression("SET #status = :status, nextPage = :page, leaseUntil = :lease, updatedAt = :updated")
+                .expressionAttributeNames(Map.of("#status", "status"))
+                .expressionAttributeValues(Map.of(
+                        ":status", AttributeValue.fromS(status),
+                        ":page", AttributeValue.fromN(String.valueOf(nextPage)),
+                        ":lease", AttributeValue.fromN(String.valueOf("COMPLETE".equals(status) ? now : now + 600)),
+                        ":updated", AttributeValue.fromS(Instant.now().toString())))
+                .build());
+    }
+
+    public Optional<Map<String, Object>> getBackfillState(String puuid, String scope) {
+        GetItemResponse response = dbClient.getItem(GetItemRequest.builder().tableName(tableName)
+                .key(Map.of("PK", AttributeValue.fromS("PLAYER#" + puuid),
+                        "SK", AttributeValue.fromS("SYNC#" + scope))).build());
+        if (!response.hasItem()) return Optional.empty();
+        Map<String, AttributeValue> item = response.item();
+        String status = item.getOrDefault("status", AttributeValue.fromS("UNKNOWN")).s();
+        long leaseUntil = Long.parseLong(item.getOrDefault("leaseUntil", AttributeValue.fromN("0")).n());
+        long now = Instant.now().getEpochSecond();
+        boolean stalled = ("RUNNING".equals(status) || "QUEUED".equals(status))
+                && leaseUntil > 0 && leaseUntil < now;
+        Map<String, Object> state = new HashMap<>();
+        state.put("status", stalled ? "STALLED" : status);
+        state.put("nextPage", Long.parseLong(item.getOrDefault("nextPage", AttributeValue.fromN("1")).n()));
+        state.put("updatedAt", item.getOrDefault("updatedAt", AttributeValue.fromS("")).s());
+        state.put("leaseUntil", leaseUntil);
+        state.put("refreshing", !stalled && ("RUNNING".equals(status) || "QUEUED".equals(status)));
+        return Optional.of(state);
+    }
+
     /**
      * Get stored matches for a player with pagination.
      * Returns matches ordered by game start time (newest first).

@@ -57,6 +57,11 @@ public class RefreshQueuePublisher {
         payload.put("name", job.name());
         payload.put("tag", job.tag());
         payload.put("requestedAt", job.requestedAt());
+        payload.put("kind", job.kind());
+        payload.put("page", job.page());
+        payload.put("pagesPerJob", job.pagesPerJob());
+        payload.put("targetSeasonId", job.targetSeasonId());
+        payload.put("targetSeen", job.targetSeen());
         return objectMapper.writeValueAsString(payload);
     }
 }

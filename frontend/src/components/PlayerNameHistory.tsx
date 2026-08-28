@@ -18,6 +18,7 @@ function formatDate(timestamp: number) {
 export function PlayerNameHistory({ puuid, refreshVersion = 0 }: { puuid?: string; refreshVersion?: number }) {
   const [names, setNames] = useState<NameObservation[]>([]);
   const [open, setOpen] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
   const historyElement = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -68,6 +69,7 @@ export function PlayerNameHistory({ puuid, refreshVersion = 0 }: { puuid?: strin
         const status = await statusResponse.json();
         if (status?.data?.refreshRequired !== true) return;
 
+        setIsScanning(true);
         // Do not abort the POST when React re-renders; the backend refresh should
         // be allowed to finish once it has started.
         const refreshResponse = await fetch(`${baseUrl}/refresh`, {
@@ -83,6 +85,8 @@ export function PlayerNameHistory({ puuid, refreshVersion = 0 }: { puuid?: strin
         if (!controller.signal.aborted) setNames(Array.isArray(payload?.data) ? payload.data : []);
       } catch (reason: any) {
         if (reason?.name !== 'AbortError') console.error('Failed to refresh player name history', reason);
+      } finally {
+        if (!controller.signal.aborted) setIsScanning(false);
       }
     };
 
@@ -91,7 +95,11 @@ export function PlayerNameHistory({ puuid, refreshVersion = 0 }: { puuid?: strin
   }, [puuid, refreshVersion]);
 
   const previousNames = names.filter((name) => !name.current);
-  if (!previousNames.length) return null;
+  if (!previousNames.length && !isScanning) return null;
+
+  if (isScanning && !previousNames.length) {
+    return <div className="name-history name-history-refreshing" role="status">Scanning match history for previous Riot IDs…</div>;
+  }
 
   const previousTimeline = [...previousNames]
     .sort((a, b) => b.lastSeen - a.lastSeen);
@@ -106,7 +114,9 @@ export function PlayerNameHistory({ puuid, refreshVersion = 0 }: { puuid?: strin
         title={`${previousNames.length} previous Riot ${previousNames.length === 1 ? 'ID' : 'IDs'}`}
       >
         <span className="name-history-count whitespace-nowrap">
-          {previousNames.length} Name {previousNames.length === 1 ? 'Change' : 'Changes'}
+          {isScanning
+            ? 'Scanning previous Riot IDs…'
+            : `${previousNames.length} Name ${previousNames.length === 1 ? 'Change' : 'Changes'}`}
         </span>
         <ChevronDown className={open ? 'open' : ''} />
       </button>

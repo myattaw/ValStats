@@ -51,7 +51,12 @@ public final class RefreshQueueHandler
                 stringValue(json, "region"),
                 stringValue(json, "name"),
                 stringValue(json, "tag"),
-                longValue(json, "requestedAt")
+                longValue(json, "requestedAt"),
+                defaultString(json, "kind", "RECENT"),
+                intValue(json, "page", 1),
+                intValue(json, "pagesPerJob", 2),
+                defaultString(json, "targetSeasonId", ""),
+                booleanValue(json, "targetSeen", false)
         );
     }
 
@@ -63,6 +68,21 @@ public final class RefreshQueueHandler
     private static long longValue(JsonNode json, String field) {
         JsonNode value = json == null ? null : json.get(field);
         return value == null || value.isNull() ? 0L : value.getLongValue();
+    }
+
+    private static int intValue(JsonNode json, String field, int fallback) {
+        JsonNode value = json == null ? null : json.get(field);
+        return value == null || value.isNull() ? fallback : value.getIntValue();
+    }
+
+    private static String defaultString(JsonNode json, String field, String fallback) {
+        String value = stringValue(json, field);
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private static boolean booleanValue(JsonNode json, String field, boolean fallback) {
+        JsonNode value = json == null ? null : json.get(field);
+        return value == null || value.isNull() ? fallback : value.getBooleanValue();
     }
 
     @Override

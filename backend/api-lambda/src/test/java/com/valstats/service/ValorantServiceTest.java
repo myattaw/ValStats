@@ -42,6 +42,7 @@ class ValorantServiceTest {
         when(matchDataService.needsRefresh("puuid", "na", "Player", "NA1"))
                 .thenReturn(true);
         when(refreshQueuePublisher.isConfigured()).thenReturn(true);
+        when(dynamoDbService.tryQueueBackfill("puuid", "RECENT")).thenReturn(true);
         ValorantService service = new ValorantService(
                 matchDataService, playerStatsService, playerCacheService, apiClient,
                 dynamoDbService, apiRequestQueue, refreshQueuePublisher);

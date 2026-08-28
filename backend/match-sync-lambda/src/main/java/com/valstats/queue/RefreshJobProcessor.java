@@ -8,9 +8,11 @@ import jakarta.inject.Singleton;
 public class RefreshJobProcessor {
 
     private final MatchDataService matchDataService;
+    private final BackfillQueuePublisher queuePublisher;
 
-    public RefreshJobProcessor(MatchDataService matchDataService) {
+    public RefreshJobProcessor(MatchDataService matchDataService, BackfillQueuePublisher queuePublisher) {
         this.matchDataService = matchDataService;
+        this.queuePublisher = queuePublisher;
     }
 
     public void process(RefreshJob job) {
@@ -18,7 +20,26 @@ public class RefreshJobProcessor {
                 || isBlank(job.name()) || isBlank(job.tag())) {
             throw new IllegalArgumentException("Refresh job is missing required player fields");
         }
-        matchDataService.refreshPlayerMatches(job.puuid(), job.region(), job.name(), job.tag());
+        MatchDataService.BackfillResult result;
+        try {
+            result = matchDataService.processBackfill(job);
+        } catch (RuntimeException failure) {
+            try {
+                matchDataService.markBackfillFailed(job);
+            } catch (RuntimeException stateFailure) {
+                failure.addSuppressed(stateFailure);
+            }
+            throw failure;
+        }
+        if (result.complete()) return;
+
+        RefreshJob continuation;
+        if ("RECENT".equalsIgnoreCase(job.kind())) {
+            continuation = RefreshJob.history(job.puuid(), job.region(), job.name(), job.tag(), result.nextPage());
+        } else {
+            continuation = job.withProgress(result.nextPage(), result.targetSeen());
+        }
+        queuePublisher.enqueue(continuation, "HISTORY".equalsIgnoreCase(continuation.kind()));
     }
 
     private boolean isBlank(String value) {

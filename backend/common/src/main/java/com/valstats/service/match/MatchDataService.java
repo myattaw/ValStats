@@ -6,6 +6,7 @@ import com.valstats.client.ValorantApiClient;
 import com.valstats.client.HenrikApiRequestQueue;
 import com.valstats.model.response.MatchResponses;
 import com.valstats.model.stored.StoredMatchesResponse;
+import com.valstats.model.queue.RefreshJob;
 import com.valstats.service.DynamoDbService;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
@@ -145,6 +146,92 @@ public class MatchDataService {
         }
         return true;
     }
+
+    /** Processes a bounded, resumable SQS backfill job. */
+    public BackfillResult processBackfill(RefreshJob job) {
+        String syncScope = syncScope(job);
+        dynamoDbService.updateBackfillState(job.puuid(), syncScope, "RUNNING", Math.max(1, job.page()));
+        int startPage = Math.max(1, job.page());
+        int pageBudget = Math.max(1, Math.min(job.pagesPerJob(), 20));
+        boolean targeted = "ACT".equalsIgnoreCase(job.kind()) && job.targetSeasonId() != null
+                && !job.targetSeasonId().isBlank();
+        boolean targetSeen = job.targetSeen();
+        int page = startPage;
+        boolean complete = false;
+
+        for (int fetched = 0; fetched < pageBudget && page <= MAX_STORED_MATCH_PAGES; fetched++, page++) {
+            int requestedPage = page;
+            StoredMatchesResponse response = apiRequestQueue.execute(
+                    "stored matches page " + requestedPage + " for " + job.name() + "#" + job.tag(),
+                    () -> apiClient.getStoredMatches(job.region(), job.name(), job.tag(),
+                            STORED_MATCH_PAGE_SIZE, requestedPage, null));
+            List<StoredMatchesResponse.StoredMatch> matches = response != null && response.data() != null
+                    ? response.data() : List.of();
+            if (matches.isEmpty()) {
+                complete = true;
+                break;
+            }
+
+            boolean pageContainsTarget = false;
+            for (StoredMatchesResponse.StoredMatch match : matches) {
+                if (targeted && match != null && match.meta() != null && match.meta().season() != null
+                        && job.targetSeasonId().equals(match.meta().season().id())) {
+                    pageContainsTarget = true;
+                    targetSeen = true;
+                }
+                matchProcessor.processStoredMatchSummary(match, job.puuid());
+            }
+
+            if (targeted && targetSeen && !pageContainsTarget) {
+                complete = true;
+                page++;
+                break;
+            }
+            if (matches.size() < STORED_MATCH_PAGE_SIZE) {
+                complete = true;
+                page++;
+                break;
+            }
+        }
+
+        if ("RECENT".equalsIgnoreCase(job.kind())) {
+            dynamoDbService.updatePlayerLastRecentMatchUpdate(job.region(), job.name(), job.tag());
+            refreshMmrHistory(job.puuid(), job.region(), job.name(), job.tag());
+        }
+        if (page > MAX_STORED_MATCH_PAGES) complete = true;
+        // RECENT is a bounded foreground phase. When its page budget is consumed,
+        // the processor queues a separate HISTORY job; leaving RECENT as QUEUED
+        // would make clients display "Refreshing" forever.
+        boolean scopeComplete = complete || "RECENT".equalsIgnoreCase(job.kind());
+        dynamoDbService.updateBackfillState(job.puuid(), syncScope,
+                scopeComplete ? "COMPLETE" : "QUEUED", page);
+        return new BackfillResult(complete, page, targetSeen);
+    }
+
+    private String syncScope(RefreshJob job) {
+        return "ACT".equalsIgnoreCase(job.kind())
+                ? "ACT#" + job.targetSeasonId()
+                : job.kind().toUpperCase(Locale.ROOT);
+    }
+
+    /** Records a terminal worker failure so clients do not display a permanent refresh state. */
+    public void markBackfillFailed(RefreshJob job) {
+        dynamoDbService.updateBackfillState(
+                job.puuid(), syncScope(job), "FAILED", Math.max(1, job.page()));
+    }
+
+    private void refreshMmrHistory(String puuid, String region, String name, String tag) {
+        try {
+            Map<String, Object> mmrHistory = apiRequestQueue.execute(
+                    "MMR history for " + name + "#" + tag,
+                    () -> apiClient.getMMRHistory(region, name, tag));
+            cacheMMRHistory(puuid, mmrHistory);
+        } catch (Exception e) {
+            LOG.warn("MMR refresh failed for {}#{}: {}", name, tag, e.getMessage());
+        }
+    }
+
+    public record BackfillResult(boolean complete, int nextPage, boolean targetSeen) {}
 
     public boolean needsRefresh(String puuid, String region, String name, String tag) {
         QueryResponse check = dynamoDbService.getMatchesFromGSI(puuid, 50, null);

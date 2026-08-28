@@ -55,7 +55,7 @@ class ValStatsInfrastructureTest {
         template.resourceCountIs("AWS::CloudWatch::Alarm", 4);
         template.resourceCountIs("AWS::Lambda::Function", 2);
         template.resourceCountIs("AWS::ApiGatewayV2::Api", 1);
-        template.resourceCountIs("AWS::Lambda::EventSourceMapping", 1);
+        template.resourceCountIs("AWS::Lambda::EventSourceMapping", 2);
         template.hasResourceProperties("AWS::SQS::Queue", Match.objectLike(Map.of(
                 "QueueName", "valstats-test-refresh",
                 "VisibilityTimeout", 300

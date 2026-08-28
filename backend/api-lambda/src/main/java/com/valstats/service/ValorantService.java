@@ -156,6 +156,10 @@ public class ValorantService {
             return Map.of("status", 200, "data", Map.of("updated", false, "refreshing", false));
         }
         if (refreshQueuePublisher.isConfigured()) {
+            if (!dynamoDbService.tryQueueBackfill(puuid, "RECENT")) {
+                return Map.of("status", 202, "data", Map.of(
+                        "updated", false, "refreshing", true, "queued", false));
+            }
             refreshQueuePublisher.enqueue(RefreshJob.matches(puuid, region, name, tag));
             return Map.of("status", 202, "data", Map.of(
                     "updated", false,
@@ -171,10 +175,52 @@ public class ValorantService {
     public Map<String, Object> getMatchRefreshStatus(String region, String name, String tag) {
         Optional<String> puuid = playerCacheService.getPuuidByNameTag(name, tag);
         if (puuid.isEmpty()) {
-            return Map.of("status", 200, "data", Map.of("refreshRequired", true));
+            return Map.of("status", 200, "data", Map.of(
+                    "refreshRequired", true, "refreshing", false, "backfillStatus", "NOT_STARTED"));
         }
         boolean required = matchDataService.needsRefresh(puuid.get(), region, name, tag);
-        return Map.of("status", 200, "data", Map.of("refreshRequired", required));
+        Map<String, Object> state = dynamoDbService.getBackfillState(puuid.get(), "RECENT")
+                .orElse(Map.of("status", "NOT_STARTED", "refreshing", false,
+                        "nextPage", 1L, "updatedAt", ""));
+        Map<String, Object> data = new HashMap<>(state);
+        data.put("backfillStatus", state.get("status"));
+        data.put("refreshRequired", required);
+        return Map.of("status", 200, "data", data);
+    }
+
+    public Map<String, Object> refreshActMatches(
+            String region, String name, String tag, String seasonId) {
+        String puuid = resolvePuuid(name, tag, region);
+        if (puuid == null) return errorResponse("Player not found");
+        if (seasonId == null || seasonId.isBlank() || "all".equalsIgnoreCase(seasonId)) {
+            return errorResponse("A specific season is required");
+        }
+        if (!refreshQueuePublisher.isConfigured()) {
+            return errorResponse("Background refresh is not configured");
+        }
+        String scope = "ACT#" + seasonId;
+        Optional<Map<String, Object>> existingState = dynamoDbService.getBackfillState(puuid, scope);
+        if (existingState.filter(state -> "COMPLETE".equals(state.get("status"))).isPresent()) {
+            return Map.of("status", 200, "data", Map.of(
+                    "refreshing", false, "seasonId", seasonId, "updated", false));
+        }
+        if (!dynamoDbService.tryQueueBackfill(puuid, scope)) {
+            return Map.of("status", 202, "data", Map.of(
+                    "refreshing", true, "seasonId", seasonId, "queued", false));
+        }
+        refreshQueuePublisher.enqueue(RefreshJob.act(puuid, region, name, tag, seasonId));
+        return Map.of("status", 202, "data", Map.of(
+                "refreshing", true, "seasonId", seasonId, "priority", "high"));
+    }
+
+    public Map<String, Object> getBackfillStatus(String region, String name, String tag, String seasonId) {
+        Optional<String> puuid = playerCacheService.getPuuidByNameTag(name, tag);
+        if (puuid.isEmpty()) return Map.of("status", 200, "data", Map.of("state", "NOT_STARTED"));
+        String scope = seasonId == null || seasonId.isBlank() || "all".equalsIgnoreCase(seasonId)
+                ? "HISTORY" : "ACT#" + seasonId;
+        Map<String, Object> state = dynamoDbService.getBackfillState(puuid.get(), scope)
+                .orElse(Map.of("status", "NOT_STARTED", "nextPage", 1L, "updatedAt", ""));
+        return Map.of("status", 200, "data", state);
     }
 
     /**
@@ -260,15 +306,20 @@ public class ValorantService {
 
     public Map<String, Object> getPlayerNameHistoryRefreshStatus(String puuid) {
         return Map.of("status", 200, "data", Map.of(
-                "refreshRequired", playerCacheService.shouldBackfillNameHistory(puuid)));
+                "refreshRequired", playerCacheService.shouldBackfillNameHistory(puuid),
+                "source", "sampled-match-details"));
     }
 
     public Map<String, Object> refreshPlayerNameHistory(String puuid) {
         if (!playerCacheService.shouldBackfillNameHistory(puuid)) {
-            return Map.of("status", 200, "data", Map.of("updated", false));
+            return Map.of("status", 200, "data", Map.of(
+                    "updated", false,
+                    "source", "sampled-match-details"));
         }
         backfillRecentNameHistory(puuid);
-        return Map.of("status", 200, "data", Map.of("updated", true));
+        return Map.of("status", 200, "data", Map.of(
+                "updated", true,
+                "source", "sampled-match-details"));
     }
 
     public Map<String, Object> getPlayerIdentity(String puuid) {
@@ -514,6 +565,57 @@ public class ValorantService {
                 })
                 .map(entry -> Map.of("value", entry.getKey(), "label", entry.getValue()))
                 .toList();
+    }
+
+    public Map<String, Object> getPlayerInsights(String region, String name, String tag) {
+        String puuid = resolvePuuid(name, tag, region);
+        if (puuid == null) return errorResponse("Player not found");
+        String pk = "PLAYER#" + puuid;
+        List<Map<String, Object>> maps = insightRows(dynamoDbService.queryByPkPrefix(pk, "MAP#"));
+        List<Map<String, Object>> agents = insightRows(dynamoDbService.queryByPkPrefix(pk, "AGENT#"));
+        List<Map<String, Object>> playedWith = insightRows(dynamoDbService.queryByPkPrefix(pk, "SOCIAL#WITH#"));
+        List<Map<String, Object>> playedAgainst = insightRows(dynamoDbService.queryByPkPrefix(pk, "SOCIAL#AGAINST#"));
+        List<Map<String, Object>> topDuos = playedWith.stream()
+                .filter(row -> ((Number) row.get("games")).longValue() >= 2)
+                .sorted(Comparator
+                        .<Map<String, Object>>comparingDouble(row -> -((Number) row.get("winRate")).doubleValue())
+                        .thenComparingLong(row -> -((Number) row.get("games")).longValue()))
+                .limit(10)
+                .toList();
+        return Map.of("status", 200, "data", Map.of(
+                "maps", maps, "agents", agents,
+                "frequentlyPlayedWith", playedWith,
+                "frequentlyPlayedAgainst", playedAgainst,
+                "topDuos", topDuos));
+    }
+
+    private List<Map<String, Object>> insightRows(List<Map<String, AttributeValue>> items) {
+        return items.stream().map(item -> {
+                    long games = attributeLong(item, "games");
+                    long wins = attributeLong(item, "wins");
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    for (String key : List.of("mapName", "agentName", "playerPuuid", "name", "tag")) {
+                        AttributeValue value = item.get(key);
+                        if (value != null && value.s() != null) row.put(key, value.s());
+                    }
+                    row.put("games", games);
+                    row.put("wins", wins);
+                    row.put("losses", attributeLong(item, "losses"));
+                    row.put("draws", attributeLong(item, "draws"));
+                    row.put("kills", attributeLong(item, "kills"));
+                    row.put("deaths", attributeLong(item, "deaths"));
+                    row.put("assists", attributeLong(item, "assists"));
+                    row.put("winRate", games == 0 ? 0.0 : Math.round(wins * 10_000.0 / games) / 100.0);
+                    return row;
+                })
+                .sorted(Comparator.comparingLong(row -> -((Number) row.get("games")).longValue()))
+                .toList();
+    }
+
+    private long attributeLong(Map<String, AttributeValue> item, String key) {
+        AttributeValue value = item.get(key);
+        if (value == null || value.n() == null) return 0L;
+        try { return Long.parseLong(value.n()); } catch (NumberFormatException ignored) { return 0L; }
     }
 
     private String resolveSeasonLabel(String seasonId, String matchLabel) {

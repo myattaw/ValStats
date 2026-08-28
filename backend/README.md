@@ -404,6 +404,8 @@ All Valorant routes are below `/api/valorant`.
 - `GET /matches/{region}/{name}/{tag}`
 - `POST /matches/{region}/{name}/{tag}/refresh`
 - `GET /matches/{region}/{name}/{tag}/refresh-status`
+- `GET /matches/{region}/{name}/{tag}/backfill-status?seasonId={seasonId|all}`
+- `POST /matches/{region}/{name}/{tag}/acts/{seasonId}/refresh`
 - `GET /modes/{region}/{name}/{tag}`
 - `GET /account/{name}/{tag}`
 - `GET /match/{matchid}`
@@ -412,6 +414,7 @@ All Valorant routes are below `/api/valorant`.
 - `GET /stats/{region}/{name}/{tag}`
 - `GET /acts/{region}/{name}/{tag}`
 - `GET /mmr/{region}/{name}/{tag}`
+- `GET /insights/{region}/{name}/{tag}`
 
 ## Security and cost guardrails
 

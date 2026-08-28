@@ -33,6 +33,7 @@ public class ValorantService {
     private static final Logger LOG = LoggerFactory.getLogger(ValorantService.class);
     private static final long NAME_HISTORY_SAMPLE_SECONDS = 7L * 24 * 60 * 60;
     private static final int NAME_HISTORY_CHECKPOINTS_PER_REQUEST = 5;
+    private static final int ACT_DISCOVERY_MATCH_LIMIT = 50_000;
 
     private final MatchDataService matchDataService;
     private final PlayerStatsService playerStatsService;
@@ -442,7 +443,7 @@ public class ValorantService {
         if (puuid == null) return List.of();
 
         List<Map<String, AttributeValue>> items =
-                dynamoDbService.getStoredMatchesForPlayer(puuid, 1000, 1);
+                dynamoDbService.getStoredMatchesForPlayer(puuid, ACT_DISCOVERY_MATCH_LIMIT, 1);
 
         Map<String, Long> seasonLatestGame = new HashMap<>();
         Map<String, String> seasonLabels = new HashMap<>();
@@ -556,6 +557,7 @@ public class ValorantService {
             @SuppressWarnings("unchecked")
             Map<String, Object> bySeason = (Map<String, Object>) rawBySeason;
             normalizeHighestRank(data, bySeason);
+            enrichSeasonMetadata(bySeason);
 
             if (seasonId != null && !seasonId.isBlank() && !"all".equalsIgnoreCase(seasonId)) {
                 String henrikSeasonKey = mapToHenrikSeason(seasonId);
@@ -594,6 +596,16 @@ public class ValorantService {
             LOG.error("Failed to get MMR for {}#{}", name, tag, e);
             return errorResponse("Failed to load MMR");
         }
+    }
+
+    private void enrichSeasonMetadata(Map<String, Object> bySeason) {
+        SEASON_TO_HENRIK.forEach((seasonId, henrikKey) -> {
+            if (!(bySeason.get(henrikKey) instanceof Map<?, ?> rawSeason)) return;
+            @SuppressWarnings("unchecked")
+            Map<String, Object> season = (Map<String, Object>) rawSeason;
+            season.put("season_id", seasonId);
+            season.put("season_name", SEASON_MAP.getOrDefault(seasonId, SeasonNames.format(henrikKey)));
+        });
     }
 
     private void normalizeHighestRank(Map<String, Object> data, Map<String, Object> bySeason) {

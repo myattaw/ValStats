@@ -69,7 +69,7 @@ export default function App() {
                 <div><span className="eyebrow">Performance overview</span><h2>{mode.label} statistics</h2></div>
                 <div className="history-filters">
                   <GameModeSelector value={mode.id} onChange={(id, label) => setMode({ id, label })} region={region} name={activePlayer?.name ?? ''} tag={activePlayer?.tag ?? ''}/>
-                  <ActSelector selectedAct={act.id} onActChange={(id, label, seasonKey) => setAct({ id, label, seasonKey })} region={region} name={activePlayer?.name ?? ''} tag={activePlayer?.tag ?? ''} />
+                  <ActSelector selectedAct={act.id} onActChange={(id, label, seasonKey) => setAct({ id, label, seasonKey })} region={region} name={activePlayer?.name ?? ''} tag={activePlayer?.tag ?? ''} mmr={mmr} mmrLoading={rankLoading} />
                 </div>
               </div>
               <StatsOverview stats={stats} loading={rankLoading || statsWaitingForMatches} />

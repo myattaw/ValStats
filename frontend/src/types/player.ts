@@ -32,6 +32,8 @@ export interface SeasonRank {
   wins: number;
   old?: boolean;
   act_rank_wins?: Array<{ tier: number; patched_tier: string }>;
+  season_id?: string;
+  season_name?: string;
 }
 
 export interface MmrData {
@@ -41,6 +43,6 @@ export interface MmrData {
     ranking_in_tier?: number;
     images?: { small?: string };
   };
-  highest_rank?: { tier?: number; patched_tier?: string };
+  highest_rank?: { tier?: number; patched_tier?: string; season?: string; normalized?: boolean };
   by_season?: Record<string, SeasonRank>;
 }

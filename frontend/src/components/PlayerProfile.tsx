@@ -52,9 +52,10 @@ function rankLargeIcon(name: string) {
         : undefined;
 }
 
-function ActRankCard({label, season, loading}: {
+function ActRankCard({label, season, peakName, loading}: {
     label: string;
     season?: import('../types/player').SeasonRank;
+    peakName?: string;
     loading: boolean
 }) {
     const wins = [...(season?.act_rank_wins ?? [])]
@@ -80,7 +81,7 @@ function ActRankCard({label, season, loading}: {
         (best, win) => !best || rankOrder(win.patched_tier) > rankOrder(best.patched_tier) ? win : best,
         undefined
     );
-    const peak = peakWin?.patched_tier ?? season?.final_rank_patched ?? 'Unranked';
+    const peak = peakName ?? peakWin?.patched_tier ?? season?.final_rank_patched ?? 'Unranked';
 
     return (
         <div className="rank-card act-rank-card">
@@ -162,6 +163,9 @@ export function PlayerProfile({
         (best, [, candidate]) => !best || seasonPeakOrder(candidate) > seasonPeakOrder(best) ? candidate : best,
         undefined
     );
+    const normalizedPeakSeason = mmr?.highest_rank?.season
+        ? mmr.by_season?.[mmr.highest_rank.season]
+        : undefined;
     const currentTier = season?.final_rank ?? mmr?.current_data?.currenttier;
     const currentName = season?.final_rank_patched ?? mmr?.current_data?.currenttierpatched ?? 'Unranked';
     const seasons = validSeasonEntries.map(([, value]) => value);
@@ -205,7 +209,8 @@ export function PlayerProfile({
                     <div><span>Win rate</span><strong>{games ? `${wins}W · ${games - wins}L` : 'No games'}</strong>
                     </div>
                 </div>
-                <ActRankCard label="Peak" season={peakActSeason} loading={loading}/>
+                <ActRankCard label="Peak" season={normalizedPeakSeason ?? peakActSeason}
+                             peakName={mmr?.highest_rank?.patched_tier} loading={loading}/>
             </div>
         </section>
     );

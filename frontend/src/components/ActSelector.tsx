@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { MmrData } from '../types/player';
 import { Calendar } from 'lucide-react';
 import {
     Select,
@@ -22,6 +23,18 @@ interface ActSelectorProps {
     region: string;
     name: string;
     tag: string;
+    mmr?: MmrData | null;
+    mmrLoading?: boolean;
+}
+
+function sortActs(acts: Act[]) {
+    return [...acts].sort((a, b) => {
+        const parse = (act: Act) => {
+            const match = (act.seasonKey || act.value).match(/e(\d+)a(\d+)/i);
+            return match ? Number(match[1]) * 100 + Number(match[2]) : -1;
+        };
+        return parse(b) - parse(a);
+    });
 }
 
 export function ActSelector({
@@ -29,12 +42,30 @@ export function ActSelector({
                                 onActChange,
                                 region,
                                 name,
-                                tag
+                                tag,
+                                mmr,
+                                mmrLoading = false
                             }: ActSelectorProps) {
 
     const [acts, setActs] = useState<Act[]>([
         { value: 'all', label: 'All Acts' }
     ]);
+
+    const mmrActs = useMemo(() => sortActs(
+        Object.entries(mmr?.by_season ?? {})
+            .filter(([, season]) => !season.error)
+            .map(([seasonKey, season]) => ({
+                value: season.season_id || seasonKey,
+                label: season.season_name || seasonKey.replace(/^e(\d+)a(\d+)$/i, 'Episode $1 Act $2'),
+                seasonKey
+            }))
+    ), [mmr]);
+
+    useEffect(() => {
+        if (mmrActs.length > 0) {
+            setActs([{ value: 'all', label: 'All Acts' }, ...mmrActs]);
+        }
+    }, [mmrActs]);
 
     // Fetch acts dynamically
     useEffect(() => {
@@ -60,24 +91,9 @@ export function ActSelector({
                     };
                 });
 
-                const sorted = data.sort((a: Act, b: Act) => {
-                    const parse = (val: string) => {
-                        const item = data.find((act) => act.value === val);
-                        const match = (item?.seasonKey || val).match(/e(\d+)a(\d+)/i);
-                        return match
-                            ? { episode: parseInt(match[1]), act: parseInt(match[2]) }
-                            : { episode: 0, act: 0 };
-                    };
-
-                    const A = parse(a.value);
-                    const B = parse(b.value);
-
-                    if (A.episode !== B.episode) {
-                        return B.episode - A.episode;
-                    }
-
-                    return B.act - A.act;
-                });
+                const merged = new Map<string, Act>();
+                [...mmrActs, ...data].forEach((act) => merged.set(act.seasonKey || act.value, act));
+                const sorted = sortActs([...merged.values()]);
 
                 if (!cancelled) {
                     setActs([
@@ -91,14 +107,16 @@ export function ActSelector({
             }
         }
 
-        if (region && name && tag) {
+        // MMR is the primary, complete source. Only run the expensive cached-
+        // match fallback when MMR has finished and supplied no usable seasons.
+        if (region && name && tag && !mmrLoading && mmrActs.length === 0) {
             fetchActs();
         }
 
         return () => {
             cancelled = true;
         };
-    }, [region, name, tag]);
+    }, [region, name, tag, mmrActs, mmrLoading]);
 
     // Reset to default when player changes
     useEffect(() => {

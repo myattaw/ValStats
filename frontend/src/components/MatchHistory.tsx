@@ -38,13 +38,16 @@ function formatMatchDate(dateRaw: number, timestamp?: string) {
 
     if (!date || Number.isNaN(date.getTime())) return "Unknown date";
 
-    return new Intl.DateTimeFormat(undefined, {
+    const day = new Intl.DateTimeFormat(undefined, {
         month: "short",
-        day: "numeric",
-        year: "numeric",
+        day: "numeric"
+    }).format(date);
+    const time = new Intl.DateTimeFormat(undefined, {
         hour: "numeric",
         minute: "2-digit"
     }).format(date);
+
+    return `${day} · ${time}`;
 }
 
 function isRecentMatch(match: Match) {
@@ -57,6 +60,33 @@ function isRecentMatch(match: Match) {
 
     const age = Date.now() - occurredAt;
     return occurredAt > 0 && age >= 0 && age <= 60 * 60 * 1000;
+}
+
+function getOrdinal(value: number) {
+    const mod100 = value % 100;
+    if (mod100 >= 11 && mod100 <= 13) return `${value}th`;
+    switch (value % 10) {
+        case 1: return `${value}st`;
+        case 2: return `${value}nd`;
+        case 3: return `${value}rd`;
+        default: return `${value}th`;
+    }
+}
+
+function getLobbyPlacement(players: Match["players"], viewerPuuid?: string | null) {
+    if (!players?.length || !viewerPuuid) return null;
+
+    const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
+    const placementIndex = sortedPlayers.findIndex((player) => player.puuid === viewerPuuid);
+    if (placementIndex < 0) return null;
+    if (placementIndex === 0) return "MVP";
+
+    const viewer = sortedPlayers[placementIndex];
+    const isTeamMvp = sortedPlayers
+        .filter((player) => player.team?.toLowerCase() === viewer.team?.toLowerCase())
+        .every((player) => player.puuid === viewer.puuid || player.score <= viewer.score);
+
+    return isTeamMvp ? "TEAM MVP" : getOrdinal(placementIndex + 1);
 }
 
 export function MatchHistory({
@@ -333,13 +363,14 @@ export function MatchHistory({
                             const isExpanded = expandedMatch === match.id;
                             const isNew = newMatchIds.has(match.id);
                             const isRecent = isRecentMatch(match);
+                            const lobbyPlacement = getLobbyPlacement(match.players, puuid);
                             const isVictory = match.result === "Victory";
                             const borderColor = isVictory ? "match-victory" : "match-defeat";
                             const overlayColor = "rgba(8, 13, 18, 0.70)";
                             const hoverOverlayColor = "rgba(255, 255, 255, 0.025)";
                             const resultBadgeColor = isVictory
-                                ? "bg-[#4ade80]/20 text-[#4ade80]"
-                                : "bg-[#f87171]/20 text-[#f87171]";
+                                ? "text-[#4ade80]"
+                                : "text-[#f87171]";
                             const rrChangeColor = match.rrChange > 0 ? "text-[#4ade80]" : "text-[#f87171]";
 
                             return (
@@ -373,7 +404,103 @@ export function MatchHistory({
                                                     }}
                                                 />
 
-                                                <div className="match-card-summary flex items-center justify-between relative z-30">
+                                                <div className="match-entry-grid relative z-30">
+                                                    <div className="match-agent-group">
+                                                        <div className="match-card-agent bg-black/30 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
+                                                            {match.agentIcon ? (
+                                                                <img src={match.agentIcon} alt={match.agent} className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <span className="text-sm">{match.agent && match.agent[0]}</span>
+                                                            )}
+                                                        </div>
+                                                        <span className="match-agent-copy">
+                                                            <span className="match-agent-name" title={match.agent}>{match.agent}</span>
+                                                            <span className="match-agent-badges">
+                                                                {lobbyPlacement && (
+                                                                    <span className={`match-placement-badge ${lobbyPlacement.includes("MVP") ? "is-mvp" : ""}`}>
+                                                                        {lobbyPlacement}
+                                                                    </span>
+                                                                )}
+                                                                {(isNew || isRecent) && (
+                                                                    <span
+                                                                        className="match-state-badge"
+                                                                        style={isNew
+                                                                            ? { backgroundColor: "rgba(168, 85, 247, 0.25)", color: "#d8b4fe" }
+                                                                            : { backgroundColor: "rgba(245, 158, 11, 0.25)", color: "#fcd34d" }}
+                                                                        title={isNew ? "Loaded during this refresh" : "Played within the last hour"}
+                                                                    >
+                                                                        {isNew ? <Sparkles /> : <Clock />}
+                                                                        <span>{isNew ? "New" : "Recent"}</span>
+                                                                    </span>
+                                                                )}
+                                                            </span>
+                                                        </span>
+                                                    </div>
+
+                                                    <span className="match-separator match-separator-major" aria-hidden="true" />
+
+                                                    <div className="match-main-info">
+                                                        <div className="match-primary-row">
+                                                            <span className="match-map-name" title={match.map}>{match.map}</span>
+                                                            <span className="match-result-score">
+                                                                <span className="match-result">{match.result}</span>
+                                                                <span className="match-score">{match.score} <span aria-hidden="true">–</span> {match.enemy_score}</span>
+                                                            </span>
+                                                            <span className="match-rank-group">
+                                                                <img
+                                                                    src={`https://media.valorant-api.com/competitivetiers/03621f52-342b-cf4e-4f86-9350a49c6d04/${match.rank_tier}/smallicon.png`}
+                                                                    alt=""
+                                                                    className="match-rank-icon"
+                                                                />
+                                                                <span className="rank-name-full">{getRankName(match)}</span>
+                                                                <span className="rank-name-compact" aria-label={getRankName(match)}>{getCompactRankName(match)}</span>
+                                                            </span>
+                                                            <span className={`match-rr-change ${rrChangeColor}`}>
+                                                                {match.rrChange !== 0 && (
+                                                                    <>
+                                                                        {match.rrChange > 0 ? <TrendingUp /> : <TrendingDown />}
+                                                                        <span>{match.rrChange > 0 ? "+" : ""}{match.rrChange}<span className="rr-suffix"> RR</span></span>
+                                                                    </>
+                                                                )}
+                                                            </span>
+                                                        </div>
+
+                                                        <div className="match-performance-row">
+                                                            <span><small>KDA</small><strong>{match.kda}</strong></span>
+                                                            <i aria-hidden="true" />
+                                                            <span><small>ACS</small><strong>{match.acs}</strong></span>
+                                                            <i aria-hidden="true" />
+                                                            <span><small>ADR</small><strong>{displayedAdr || "—"}</strong></span>
+                                                        </div>
+                                                    </div>
+
+                                                    <span className="match-separator match-separator-major" aria-hidden="true" />
+
+                                                    <div className="match-card-meta">
+                                                        <div className="match-server-time">
+                                                            {match.server && (
+                                                                <div className="match-server-time-row">
+                                                                    <MapPin />
+                                                                    <span className="truncate">{match.server}</span>
+                                                                </div>
+                                                            )}
+                                                            <div className="match-server-time-row">
+                                                                <Clock />
+                                                                <time dateTime={match.timestamp}>{formatMatchDate(match.date_raw, match.timestamp)}</time>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <span className="match-card-chevron" aria-hidden="true">
+                                                        {loadingMatchId === match.id ? (
+                                                            <Loader2 className="animate-spin" />
+                                                        ) : (
+                                                            <ChevronDown className={`transition-all duration-200 ${isExpanded && match.details ? "rotate-180" : ""}`} />
+                                                        )}
+                                                    </span>
+                                                </div>
+
+                                                <div className="match-card-summary match-card-summary-legacy flex items-center justify-between relative z-30" aria-hidden="true">
                                                     <div className="match-card-primary flex items-center gap-4">
                                                         <div className="match-card-agent w-16 h-16 bg-black/30 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
                                                             {match.agentIcon ? (

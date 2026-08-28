@@ -191,7 +191,7 @@ export function PlayerProfile({
                               title={updatedAt ? `Last updated ${updatedAt.toLocaleTimeString()}` : undefined}
                               aria-live="polite">
               {visibleStatus === 'initial-loading' ? <LoaderCircle/> : visibleStatus === 'refreshing' ? <RefreshCw/> : visibleStatus === 'finding-names' ? <Search/> : <Check/>}
-                            {visibleStatus === 'initial-loading' ? 'Loading' : visibleStatus === 'refreshing' ? 'Syncing' : visibleStatus === 'finding-names' ? 'Names' : 'Updated'}
+                            {visibleStatus === 'initial-loading' ? 'Loading Account' : visibleStatus === 'refreshing' ? 'Syncing Matches' : visibleStatus === 'finding-names' ? 'Scanning Names' : 'Up to Date'}
             </span>
                     </div>
                     <div className="profile-name-row">

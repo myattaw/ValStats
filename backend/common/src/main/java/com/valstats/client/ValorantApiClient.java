@@ -22,6 +22,14 @@ public interface ValorantApiClient {
             @Nullable @QueryValue("mode") String filter
     );
 
+    /** Returns Henrik's complete compact stored-match collection without enabling pagination. */
+    @Get("/valorant/v1/stored-matches/{region}/{name}/{tag}")
+    StoredMatchesResponse getAllStoredMatches(
+            @PathVariable String region,
+            @PathVariable String name,
+            @PathVariable String tag
+    );
+
     @Get("/valorant/v1/mmr-history/{region}/{name}/{tag}")
     Map<String, Object> getMMRHistory(
             @PathVariable String region,

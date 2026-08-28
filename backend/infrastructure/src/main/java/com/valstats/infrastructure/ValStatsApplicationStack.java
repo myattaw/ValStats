@@ -130,6 +130,8 @@ public final class ValStatsApplicationStack extends Stack {
                 .build());
         syncFunction.addEventSource(SqsEventSource.Builder.create(nameHistoryQueue)
                 .batchSize(1)
+                // CDK/SQS permits a minimum maximum-concurrency value of two.
+                // Bulk pages sharply reduce Henrik calls even at this floor.
                 .maxConcurrency(2)
                 .build());
 

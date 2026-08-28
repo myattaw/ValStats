@@ -12,8 +12,11 @@ import software.amazon.awssdk.services.dynamodb.model.*;
 
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 @Singleton
 public class MatchProcessor {
@@ -221,6 +224,152 @@ public class MatchProcessor {
 
         LOG.debug("Processed match {} for player {}", matchId, puuid);
         return true;
+    }
+
+    /**
+     * Persists one large stored-match section using retry-safe overwrite rows.
+     * Aggregate rows are scoped to the section, so retrying the same page replaces
+     * its contribution instead of incrementing counters twice.
+     */
+    public int processStoredMatchBatch(
+            List<StoredMatchesResponse.StoredMatch> matches, String puuid, int page, boolean includeInsights) {
+        Map<String, Map<String, AttributeValue>> uniqueRows = new LinkedHashMap<>();
+        Map<String, BulkAggregate> aggregates = new LinkedHashMap<>();
+        int accepted = 0;
+        for (StoredMatchesResponse.StoredMatch match : matches) {
+            Map<String, AttributeValue> row = storedMatchItem(match, puuid);
+            if (row == null) continue;
+            String itemKey = row.get("PK").s() + "\u0000" + row.get("SK").s();
+            if (uniqueRows.putIfAbsent(itemKey, row) != null) continue;
+            accepted++;
+            if (includeInsights) collectBulkAggregates(match, puuid, aggregates);
+        }
+        List<Map<String, AttributeValue>> rows = new ArrayList<>(uniqueRows.values());
+        if (includeInsights) {
+            String segment = String.format("BULK#V1#%05d#", page);
+            aggregates.forEach((key, aggregate) -> rows.add(aggregate.toItem(puuid, segment + key)));
+        }
+        batchPut(rows);
+        LOG.info("Bulk-persisted {} matches and {} insight rows for {} page {}",
+                accepted, aggregates.size(), puuid, page);
+        return accepted;
+    }
+
+    private Map<String, AttributeValue> storedMatchItem(StoredMatchesResponse.StoredMatch match, String puuid) {
+        if (match == null || match.meta() == null || match.stats() == null) return null;
+        StoredMatchesResponse.Meta meta = match.meta();
+        StoredMatchesResponse.Stats stats = match.stats();
+        String matchId = str(meta.id());
+        if (matchId.isBlank()) return null;
+        StoredMatchesResponse.Season season = meta.season();
+        String seasonId = season == null || str(season.id()).isBlank() ? "unknown" : str(season.id());
+        String seasonShort = season == null ? "" : SeasonNames.normalizeShortCode(season.shortName());
+        String seasonName = SeasonNames.format(seasonShort);
+        StoredMatchesResponse.Shots shots = stats.shots();
+        StoredMatchesResponse.Damage damage = stats.damage();
+        StoredMatchesResponse.MapInfo map = meta.map();
+        StoredMatchesResponse.Character agent = stats.character();
+        long started = parseDateRaw(meta.startedAt());
+        long red = extractTeamRounds(match.teams(), "red");
+        long blue = extractTeamRounds(match.teams(), "blue");
+        long rounds = red + blue;
+        long damageMade = damage == null ? 0 : damage.made();
+        Map<String, AttributeValue> item = new HashMap<>();
+        item.put("PK", AttributeValue.fromS("PLAYER#" + puuid));
+        item.put("SK", AttributeValue.fromS(String.format("SEASON#%s#MATCH#%013d#%s", seasonId, started, matchId)));
+        item.put("GSI1PK", AttributeValue.fromS("PLAYER#" + puuid));
+        item.put("GSI1SK", AttributeValue.fromN(String.valueOf(started)));
+        putS(item, "matchId", matchId); putN(item, "gameStart", started); putS(item, "seasonId", seasonId);
+        if (!seasonShort.isBlank()) putS(item, "seasonShort", seasonShort);
+        if (!seasonName.isBlank()) putS(item, "seasonName", seasonName);
+        putS(item, "mode", normalizeMode(meta.mode())); putS(item, "modeName", displayMode(meta.mode()));
+        putS(item, "map", map == null ? "" : str(map.name())); putS(item, "mapId", map == null ? "" : str(map.id()));
+        putS(item, "agentName", agent == null ? "" : str(agent.name())); putS(item, "agentId", agent == null ? "" : str(agent.id()));
+        putS(item, "team", str(stats.team())); putS(item, "server", str(meta.cluster()));
+        putN(item, "kills", stats.kills()); putN(item, "deaths", stats.deaths()); putN(item, "assists", stats.assists());
+        putN(item, "score", stats.score()); putN(item, "headshots", shots == null ? 0 : shots.head());
+        putN(item, "bodyshots", shots == null ? 0 : shots.body()); putN(item, "legshots", shots == null ? 0 : shots.leg());
+        putN(item, "damage_made", damageMade); putN(item, "rounds_played", rounds);
+        item.put("adr", AttributeValue.fromN(String.valueOf(rounds == 0 ? 0.0 : (double) damageMade / rounds)));
+        putN(item, "damageSchemaVersion", 2); putN(item, "redRoundsWon", red); putN(item, "blueRoundsWon", blue);
+        putN(item, "tier", stats.tier()); putS(item, "processed_at", Instant.now().toString());
+        return item;
+    }
+
+    private void collectBulkAggregates(StoredMatchesResponse.StoredMatch match, String puuid,
+                                       Map<String, BulkAggregate> aggregates) {
+        StoredMatchesResponse.Stats stats = match.stats();
+        String result = outcome(str(stats.team()), extractTeamRounds(match.teams(), "red"),
+                extractTeamRounds(match.teams(), "blue"));
+        StoredMatchesResponse.MapInfo map = match.meta().map();
+        StoredMatchesResponse.Character agent = stats.character();
+        addAggregate(aggregates, "MAP#" + dimensionKey(map == null ? "unknown" : str(map.id())),
+                "MAP", map == null ? "Unknown" : str(map.name()), null, result, stats);
+        addAggregate(aggregates, "AGENT#" + dimensionKey(agent == null ? "unknown" : str(agent.id())),
+                "AGENT", agent == null ? "Unknown" : str(agent.name()), null, result, stats);
+        if (match.players() == null) return;
+        for (StoredMatchesResponse.Player player : match.players()) {
+            if (player == null || str(player.puuid()).isBlank() || puuid.equals(player.puuid())) continue;
+            boolean with = str(player.team()).equalsIgnoreCase(stats.team());
+            addAggregate(aggregates, "SOCIAL#" + (with ? "WITH#" : "AGAINST#") + player.puuid(),
+                    with ? "WITH" : "AGAINST", str(player.name()), player, result, null);
+        }
+    }
+
+    private void addAggregate(Map<String, BulkAggregate> values, String key, String kind, String label,
+                              StoredMatchesResponse.Player player, String outcome, StoredMatchesResponse.Stats stats) {
+        BulkAggregate aggregate = values.computeIfAbsent(key, ignored -> new BulkAggregate(kind, label,
+                player == null ? "" : str(player.puuid()), player == null ? "" : str(player.tag())));
+        aggregate.add(outcome, stats);
+    }
+
+    private void batchPut(List<Map<String, AttributeValue>> items) {
+        for (int offset = 0; offset < items.size(); offset += 25) {
+            List<WriteRequest> writes = items.subList(offset, Math.min(offset + 25, items.size())).stream()
+                    .map(item -> WriteRequest.builder().putRequest(PutRequest.builder().item(item).build()).build()).toList();
+            Map<String, List<WriteRequest>> pending = Map.of(tableName, writes);
+            for (int attempt = 0; !pending.isEmpty(); attempt++) {
+                BatchWriteItemResponse response = ddb.batchWriteItem(
+                        BatchWriteItemRequest.builder().requestItems(pending).build());
+                pending = response.unprocessedItems();
+                if (pending == null || pending.isEmpty()) break;
+                if (attempt >= 7) throw DynamoDbException.builder()
+                        .message("DynamoDB bulk write remained unprocessed").build();
+                try { TimeUnit.MILLISECONDS.sleep(Math.min(1_000L, 25L << attempt)); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException(e); }
+            }
+        }
+    }
+
+    private void putS(Map<String, AttributeValue> item, String key, String value) {
+        item.put(key, AttributeValue.fromS(value == null ? "" : value));
+    }
+    private void putN(Map<String, AttributeValue> item, String key, long value) {
+        item.put(key, AttributeValue.fromN(String.valueOf(value)));
+    }
+
+    private static final class BulkAggregate {
+        private final String kind; private final String label; private final String playerPuuid; private final String tag;
+        private long games, wins, losses, draws, kills, deaths, assists;
+        private BulkAggregate(String kind, String label, String playerPuuid, String tag) {
+            this.kind = kind; this.label = label; this.playerPuuid = playerPuuid; this.tag = tag;
+        }
+        private void add(String outcome, StoredMatchesResponse.Stats stats) {
+            games++; if ("win".equals(outcome)) wins++; else if ("loss".equals(outcome)) losses++; else draws++;
+            if (stats != null) { kills += stats.kills(); deaths += stats.deaths(); assists += stats.assists(); }
+        }
+        private Map<String, AttributeValue> toItem(String puuid, String sk) {
+            Map<String, AttributeValue> item = new HashMap<>();
+            item.put("PK", AttributeValue.fromS("PLAYER#" + puuid)); item.put("SK", AttributeValue.fromS(sk));
+            item.put("kind", AttributeValue.fromS(kind)); item.put("label", AttributeValue.fromS(label));
+            if (!playerPuuid.isBlank()) item.put("playerPuuid", AttributeValue.fromS(playerPuuid));
+            if (!tag.isBlank()) item.put("tag", AttributeValue.fromS(tag));
+            item.put("games", AttributeValue.fromN(String.valueOf(games))); item.put("wins", AttributeValue.fromN(String.valueOf(wins)));
+            item.put("losses", AttributeValue.fromN(String.valueOf(losses))); item.put("draws", AttributeValue.fromN(String.valueOf(draws)));
+            item.put("kills", AttributeValue.fromN(String.valueOf(kills))); item.put("deaths", AttributeValue.fromN(String.valueOf(deaths)));
+            item.put("assists", AttributeValue.fromN(String.valueOf(assists)));
+            return item;
+        }
     }
 
     private void updateDimensionAggregate(

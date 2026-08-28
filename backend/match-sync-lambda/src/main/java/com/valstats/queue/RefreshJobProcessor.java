@@ -31,11 +31,15 @@ public class RefreshJobProcessor {
             }
             throw failure;
         }
-        if (result.complete()) return;
+        // RECENT completion only means the foreground slice is ready. Always
+        // hand it off to the complete-history fetch, even when Henrik returned
+        // fewer recent records than the requested page size.
+        if (result.complete() && !"RECENT".equalsIgnoreCase(job.kind())) return;
 
         RefreshJob continuation;
         if ("RECENT".equalsIgnoreCase(job.kind())) {
-            continuation = RefreshJob.history(job.puuid(), job.region(), job.name(), job.tag(), result.nextPage());
+            // HISTORY uses a different (large) page size, so it starts at its own page 1.
+            continuation = RefreshJob.history(job.puuid(), job.region(), job.name(), job.tag(), 1);
         } else {
             continuation = job.withProgress(result.nextPage(), result.targetSeen());
         }

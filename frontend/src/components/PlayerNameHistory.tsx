@@ -87,14 +87,23 @@ export function PlayerNameHistory({
         if (status?.data?.refreshRequired !== true) return;
 
         setIsScanning(true);
-        // Do not abort the POST when React re-renders; the backend refresh should
-        // be allowed to finish once it has started.
-        const refreshResponse = await fetch(`${baseUrl}/refresh`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: '{}'
-        });
-        if (!refreshResponse.ok || controller.signal.aborted) return;
+        let complete = false;
+        while (!complete && !controller.signal.aborted) {
+          // Each request processes at most five full-match checkpoints. Keep the
+          // UI in the Names state until the backend confirms the entire timeline.
+          const refreshResponse = await fetch(`${baseUrl}/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+            signal: controller.signal
+          });
+          if (!refreshResponse.ok || controller.signal.aborted) return;
+          const refreshPayload = await refreshResponse.json();
+          complete = refreshPayload?.data?.complete === true;
+          if (!complete) {
+            await new Promise((resolve) => window.setTimeout(resolve, 1000));
+          }
+        }
 
         const namesResponse = await fetch(baseUrl, { signal: controller.signal });
         if (!namesResponse.ok) return;

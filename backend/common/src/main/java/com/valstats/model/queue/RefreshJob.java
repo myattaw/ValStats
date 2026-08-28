@@ -30,11 +30,11 @@ public record RefreshJob(
     }
 
     public static RefreshJob history(String puuid, String region, String name, String tag, int page) {
-        return new RefreshJob(puuid, region, name, tag, Instant.now().getEpochSecond(), "HISTORY", page, 10, "", false);
+        return new RefreshJob(puuid, region, name, tag, Instant.now().getEpochSecond(), "HISTORY", page, 1, "", false);
     }
 
     public static RefreshJob act(String puuid, String region, String name, String tag, String seasonId) {
-        return new RefreshJob(puuid, region, name, tag, Instant.now().getEpochSecond(), "ACT", 1, 10, seasonId, false);
+        return new RefreshJob(puuid, region, name, tag, Instant.now().getEpochSecond(), "ACT", 1, 1, seasonId, false);
     }
 
     public RefreshJob nextPage(int nextPage) {

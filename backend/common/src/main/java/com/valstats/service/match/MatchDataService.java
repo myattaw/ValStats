@@ -27,8 +27,10 @@ import java.util.*;
 public class MatchDataService {
 
     private static final Logger LOG = LoggerFactory.getLogger(MatchDataService.class);
-    private static final int STORED_MATCH_PAGE_SIZE = 50;
-    private static final int MAX_STORED_MATCH_PAGES = 200;
+    private static final int RECENT_MATCH_PAGE_SIZE = 50;
+    private static final int BULK_MATCH_PAGE_SIZE = 3_000;
+    private static final int MAX_BULK_MATCH_PAGES = 17; // 51,000 matches
+    private static final int MAX_STORED_MATCH_PAGES = 1_000; // legacy local sync safety cap
 
     private final DynamoDbService dynamoDbService;
     private final ValorantApiClient apiClient;
@@ -129,7 +131,7 @@ public class MatchDataService {
         boolean initialBackfill = !hasAnyMatches || needsModeBackfill || needsDamageBackfill;
 
         boolean succeeded = syncStoredMatches(
-                puuid, region, name, tag, STORED_MATCH_PAGE_SIZE, initialBackfill);
+                puuid, region, name, tag, RECENT_MATCH_PAGE_SIZE, initialBackfill);
         if (!succeeded) return false;
 
         dynamoDbService.updatePlayerLastRecentMatchUpdate(region, name, tag);
@@ -151,20 +153,37 @@ public class MatchDataService {
     public BackfillResult processBackfill(RefreshJob job) {
         String syncScope = syncScope(job);
         dynamoDbService.updateBackfillState(job.puuid(), syncScope, "RUNNING", Math.max(1, job.page()));
+        if ("HISTORY".equalsIgnoreCase(job.kind())) {
+            StoredMatchesResponse response = apiRequestQueue.executeLowPriority(
+                    "all stored matches for " + job.name() + "#" + job.tag(),
+                    () -> apiClient.getAllStoredMatches(job.region(), job.name(), job.tag()));
+            List<StoredMatchesResponse.StoredMatch> matches = response != null && response.data() != null
+                    ? response.data() : List.of();
+            int reportedTotal = response != null && response.results() != null
+                    ? response.results().total() : matches.size();
+            LOG.info("Henrik full stored-match response for {}#{} contains {} matches (reported total={})",
+                    job.name(), job.tag(), matches.size(), reportedTotal);
+            matchProcessor.processStoredMatchBatch(matches, job.puuid(), 1, true);
+            dynamoDbService.updateBackfillState(job.puuid(), syncScope, "COMPLETE", 2);
+            return new BackfillResult(true, 2, false);
+        }
         int startPage = Math.max(1, job.page());
         int pageBudget = Math.max(1, Math.min(job.pagesPerJob(), 20));
+        boolean recent = "RECENT".equalsIgnoreCase(job.kind());
+        int requestSize = recent ? RECENT_MATCH_PAGE_SIZE : BULK_MATCH_PAGE_SIZE;
+        int maximumPages = recent ? 2 : MAX_BULK_MATCH_PAGES;
         boolean targeted = "ACT".equalsIgnoreCase(job.kind()) && job.targetSeasonId() != null
                 && !job.targetSeasonId().isBlank();
         boolean targetSeen = job.targetSeen();
         int page = startPage;
         boolean complete = false;
 
-        for (int fetched = 0; fetched < pageBudget && page <= MAX_STORED_MATCH_PAGES; fetched++, page++) {
+        for (int fetched = 0; fetched < pageBudget && page <= maximumPages; fetched++, page++) {
             int requestedPage = page;
             StoredMatchesResponse response = apiRequestQueue.execute(
                     "stored matches page " + requestedPage + " for " + job.name() + "#" + job.tag(),
                     () -> apiClient.getStoredMatches(job.region(), job.name(), job.tag(),
-                            STORED_MATCH_PAGE_SIZE, requestedPage, null));
+                            requestSize, requestedPage, null));
             List<StoredMatchesResponse.StoredMatch> matches = response != null && response.data() != null
                     ? response.data() : List.of();
             if (matches.isEmpty()) {
@@ -179,7 +198,11 @@ public class MatchDataService {
                     pageContainsTarget = true;
                     targetSeen = true;
                 }
-                matchProcessor.processStoredMatchSummary(match, job.puuid());
+                if (recent) matchProcessor.processStoredMatchSummary(match, job.puuid());
+            }
+            if (!recent) {
+                matchProcessor.processStoredMatchBatch(matches, job.puuid(), requestedPage,
+                        "HISTORY".equalsIgnoreCase(job.kind()));
             }
 
             if (targeted && targetSeen && !pageContainsTarget) {
@@ -187,7 +210,13 @@ public class MatchDataService {
                 page++;
                 break;
             }
-            if (matches.size() < STORED_MATCH_PAGE_SIZE) {
+            if (response.results() != null && response.results().total() > 0
+                    && (long) requestedPage * requestSize >= response.results().total()) {
+                complete = true;
+                page++;
+                break;
+            }
+            if (matches.size() < requestSize) {
                 complete = true;
                 page++;
                 break;
@@ -198,7 +227,7 @@ public class MatchDataService {
             dynamoDbService.updatePlayerLastRecentMatchUpdate(job.region(), job.name(), job.tag());
             refreshMmrHistory(job.puuid(), job.region(), job.name(), job.tag());
         }
-        if (page > MAX_STORED_MATCH_PAGES) complete = true;
+        if (page > maximumPages) complete = true;
         // RECENT is a bounded foreground phase. When its page budget is consumed,
         // the processor queues a separate HISTORY job; leaving RECENT as QUEUED
         // would make clients display "Refreshing" forever.

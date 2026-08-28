@@ -314,11 +314,15 @@ public class ValorantService {
         if (!playerCacheService.shouldBackfillNameHistory(puuid)) {
             return Map.of("status", 200, "data", Map.of(
                     "updated", false,
+                    "complete", true,
+                    "refreshing", false,
                     "source", "sampled-match-details"));
         }
-        backfillRecentNameHistory(puuid);
+        boolean complete = backfillRecentNameHistory(puuid);
         return Map.of("status", 200, "data", Map.of(
                 "updated", true,
+                "complete", complete,
+                "refreshing", !complete,
                 "source", "sampled-match-details"));
     }
 
@@ -372,12 +376,12 @@ public class ValorantService {
         );
     }
 
-    private void backfillRecentNameHistory(String puuid) {
-        if (!playerCacheService.shouldBackfillNameHistory(puuid)) return;
+    private boolean backfillRecentNameHistory(String puuid) {
+        if (!playerCacheService.shouldBackfillNameHistory(puuid)) return true;
         Optional<Map<String, String>> identity = playerCacheService.getCurrentIdentity(puuid);
         if (identity.isEmpty()) {
             LOG.info("Name-history scan skipped for {} because its cached profile is incomplete", puuid);
-            return;
+            return false;
         }
 
         boolean completed = true;
@@ -387,7 +391,7 @@ public class ValorantService {
         try {
             Map<Long, String> checkpoints = new TreeMap<>();
             List<Map<String, AttributeValue>> cachedMatches =
-                    dynamoDbService.getStoredMatchesForPlayer(puuid, 10_000, 1);
+                    dynamoDbService.getStoredMatchesForPlayer(puuid, ACT_DISCOVERY_MATCH_LIMIT, 1);
 
             for (Map<String, AttributeValue> match : cachedMatches) {
                 AttributeValue matchIdValue = match.get("matchId");
@@ -441,6 +445,7 @@ public class ValorantService {
             LOG.info("Name-history scan for {} finished (checkpoints={}, attempted={}, processed={}, complete={})",
                     puuid, checkpointCount, attempted, processed, completed);
         }
+        return completed;
     }
 
     private List<String> spreadAcrossTimeline(Map<Long, String> checkpoints) {
@@ -556,7 +561,7 @@ public class ValorantService {
         if (puuid == null) return List.of();
 
         Map<String, String> modes = new TreeMap<>();
-        for (Map<String, AttributeValue> item : dynamoDbService.getStoredMatchesForPlayer(puuid, 10_000, 1)) {
+        for (Map<String, AttributeValue> item : dynamoDbService.getStoredMatchesForPlayer(puuid, ACT_DISCOVERY_MATCH_LIMIT, 1)) {
             AttributeValue mode = item.get("mode");
             if (mode == null || mode.s() == null || mode.s().isBlank()) continue;
             AttributeValue storedName = item.get("modeName");
@@ -580,10 +585,15 @@ public class ValorantService {
         String puuid = resolvePuuid(name, tag, region);
         if (puuid == null) return errorResponse("Player not found");
         String pk = "PLAYER#" + puuid;
-        List<Map<String, Object>> maps = insightRows(dynamoDbService.queryByPkPrefix(pk, "MAP#"));
-        List<Map<String, Object>> agents = insightRows(dynamoDbService.queryByPkPrefix(pk, "AGENT#"));
-        List<Map<String, Object>> playedWith = insightRows(dynamoDbService.queryByPkPrefix(pk, "SOCIAL#WITH#"));
-        List<Map<String, Object>> playedAgainst = insightRows(dynamoDbService.queryByPkPrefix(pk, "SOCIAL#AGAINST#"));
+        List<Map<String, AttributeValue>> bulk = dynamoDbService.queryByPkPrefix(pk, "BULK#V1#");
+        List<Map<String, Object>> maps = bulk.isEmpty()
+                ? insightRows(dynamoDbService.queryByPkPrefix(pk, "MAP#")) : bulkInsightRows(bulk, "MAP");
+        List<Map<String, Object>> agents = bulk.isEmpty()
+                ? insightRows(dynamoDbService.queryByPkPrefix(pk, "AGENT#")) : bulkInsightRows(bulk, "AGENT");
+        List<Map<String, Object>> playedWith = bulk.isEmpty()
+                ? insightRows(dynamoDbService.queryByPkPrefix(pk, "SOCIAL#WITH#")) : bulkInsightRows(bulk, "WITH");
+        List<Map<String, Object>> playedAgainst = bulk.isEmpty()
+                ? insightRows(dynamoDbService.queryByPkPrefix(pk, "SOCIAL#AGAINST#")) : bulkInsightRows(bulk, "AGAINST");
         List<Map<String, Object>> topDuos = playedWith.stream()
                 .filter(row -> ((Number) row.get("games")).longValue() >= 2)
                 .sorted(Comparator
@@ -619,6 +629,41 @@ public class ValorantService {
                 })
                 .sorted(Comparator.comparingLong(row -> -((Number) row.get("games")).longValue()))
                 .toList();
+    }
+
+    private List<Map<String, Object>> bulkInsightRows(List<Map<String, AttributeValue>> items, String kind) {
+        Map<String, Map<String, Object>> merged = new LinkedHashMap<>();
+        for (Map<String, AttributeValue> item : items) {
+            if (!kind.equals(attributeString(item, "kind"))) continue;
+            String playerPuuid = attributeString(item, "playerPuuid");
+            String label = attributeString(item, "label");
+            String key = playerPuuid.isBlank() ? label.toLowerCase(Locale.ROOT) : playerPuuid;
+            Map<String, Object> row = merged.computeIfAbsent(key, ignored -> {
+                Map<String, Object> created = new LinkedHashMap<>();
+                if ("MAP".equals(kind)) created.put("mapName", label);
+                else if ("AGENT".equals(kind)) created.put("agentName", label);
+                else {
+                    created.put("playerPuuid", playerPuuid);
+                    created.put("name", label);
+                    created.put("tag", attributeString(item, "tag"));
+                }
+                for (String field : List.of("games", "wins", "losses", "draws", "kills", "deaths", "assists"))
+                    created.put(field, 0L);
+                return created;
+            });
+            for (String field : List.of("games", "wins", "losses", "draws", "kills", "deaths", "assists"))
+                row.put(field, ((Number) row.get(field)).longValue() + attributeLong(item, field));
+        }
+        return merged.values().stream().peek(row -> {
+                    long games = ((Number) row.get("games")).longValue();
+                    long wins = ((Number) row.get("wins")).longValue();
+                    row.put("winRate", games == 0 ? 0.0 : Math.round(wins * 10_000.0 / games) / 100.0);
+                }).sorted(Comparator.comparingLong(row -> -((Number) row.get("games")).longValue())).toList();
+    }
+
+    private String attributeString(Map<String, AttributeValue> item, String key) {
+        AttributeValue value = item.get(key);
+        return value == null || value.s() == null ? "" : value.s();
     }
 
     private long attributeLong(Map<String, AttributeValue> item, String key) {

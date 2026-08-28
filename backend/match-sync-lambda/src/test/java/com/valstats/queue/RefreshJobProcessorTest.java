@@ -42,9 +42,9 @@ class RefreshJobProcessorTest {
         processor.process(job);
 
         verify(matchDataService).markBackfillQueued(argThat(next ->
-                "HISTORY".equals(next.kind()) && next.page() == 3));
+                "HISTORY".equals(next.kind()) && next.page() == 1 && next.pagesPerJob() == 1));
         verify(publisher).enqueue(argThat(next ->
-                "HISTORY".equals(next.kind()) && next.page() == 3), eq(true));
+                "HISTORY".equals(next.kind()) && next.page() == 1 && next.pagesPerJob() == 1), eq(true));
     }
 
     @Test

@@ -16,6 +16,7 @@ import java.util.*;
 public class PlayerStatsService {
 
     private static final Logger LOG = LoggerFactory.getLogger(PlayerStatsService.class);
+    private static final int MAX_MATCHES = 50_000;
 
     private final DynamoDbService dynamoDbService;
     public PlayerStatsService(DynamoDbService dynamoDbService) {
@@ -36,7 +37,7 @@ public class PlayerStatsService {
     ) {
         String normalizedMode = mode == null ? "all" : mode.replaceAll("[^A-Za-z0-9]", "").toLowerCase(Locale.ROOT);
         Map<String, Long> stats = new HashMap<>();
-        for (Map<String, AttributeValue> item : dynamoDbService.getStoredMatchesForPlayer(puuid, 10_000, 1)) {
+        for (Map<String, AttributeValue> item : dynamoDbService.getStoredMatchesForPlayer(puuid, MAX_MATCHES, 1)) {
             if (!"all".equalsIgnoreCase(seasonId)
                     && !seasonId.equals(stringValue(item, "seasonId"))) continue;
             if (!"all".equals(normalizedMode)

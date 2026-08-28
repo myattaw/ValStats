@@ -380,7 +380,7 @@
 
 /* Grouped desktop rhythm: Map/KDA | Result/score + ACS/ADR | Rank | RR | State */
 .match-entry-grid .match-agent-name { font-weight:550; }
-.match-map-name { font-size:18px; font-weight:400; font-synthesis:none; letter-spacing:.06em; text-transform:none; }
+.match-map-name { font-size:18px; font-weight:500; font-synthesis:none; letter-spacing:.06em; text-transform:uppercase; }
 .match-result { font-weight:550; }
 .match-entry-grid .match-score { font-size:17px; font-weight:650; }
 .match-rank-group,.match-rr-change { font-weight:500; }
@@ -450,7 +450,7 @@
 }
 
 @media (max-width:767px) {
-  .match-map-name { font-size:15px; font-weight:400; letter-spacing:.04em; }
+  .match-map-name { font-size:15px; font-weight:500; letter-spacing:.04em; }
 }
 
 /* Match-entry loading state mirrors the final information grid. */

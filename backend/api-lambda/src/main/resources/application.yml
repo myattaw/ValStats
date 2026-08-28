@@ -3,7 +3,12 @@ micronaut:
     name: valstats-api-lambda
   http:
     client:
-      read-timeout: 30s
+      # API Gateway only gives this Lambda 30 seconds. A single Henrik socket
+      # must not occupy that entire budget: retrying a short stalled attempt is
+      # substantially more reliable than making the browser launch another
+      # Lambda invocation by refreshing the page.
+      connect-timeout: 3s
+      read-timeout: 6s
       url-encoding: standard
 
 aws:
@@ -20,3 +25,10 @@ valorant:
 
 henrik-api:
   secret-arn: ${HENRIK_API_SECRET_ARN:}
+  rate-limit:
+    requests-per-second: 1
+    max-queued-requests: 100
+    # One bounded retry keeps the worst-case interactive request comfortably
+    # below the API Lambda's 30-second timeout.
+    max-retries: 1
+    max-retry-delay-seconds: 3

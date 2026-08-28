@@ -108,7 +108,12 @@ export function PlayerNameHistory({
           }
         }
 
-        const namesResponse = await fetch(baseUrl, { signal: controller.signal });
+        // The scan writes new observations before reporting completion. Bypass
+        // browser/CDN caches so this follow-up request always reads those names.
+        const namesResponse = await fetch(`${baseUrl}?completedAt=${Date.now()}`, {
+          signal: controller.signal,
+          cache: 'no-store'
+        });
         if (!namesResponse.ok) return;
         const payload = await namesResponse.json();
         if (!controller.signal.aborted) setNames(Array.isArray(payload?.data) ? payload.data : []);

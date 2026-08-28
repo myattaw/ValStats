@@ -375,9 +375,15 @@ public class ValorantService {
     private void backfillRecentNameHistory(String puuid) {
         if (!playerCacheService.shouldBackfillNameHistory(puuid)) return;
         Optional<Map<String, String>> identity = playerCacheService.getCurrentIdentity(puuid);
-        if (identity.isEmpty()) return;
+        if (identity.isEmpty()) {
+            LOG.info("Name-history scan skipped for {} because its cached profile is incomplete", puuid);
+            return;
+        }
 
         boolean completed = true;
+        int checkpointCount = 0;
+        int attempted = 0;
+        int processed = 0;
         try {
             Map<Long, String> checkpoints = new TreeMap<>();
             List<Map<String, AttributeValue>> cachedMatches =
@@ -401,10 +407,10 @@ public class ValorantService {
 
             if (checkpoints.isEmpty()) {
                 completed = false;
-                LOG.debug("Name-history backfill for {} is waiting for cached matches", puuid);
+                LOG.info("Name-history scan for {} is waiting for cached matches", puuid);
             }
+            checkpointCount = checkpoints.size();
 
-            int attempted = 0;
             for (String matchId : spreadAcrossTimeline(checkpoints)) {
                 if (playerCacheService.isNameHistoryCheckpointProcessed(puuid, matchId)) continue;
                 if (attempted >= NAME_HISTORY_CHECKPOINTS_PER_REQUEST) {
@@ -417,6 +423,7 @@ public class ValorantService {
                             "match details " + matchId,
                             () -> apiClient.getMatchById(matchId)), puuid)) {
                         playerCacheService.markNameHistoryCheckpointProcessed(puuid, matchId);
+                        processed++;
                     } else {
                         completed = false;
                     }
@@ -431,6 +438,8 @@ public class ValorantService {
             LOG.warn("Failed to backfill recent name history for {}", puuid, e);
         } finally {
             if (completed) playerCacheService.markNameHistoryBackfilled(puuid);
+            LOG.info("Name-history scan for {} finished (checkpoints={}, attempted={}, processed={}, complete={})",
+                    puuid, checkpointCount, attempted, processed, completed);
         }
     }
 

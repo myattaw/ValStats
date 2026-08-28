@@ -1,4 +1,5 @@
-import {Check, LoaderCircle, RefreshCw, Shield, Trophy} from 'lucide-react';
+import {useState} from 'react';
+import {Check, LoaderCircle, RefreshCw, Search, Shield, Trophy} from 'lucide-react';
 import {Skeleton} from './ui/skeleton';
 import type {MmrData, ProfileData} from '../types/player';
 import {PlayerNameHistory} from './PlayerNameHistory';
@@ -154,6 +155,8 @@ export function PlayerProfile({
     updatedAt: Date | null;
     nameHistoryRefreshVersion: number;
 }) {
+    const [isFindingPreviousNames, setIsFindingPreviousNames] = useState(false);
+    const visibleStatus = loadState === 'updated' && isFindingPreviousNames ? 'finding-names' : loadState;
     const validSeasonEntries = Object.entries(mmr?.by_season ?? {})
         .filter(([, value]) => !value.error)
         .sort(([a], [b]) => seasonOrder(b) - seasonOrder(a));
@@ -184,16 +187,17 @@ export function PlayerProfile({
                 <div>
                     <div className="profile-status-row">
                         <span className="eyebrow">Player profile</span>
-                        <span className={`load-status ${loadState}`}
+                        <span className={`load-status ${visibleStatus}`}
                               title={updatedAt ? `Last updated ${updatedAt.toLocaleTimeString()}` : undefined}
                               aria-live="polite">
-              {loadState === 'initial-loading' ? <LoaderCircle/> : loadState === 'refreshing' ? <RefreshCw/> : <Check/>}
-                            {loadState === 'initial-loading' ? 'Loading account' : loadState === 'refreshing' ? 'Refreshing' : 'Updated'}
+              {visibleStatus === 'initial-loading' ? <LoaderCircle/> : visibleStatus === 'refreshing' ? <RefreshCw/> : visibleStatus === 'finding-names' ? <Search/> : <Check/>}
+                            {visibleStatus === 'initial-loading' ? 'Loading account' : visibleStatus === 'refreshing' ? 'Refreshing' : visibleStatus === 'finding-names' ? 'Finding previous names' : 'Updated'}
             </span>
                     </div>
                     <div className="profile-name-row">
                         <h1>{profile?.name ?? 'Loading player'}<span>#{profile?.tag ?? ''}</span></h1>
-                        <PlayerNameHistory puuid={profile?.puuid} refreshVersion={nameHistoryRefreshVersion}/>
+                        <PlayerNameHistory puuid={profile?.puuid} refreshVersion={nameHistoryRefreshVersion}
+                                           onScanningChange={setIsFindingPreviousNames}/>
                     </div>
                     {profile?.account_level && <p>Account Level {profile.account_level}</p>}
                 </div>

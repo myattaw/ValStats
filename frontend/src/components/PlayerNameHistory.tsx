@@ -15,7 +15,15 @@ function formatDate(timestamp: number) {
   return timestamp ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(timestamp * 1000) : 'Unknown';
 }
 
-export function PlayerNameHistory({ puuid, refreshVersion = 0 }: { puuid?: string; refreshVersion?: number }) {
+export function PlayerNameHistory({
+  puuid,
+  refreshVersion = 0,
+  onScanningChange
+}: {
+  puuid?: string;
+  refreshVersion?: number;
+  onScanningChange?: (isScanning: boolean) => void;
+}) {
   const [names, setNames] = useState<NameObservation[]>([]);
   const [open, setOpen] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
@@ -40,6 +48,12 @@ export function PlayerNameHistory({ puuid, refreshVersion = 0 }: { puuid?: strin
   useEffect(() => setOpen(false), [puuid]);
 
   useEffect(() => {
+    onScanningChange?.(isScanning);
+  }, [isScanning, onScanningChange]);
+
+  useEffect(() => () => onScanningChange?.(false), [onScanningChange]);
+
+  useEffect(() => {
     if (!puuid) return;
     const controller = new AbortController();
     const baseUrl = `${API_BASE_URL}/players/${encodeURIComponent(puuid)}/names`;
@@ -58,7 +72,10 @@ export function PlayerNameHistory({ puuid, refreshVersion = 0 }: { puuid?: strin
   }, [puuid]);
 
   useEffect(() => {
-    if (!puuid || refreshVersion === 0) return;
+    // Name-history sampling is independent of the recent-match refresh. Check
+    // as soon as a profile PUUID is available; the backend's daily cooldown and
+    // per-match checkpoints prevent duplicate Henrik detail requests.
+    if (!puuid) return;
     const controller = new AbortController();
     const baseUrl = `${API_BASE_URL}/players/${encodeURIComponent(puuid)}/names`;
 
@@ -95,11 +112,7 @@ export function PlayerNameHistory({ puuid, refreshVersion = 0 }: { puuid?: strin
   }, [puuid, refreshVersion]);
 
   const previousNames = names.filter((name) => !name.current);
-  if (!previousNames.length && !isScanning) return null;
-
-  if (isScanning && !previousNames.length) {
-    return <div className="name-history name-history-refreshing" role="status">Scanning match history for previous Riot IDs…</div>;
-  }
+  if (!previousNames.length) return null;
 
   const previousTimeline = [...previousNames]
     .sort((a, b) => b.lastSeen - a.lastSeen);
@@ -114,9 +127,7 @@ export function PlayerNameHistory({ puuid, refreshVersion = 0 }: { puuid?: strin
         title={`${previousNames.length} previous Riot ${previousNames.length === 1 ? 'ID' : 'IDs'}`}
       >
         <span className="name-history-count whitespace-nowrap">
-          {isScanning
-            ? 'Scanning previous Riot IDs…'
-            : `${previousNames.length} Name ${previousNames.length === 1 ? 'Change' : 'Changes'}`}
+          {previousNames.length} Name {previousNames.length === 1 ? 'Change' : 'Changes'}
         </span>
         <ChevronDown className={open ? 'open' : ''} />
       </button>

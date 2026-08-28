@@ -193,6 +193,31 @@ export function MatchHistory({
         onRefreshingChange?.(true);
         try {
             const baseUrl = `${API_BASE_URL}/matches/${encodeURIComponent(region)}/${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}`;
+            if (selectedAct !== "all") {
+                const encodedAct = encodeURIComponent(selectedAct);
+                const refreshResponse = await fetch(`${baseUrl}/acts/${encodedAct}/refresh`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: "{}"
+                });
+                if (!refreshResponse.ok) return;
+
+                const deadline = Date.now() + 2 * 60 * 1000;
+                while (Date.now() < deadline) {
+                    await new Promise((resolve) => window.setTimeout(resolve, 2500));
+                    await fetchInitialMatches(false);
+                    const statusResponse = await fetch(
+                        `${baseUrl}/backfill-status?seasonId=${encodedAct}`
+                    );
+                    if (!statusResponse.ok) continue;
+                    const status = await statusResponse.json();
+                    if (status?.data?.status === "COMPLETE") break;
+                }
+                await fetchInitialMatches(false);
+                onRefreshComplete?.();
+                return;
+            }
+
             const statusResponse = await fetch(`${baseUrl}/refresh-status`);
             if (!statusResponse.ok) return;
             const statusPayload = await statusResponse.json();
@@ -228,7 +253,7 @@ export function MatchHistory({
             setIsBackgroundRefreshing(false);
             onRefreshingChange?.(false);
         }
-    }, [region, playerName, playerTag, fetchInitialMatches, onRefreshingChange, onRefreshComplete]);
+    }, [region, playerName, playerTag, selectedAct, fetchInitialMatches, onRefreshingChange, onRefreshComplete]);
 
     useEffect(() => {
         setMatches([]);

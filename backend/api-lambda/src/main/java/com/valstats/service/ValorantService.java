@@ -311,14 +311,18 @@ public class ValorantService {
     }
 
     public Map<String, Object> refreshPlayerNameHistory(String puuid) {
-        if (!playerCacheService.shouldBackfillNameHistory(puuid)) {
+        return refreshPlayerNameHistory(puuid, false);
+    }
+
+    public Map<String, Object> refreshPlayerNameHistory(String puuid, boolean force) {
+        if (!force && !playerCacheService.shouldBackfillNameHistory(puuid)) {
             return Map.of("status", 200, "data", Map.of(
                     "updated", false,
                     "complete", true,
                     "refreshing", false,
                     "source", "sampled-match-details"));
         }
-        boolean complete = backfillRecentNameHistory(puuid);
+        boolean complete = backfillRecentNameHistory(puuid, force);
         return Map.of("status", 200, "data", Map.of(
                 "updated", true,
                 "complete", complete,
@@ -376,8 +380,8 @@ public class ValorantService {
         );
     }
 
-    private boolean backfillRecentNameHistory(String puuid) {
-        if (!playerCacheService.shouldBackfillNameHistory(puuid)) return true;
+    private boolean backfillRecentNameHistory(String puuid, boolean force) {
+        if (!force && !playerCacheService.shouldBackfillNameHistory(puuid)) return true;
         Optional<Map<String, String>> identity = playerCacheService.getCurrentIdentity(puuid);
         if (identity.isEmpty()) {
             LOG.info("Name-history scan skipped for {} because its cached profile is incomplete", puuid);

@@ -107,8 +107,10 @@ public class ValorantController {
     }
 
     @Post("/players/{puuid}/names/refresh")
-    public Map<String, Object> refreshPlayerNameHistory(@PathVariable String puuid) {
-        return valorantService.refreshPlayerNameHistory(puuid);
+    public Map<String, Object> refreshPlayerNameHistory(
+            @PathVariable String puuid,
+            @QueryValue(defaultValue = "false") boolean force) {
+        return valorantService.refreshPlayerNameHistory(puuid, force);
     }
 
     @Get("/players/{puuid}")

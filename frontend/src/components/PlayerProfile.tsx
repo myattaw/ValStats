@@ -156,7 +156,9 @@ export function PlayerProfile({
     nameHistoryRefreshVersion: number;
 }) {
     const [isFindingPreviousNames, setIsFindingPreviousNames] = useState(false);
-    const visibleStatus = loadState === 'updated' && isFindingPreviousNames ? 'finding-names' : loadState;
+    const visibleStatus = loadState === 'initial-loading'
+        ? loadState
+        : isFindingPreviousNames ? 'finding-names' : loadState;
     const validSeasonEntries = Object.entries(mmr?.by_season ?? {})
         .filter(([, value]) => !value.error)
         .sort(([a], [b]) => seasonOrder(b) - seasonOrder(a));

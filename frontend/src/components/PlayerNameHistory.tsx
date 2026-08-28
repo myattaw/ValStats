@@ -81,17 +81,20 @@ export function PlayerNameHistory({
 
     const refreshNames = async () => {
       try {
-        const statusResponse = await fetch(`${baseUrl}/refresh-status`, { signal: controller.signal });
-        if (!statusResponse.ok) return;
-        const status = await statusResponse.json();
-        if (status?.data?.refreshRequired !== true) return;
+        const force = refreshVersion > 0;
+        if (!force) {
+          const statusResponse = await fetch(`${baseUrl}/refresh-status`, { signal: controller.signal });
+          if (!statusResponse.ok) return;
+          const status = await statusResponse.json();
+          if (status?.data?.refreshRequired !== true) return;
+        }
 
         setIsScanning(true);
         let complete = false;
         while (!complete && !controller.signal.aborted) {
           // Each request processes at most five full-match checkpoints. Keep the
           // UI in the Names state until the backend confirms the entire timeline.
-          const refreshResponse = await fetch(`${baseUrl}/refresh`, {
+          const refreshResponse = await fetch(`${baseUrl}/refresh${force ? '?force=true' : ''}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: '{}',

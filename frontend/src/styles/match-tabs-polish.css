@@ -98,8 +98,8 @@
 .round-combat-marker.death .round-skull-image { opacity:0; }
 .round-combat-marker.death::before { content:""; position:absolute; top:0; left:.5px; width:26px; height:26px; background:#e53935; -webkit-mask:url('/icons/rounds/skull.svg') center/contain no-repeat; mask:url('/icons/rounds/skull.svg') center/contain no-repeat; filter:drop-shadow(0 1px 1px rgba(0,0,0,.28)); }
 .round-combat-marker.death { color:var(--death-skull)!important; }
-.round-combat-dots { position:absolute; z-index:2; right:0; bottom:1px; left:0; height:3px; display:flex; align-items:center; justify-content:center; gap:1.5px; }
-.round-combat-dots>i { width:3px; height:3px; flex:0 0 3px; display:block; border-radius:50%; background:#f4f7f8; }
+.round-combat-dots { position:absolute; z-index:2; right:0; bottom:1px; left:0; height:3px; display:flex; align-items:center; justify-content:center; gap:2px; }
+.round-combat-dots>i { width:3px; height:3px; flex:0 0 3px; display:block; border-radius:.5px; background:#f4f7f8; }
 .round-combat-dots>.death-dot { background:#e53935; }
 .round-combat-empty { width:27px; height:29px; display:block; }
 .half-context,.round-phase-divider { height:50px; }

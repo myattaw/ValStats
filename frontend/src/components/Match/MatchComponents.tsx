@@ -5,7 +5,16 @@ import {EventLocation, MatchDetails, MatchRound, PlayerStats, RoundKill} from '.
 import {playerUuidPath} from '../../lib/player';
 
 const TIER_SET = "03621f52-342b-cf4e-4f86-9350a49c6d04";
-const PARTY_COLORS = ['#a78bfa', '#38bdf8', '#fbbf24', '#f472b6', '#2dd4bf'];
+const PARTY_COLORS = ['#d3a35f', '#70a0bd', '#aa7f9e', '#72a087', '#bf7770'];
+
+const getPremadeColors = (players: PlayerStats[]) => {
+    const counts = players.reduce((partyCounts, player) => {
+        if (player.partyId) partyCounts.set(player.partyId, (partyCounts.get(player.partyId) ?? 0) + 1);
+        return partyCounts;
+    }, new Map<string, number>());
+    const partyIds = [...counts.entries()].filter(([, count]) => count > 1).map(([id]) => id);
+    return new Map(partyIds.map((id, index) => [id, PARTY_COLORS[index % PARTY_COLORS.length]]));
+};
 const LEVEL_BORDER_ASSETS = import.meta.glob('../../assets/level-borders/*.png', {
     eager: true,
     query: '?url',
@@ -186,7 +195,7 @@ export const MatchPlayerRow = ({player, teamStyle, partyColor, rounds_played, ro
     const rp = player.rounds_played ?? rounds_played;
     return (
         <div
-            className={`scoreboard-player-row ${partyColor ? "has-party" : ""} ${isViewer ? "is-viewer" : ""}`}
+            className={`scoreboard-player-row ${isViewer ? "is-viewer" : ""}`}
             style={partyColor ? {"--party-color": partyColor} as CSSProperties : undefined}
         >
             <div className="scoreboard-player-identity">
@@ -269,6 +278,7 @@ const LegacyMatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: { 
     const ownTeamName = viewer?.team?.toLowerCase() || details.players[0]?.team?.toLowerCase();
     const ownTeam = details.players.filter((player) => player.team?.toLowerCase() === ownTeamName).sort((a, b) => b.score - a.score);
     const enemyTeam = details.players.filter((player) => player.team?.toLowerCase() !== ownTeamName).sort((a, b) => b.score - a.score);
+    const premadeColors = getPremadeColors(details.players);
     const round = details.rounds.find((item) => item.number === selectedRound) ?? details.rounds[0];
     const isOwnTeamWin = (winningTeam: string) => winningTeam.toLowerCase() === ownTeamName;
     const playerTeam = (puuid?: string) => details.players.find((player) => player.puuid === puuid)?.team?.toLowerCase();
@@ -321,7 +331,7 @@ const LegacyMatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: { 
         <div ref={detailsElement} onScrollCapture={synchronizeTimelineScroll} className="match-details-panel">
             <div className="scoreboard-layout combined-match-view">
                 <div className={`compact-match-details scoreboard-only ${timelineOverflow ? "timeline-overflowing" : ""}`}>
-                    <TeamDisplay label="Your team" players={ownTeam} isVictory={true} rounds_played={roundsPlayed} isBottom={false} viewerPuuid={viewerPuuid} rounds={details.rounds} selectedRound={round?.number} onRoundSelect={setSelectedRound} showTimelineControls={timelineOverflow} onTimelineMove={moveTimelines}/>
+                    <TeamDisplay label="Your team" players={ownTeam} premadeColors={premadeColors} isVictory={true} rounds_played={roundsPlayed} isBottom={false} viewerPuuid={viewerPuuid} rounds={details.rounds} selectedRound={round?.number} onRoundSelect={setSelectedRound} showTimelineControls={timelineOverflow} onTimelineMove={moveTimelines}/>
                     <section className={`combined-round-events ${mobileMapOpen ? "map-open" : ""}`} aria-label={`Round ${round?.number ?? 1} events`}>
                         <div className="mobile-round-heading"><span>Round timeline</span><small>Swipe to explore rounds →</small></div>
                         <div className="mobile-shared-rounds" aria-label="Select round">
@@ -332,7 +342,7 @@ const LegacyMatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: { 
                             <div className="round-map-layout"><div className="round-events-list"><header><span className={`round-number ${isOwnTeamWin(round.winningTeam) ? "ally" : "enemy"}`}>{round.number}</span><div><strong>{isOwnTeamWin(round.winningTeam) ? "Your team" : "Enemy team"} won round {round.number}</strong><small>{round.endType.replaceAll("_", " ")}</small></div><span>{round.kills.length} kills</span></header><div className="kill-feed">{round.kills.length ? round.kills.map((kill, index) => <button className={`kill-event ${selectedEvent === index ? "selected" : ""}`} key={`${round.number}-${index}`} onClick={() => setSelectedEvent(index)}><time>{formatRoundTime(kill.time)}</time><span className={relationshipClass(kill.killerPuuid)}>{kill.killerName}</span><span className={kill.headshot ? "headshot" : ""}>{kill.weaponIcon ? <img src={kill.weaponIcon} alt={kill.weaponName}/> : <Crosshair/>}{kill.headshot && <b>HS</b>}</span><span className={relationshipClass(kill.victimPuuid)}>{kill.victimName}</span></button>) : <p className="empty-round">No kill events recorded for this round.</p>}</div></div><div className={`collapsible-match-map ${mobileMapOpen ? "open" : ""}`}><TacticalMap mapId={mapId} event={round.kills[selectedEvent]} players={details.players} ownTeam={ownTeamName}/></div></div>
                         </>}
                     </section>
-                    <TeamDisplay label="Enemy team" players={enemyTeam} isVictory={false} rounds_played={roundsPlayed} isBottom={true} viewerPuuid={viewerPuuid} rounds={details.rounds} selectedRound={round?.number} onRoundSelect={setSelectedRound}/>
+                    <TeamDisplay label="Enemy team" players={enemyTeam} premadeColors={premadeColors} isVictory={false} rounds_played={roundsPlayed} isBottom={true} viewerPuuid={viewerPuuid} rounds={details.rounds} selectedRound={round?.number} onRoundSelect={setSelectedRound}/>
                 </div>
             </div>
             {activeTab === 'timeline' && <div className="timeline-panel">
@@ -382,6 +392,7 @@ const LegacyMatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: { 
 
 export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: { details: MatchDetails; roundsPlayed: number; viewerPuuid?: string | null; mapId?: string }) => {
     const [activeTab, setActiveTab] = useState<'scoreboard' | 'timeline' | 'performance'>('scoreboard');
+    const premadeColors = getPremadeColors(details.players);
     const [tabIndicator, setTabIndicator] = useState({left: 0, width: 0});
     const tabsRef = useRef<HTMLDivElement | null>(null);
     const firstRound = details.rounds[0]?.number ?? 1;
@@ -480,11 +491,6 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: {
     });
 
     const renderScoreboardTeam = (label: string, players: PlayerStats[], relation: 'ally' | 'enemy') => {
-        const partyCounts = players.reduce((counts, player) => {
-            if (player.partyId) counts.set(player.partyId, (counts.get(player.partyId) ?? 0) + 1);
-            return counts;
-        }, new Map<string, number>());
-        const partyIds = [...partyCounts.entries()].filter(([, count]) => count > 1).map(([id]) => id);
         const averageAcs = players.length ? Math.round(players.reduce((sum, player) => sum + (player.rounds_played ?? roundsPlayed ? player.score / (player.rounds_played ?? roundsPlayed) : 0), 0) / players.length) : 0;
         const averageAdr = players.length ? Math.round(players.reduce((sum, player) => sum + (player.rounds_played ?? roundsPlayed ? player.damage_made / (player.rounds_played ?? roundsPlayed) : 0), 0) / players.length) : 0;
         return <section className={`compact-team-table ${relation}`}>
@@ -495,8 +501,7 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: {
             const differential = player.kills - player.deaths;
             const firsts = firstEngagements.get(player.puuid) ?? {kills: 0, deaths: 0};
             const isViewer = Boolean(viewerPuuid && player.puuid === viewerPuuid);
-            const partyIndex = player.partyId ? partyIds.indexOf(player.partyId) : -1;
-            const partyColor = partyIndex >= 0 ? PARTY_COLORS[partyIndex % PARTY_COLORS.length] : undefined;
+            const partyColor = player.partyId ? premadeColors.get(player.partyId) : undefined;
             return <div className={`compact-score-row ${isViewer ? 'is-viewer' : ''}`} key={player.puuid || `${player.name}-${player.agent}`}>
                 <div className="compact-score-player"><div className={`compact-score-agent-avatar ${partyColor ? 'has-party' : ''}`} style={partyColor ? {"--party-color": partyColor} as CSSProperties : undefined}>{player.agentIcon ? <img src={player.agentIcon} alt={player.agent}/> : <span>{player.agent[0]}</span>}{typeof player.level === "number" && <AccountLevelBadge level={player.level}/>}</div><div><div className="scoreboard-player-name-line"><a href={playerUuidPath(player.puuid)}>{player.name}{player.tag && <i>#{player.tag}</i>}</a>{isViewer && <b>You</b>}</div><div className="compact-player-agent-line"><small>{player.agent}</small></div></div></div>
                 <div className="compact-score-rank"><img src={`https://media.valorant-api.com/competitivetiers/${TIER_SET}/${player.currentTier || 0}/smallicon.png`} alt={player.currentTierName || 'Unranked'}/><span>{player.currentTierName || 'Unranked'}</span></div>
@@ -597,6 +602,7 @@ export const StatDisplay = ({label, value}: { label: string; value: string }) =>
 export const TeamDisplay = ({
                                 label,
                                 players,
+                                premadeColors,
                                 isVictory,
                                 rounds_played,
                                 isBottom,
@@ -609,6 +615,7 @@ export const TeamDisplay = ({
                             }: {
     label: string;
     players: PlayerStats[];
+    premadeColors: Map<string, string>;
     isVictory: boolean;
     rounds_played: number;
     isBottom: boolean;
@@ -624,12 +631,6 @@ export const TeamDisplay = ({
     const teamStyle = isVictory
         ? "bg-gradient-to-br from-[#4ade80] to-[#15803d]"
         : "bg-gradient-to-br from-[#f87171] to-[#dc2626]";
-    const groupedParties = players.reduce((counts, player) => {
-        if (player.partyId) counts.set(player.partyId, (counts.get(player.partyId) ?? 0) + 1);
-        return counts;
-    }, new Map<string, number>());
-    const partyIds = [...groupedParties.entries()].filter(([, count]) => count > 1).map(([id]) => id);
-
     return (
         <div
             className={`p-3 border-l border-r ${isBottom ? "border-b rounded-b-lg" : ""} ${bgColor} ${borderColor}`}>
@@ -644,8 +645,7 @@ export const TeamDisplay = ({
             </div>
             <div className="scoreboard-player-list">
                 {players.map((player, idx) => {
-                    const partyIndex = player.partyId ? partyIds.indexOf(player.partyId) : -1;
-                    const partyColor = partyIndex >= 0 ? PARTY_COLORS[partyIndex % PARTY_COLORS.length] : undefined;
+                    const partyColor = player.partyId ? premadeColors.get(player.partyId) : undefined;
                     return (
                     <MatchPlayerRow
                         key={idx}

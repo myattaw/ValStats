@@ -18,7 +18,7 @@ export function PlayerSearch({ onSearch, error }: { onSearch: (query: string) =>
         <form className="search-card" onSubmit={submit}>
           <label htmlFor="riot-id">Find a Valorant player</label>
           <div className="search-input">
-            <Search size={20} />
+            <span className="search-input-icon" aria-hidden="true"><Search size={18} /></span>
             <input id="riot-id" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Player#Tag" autoComplete="off" />
             <button type="submit"><span>View stats</span><ArrowRight size={18} /></button>
           </div>

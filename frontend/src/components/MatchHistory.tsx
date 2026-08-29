@@ -230,7 +230,7 @@ export function MatchHistory({
                 if (!refreshResponse.ok) return;
 
                 const deadline = Date.now() + 2 * 60 * 1000;
-                const delays = [3000, 5000, 8000, 10000];
+                const delays = [5000, 7500, 10000];
                 let poll = 0;
                 let lastProgress = "";
                 while (Date.now() < deadline) {
@@ -270,7 +270,7 @@ export function MatchHistory({
             if (!refreshResponse.ok) return;
 
             const deadline = Date.now() + 2 * 60 * 1000;
-            const delays = [3000, 5000, 8000, 10000];
+            const delays = [5000, 7500, 10000];
             let poll = 0;
             let lastProgress = "";
             while (Date.now() < deadline) {

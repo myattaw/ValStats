@@ -100,8 +100,13 @@ export function PlayerNameHistory({
         });
         if (!refreshResponse.ok || controller.signal.aborted) return;
 
+        const pollDelays = [5000, 7500, 10000];
+        let pollAttempt = 0;
         while (!controller.signal.aborted) {
-          await new Promise((resolve) => window.setTimeout(resolve, 2500));
+          await new Promise((resolve) => window.setTimeout(
+            resolve,
+            pollDelays[Math.min(pollAttempt++, pollDelays.length - 1)]
+          ));
           const progressResponse = await fetch(`${baseUrl}/refresh-status`, { signal: controller.signal });
           if (!progressResponse.ok) return;
           const progress = await progressResponse.json();

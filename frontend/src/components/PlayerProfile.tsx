@@ -205,7 +205,7 @@ export function PlayerProfile({
                 </div>
             </div>
             <div className="rank-grid">
-                <RankCard label="Current rank" name={currentName}
+                <RankCard label="Current Act rank" name={currentName}
                           icon={season ? rankIcon(currentTier) : mmr?.current_data?.images?.small} loading={loading}
                           rr={seasonKey ? undefined : mmr?.current_data?.ranking_in_tier}/>
                 <div className="rank-card compact-rank-card win-rate">

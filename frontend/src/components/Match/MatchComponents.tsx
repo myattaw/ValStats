@@ -195,6 +195,7 @@ export const MatchPlayerRow = ({player, teamStyle, partyColor, rounds_played, ro
                             <span>{player.name}</span>{player.tag && <span>#{player.tag}</span>}
                         </a>
                     ) : <div className="text-white text-sm">{player.name}</div>}
+                    {typeof player.level === "number" && <span className="scoreboard-account-level">LVL {player.level}</span>}
                     {isViewer && <span className="you-pill">You</span>}
                     <div className="player-rank-line">
                         <img src={`https://media.valorant-api.com/competitivetiers/${TIER_SET}/${player.currentTier || 0}/smallicon.png`} alt=""/>
@@ -470,7 +471,7 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: {
             const firsts = firstEngagements.get(player.puuid) ?? {kills: 0, deaths: 0};
             const isViewer = Boolean(viewerPuuid && player.puuid === viewerPuuid);
             return <div className={`compact-score-row ${isViewer ? 'is-viewer' : ''}`} key={player.puuid || `${player.name}-${player.agent}`}>
-                <div className="compact-score-player">{player.agentIcon ? <img src={player.agentIcon} alt={player.agent}/> : <span>{player.agent[0]}</span>}<div><a href={playerUuidPath(player.puuid)}>{player.name}{player.tag && <i>#{player.tag}</i>}</a>{isViewer && <b>You</b>}<small>{player.agent}</small></div></div>
+                <div className="compact-score-player">{player.agentIcon ? <img src={player.agentIcon} alt={player.agent}/> : <span>{player.agent[0]}</span>}<div><a href={playerUuidPath(player.puuid)}>{player.name}{player.tag && <i>#{player.tag}</i>}</a>{typeof player.level === "number" && <span className="scoreboard-account-level">LVL {player.level}</span>}{isViewer && <b>You</b>}<small>{player.agent}</small></div></div>
                 <div className="compact-score-rank"><img src={`https://media.valorant-api.com/competitivetiers/${TIER_SET}/${player.currentTier || 0}/smallicon.png`} alt={player.currentTierName || 'Unranked'}/><span>{player.currentTierName || 'Unranked'}</span></div>
                 <span>{player.kills}/{player.deaths}/{player.assists}</span><span>{rp ? Math.round(player.score / rp) : 0}</span><span>{rp ? Math.round(player.damage_made / rp) : 0}</span><span>{getHeadshotPercentage(player)}</span><span>{firsts.kills}</span><span>{firsts.deaths}</span><strong className={differential >= 0 ? 'positive' : 'negative'}>{differential > 0 ? '+' : ''}{differential}</strong>
             </div>;

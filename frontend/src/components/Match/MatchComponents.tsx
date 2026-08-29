@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type UIEvent as ReactUIEvent} from "react";
-import {ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Crosshair, Crown, Map as MapIcon, RotateCcw, ZoomIn, ZoomOut} from "lucide-react";
+import {ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Crosshair, Crown, Map as MapIcon, RotateCcw, Users, ZoomIn, ZoomOut} from "lucide-react";
 import {Skeleton} from "../ui/skeleton";
 import {EventLocation, MatchDetails, MatchRound, PlayerStats, RoundKill} from './types/matchTypes';
 import {playerUuidPath} from '../../lib/player';
@@ -212,6 +212,7 @@ export const MatchPlayerRow = ({player, teamStyle, partyColor, rounds_played, ro
                         )}
                     </div>
                     {typeof player.level === "number" && <AccountLevelBadge level={player.level}/>}
+                    {partyColor && <span className="scoreboard-party-icon" title="Queued together" aria-label="Queued together"><Users/></span>}
                 </div>
                 <div>
                     <div className="scoreboard-player-name-line">
@@ -503,7 +504,7 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: {
             const isViewer = Boolean(viewerPuuid && player.puuid === viewerPuuid);
             const partyColor = player.partyId ? premadeColors.get(player.partyId) : undefined;
             return <div className={`compact-score-row ${isViewer ? 'is-viewer' : ''}`} key={player.puuid || `${player.name}-${player.agent}`}>
-                <div className="compact-score-player"><div className={`compact-score-agent-avatar ${partyColor ? 'has-party' : ''}`} style={partyColor ? {"--party-color": partyColor} as CSSProperties : undefined}>{player.agentIcon ? <img src={player.agentIcon} alt={player.agent}/> : <span>{player.agent[0]}</span>}{typeof player.level === "number" && <AccountLevelBadge level={player.level}/>}</div><div><div className="scoreboard-player-name-line"><a href={playerUuidPath(player.puuid)}>{player.name}{player.tag && <i>#{player.tag}</i>}</a>{isViewer && <b>You</b>}</div><div className="compact-player-agent-line"><small>{player.agent}</small></div></div></div>
+                <div className="compact-score-player"><div className={`compact-score-agent-avatar ${partyColor ? 'has-party' : ''}`} style={partyColor ? {"--party-color": partyColor} as CSSProperties : undefined}>{player.agentIcon ? <img src={player.agentIcon} alt={player.agent}/> : <span>{player.agent[0]}</span>}{typeof player.level === "number" && <AccountLevelBadge level={player.level}/>} {partyColor && <span className="scoreboard-party-icon" title="Queued together" aria-label="Queued together"><Users/></span>}</div><div><div className="scoreboard-player-name-line"><a href={playerUuidPath(player.puuid)}>{player.name}{player.tag && <i>#{player.tag}</i>}</a>{isViewer && <b>You</b>}</div><div className="compact-player-agent-line"><small>{player.agent}</small></div></div></div>
                 <div className="compact-score-rank"><img src={`https://media.valorant-api.com/competitivetiers/${TIER_SET}/${player.currentTier || 0}/smallicon.png`} alt={player.currentTierName || 'Unranked'}/><span>{player.currentTierName || 'Unranked'}</span></div>
                 <span>{player.kills}/{player.deaths}/{player.assists}</span><span>{rp ? Math.round(player.score / rp) : 0}</span><span>{rp ? Math.round(player.damage_made / rp) : 0}</span><span>{getHeadshotPercentage(player)}</span><span>{firsts.kills}</span><span>{firsts.deaths}</span><strong className={differential >= 0 ? 'positive' : 'negative'}>{differential > 0 ? '+' : ''}{differential}</strong>
             </div>;

@@ -72,17 +72,17 @@
 
 .scoreboard-player-identity > div:last-child { min-width:0; }
 .scoreboard-agent-avatar { position:relative; flex:0 0 auto; padding-bottom:5px; }
-.scoreboard-agent-avatar.has-party::before,.compact-score-agent-avatar.has-party::before { content:""; position:absolute; z-index:2; inset:-2px; pointer-events:none; background:linear-gradient(var(--party-color),var(--party-color)) left top/8px 2px no-repeat,linear-gradient(var(--party-color),var(--party-color)) left top/2px 8px no-repeat,linear-gradient(var(--party-color),var(--party-color)) right top/8px 2px no-repeat,linear-gradient(var(--party-color),var(--party-color)) right top/2px 8px no-repeat,linear-gradient(var(--party-color),var(--party-color)) left bottom/8px 2px no-repeat,linear-gradient(var(--party-color),var(--party-color)) left bottom/2px 8px no-repeat,linear-gradient(var(--party-color),var(--party-color)) right bottom/8px 2px no-repeat,linear-gradient(var(--party-color),var(--party-color)) right bottom/2px 8px no-repeat; }
+.scoreboard-agent-avatar.has-party::before,.compact-score-agent-avatar.has-party::before { content:""; position:absolute; z-index:2; inset:-2px; pointer-events:none; border:2px solid var(--party-color); border-radius:7px; -webkit-mask:linear-gradient(#000 0 0) left top/10px 10px no-repeat,linear-gradient(#000 0 0) right top/10px 10px no-repeat,linear-gradient(#000 0 0) left bottom/10px 10px no-repeat,linear-gradient(#000 0 0) right bottom/10px 10px no-repeat; mask:linear-gradient(#000 0 0) left top/10px 10px no-repeat,linear-gradient(#000 0 0) right top/10px 10px no-repeat,linear-gradient(#000 0 0) left bottom/10px 10px no-repeat,linear-gradient(#000 0 0) right bottom/10px 10px no-repeat; filter:drop-shadow(0 0 2px color-mix(in srgb,var(--party-color) 60%,transparent)); }
 .scoreboard-party-icon { position:absolute; z-index:4; left:50%; top:-7px; width:14px; height:12px; display:grid; place-items:center; transform:translateX(-50%); border:1px solid color-mix(in srgb,var(--party-color) 70%,#111820); border-radius:4px; background:#111820; color:var(--party-color); box-shadow:0 1px 3px rgba(0,0,0,.45); }
 .scoreboard-party-icon svg { width:9px; height:9px; stroke-width:2.2; }
-.scoreboard-agent-avatar .scoreboard-account-level { position:absolute; z-index:2; left:50%; bottom:-4px; width:32px; height:16px; transform:translateX(-50%); font-size:7px; }
+.scoreboard-agent-avatar .scoreboard-account-level { position:absolute; z-index:3; left:50%; bottom:-4px; width:32px; height:16px; transform:translateX(-50%); font-size:7px; }
 .scoreboard-player-name-line { min-width:0; display:flex; align-items:center; gap:5px; }
 .scoreboard-player-link { min-width:0; display:inline-flex; vertical-align:middle; }
 .scoreboard-player-name-line .scoreboard-player-link { flex:0 1 auto; }
 .scoreboard-player-row .you-pill { flex:0 0 auto; display:inline-flex; margin:0; vertical-align:middle; }
-.scoreboard-account-level { position:relative; width:32px; height:16px; flex:0 0 32px; display:inline-grid; place-items:center; color:#f4f6f8; font-size:7px; font-weight:650; line-height:1; text-shadow:0 1px 2px #000,0 0 2px #000; vertical-align:middle; white-space:nowrap; }
+.scoreboard-account-level { position:relative; width:32px; height:16px; flex:0 0 32px; display:inline-grid; place-items:center; color:#f4f6f8; font-size:7px; font-weight:500; line-height:1; text-shadow:0 1px 1px #000; vertical-align:middle; white-space:nowrap; }
 .scoreboard-account-level img,.player-rank-line .scoreboard-account-level img { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; }
-.scoreboard-account-level span { position:relative; z-index:1; transform:translateY(-.5px); }
+.scoreboard-account-level span { position:relative; z-index:1; transform:translateY(1px); }
 .player-rank-line .scoreboard-account-level { margin-left:2px; }
 
 .desktop-timeline-toolbar { display:grid; grid-template-columns:minmax(190px,220px) minmax(0,1fr) 190px; align-items:center; gap:12px; min-height:32px; padding:4px 12px; border-bottom:1px solid var(--line); color:var(--faint); font-size:8px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
@@ -216,7 +216,7 @@
 .compact-score-agent-avatar { position:relative; width:34px; height:35px; flex:0 0 34px; padding-bottom:5px; }
 .compact-score-agent-avatar>img,.compact-score-agent-avatar>span:first-child { width:30px; height:30px; display:grid; place-items:center; margin-inline:auto; border-radius:5px; object-fit:cover; background:#121c24; }
 .compact-score-agent-avatar.has-party::before { inset:-2px 0 3px; }
-.compact-score-agent-avatar .scoreboard-account-level { position:absolute; z-index:2; left:50%; bottom:-4px; width:32px; height:16px; transform:translateX(-50%); font-size:7px; }
+.compact-score-agent-avatar .scoreboard-account-level { position:absolute; z-index:3; left:50%; bottom:-4px; width:32px; height:16px; transform:translateX(-50%); font-size:7px; }
 .compact-score-rank { min-width:0; display:flex; align-items:center; justify-content:center; gap:4px; }.compact-score-rank img,.compact-score-rank svg { width:18px; height:18px; flex:0 0 18px; }.compact-score-rank span { overflow:hidden; color:#aeb8bf; font-size:7px; text-overflow:ellipsis; white-space:nowrap; }
 
 .round-strip-header { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:18px; padding:12px 14px; border-bottom:1px solid var(--line); }.round-strip-header .tab-round-strip { min-width:0; padding:0; border:0; }

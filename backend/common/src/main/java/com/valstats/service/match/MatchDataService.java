@@ -28,8 +28,11 @@ public class MatchDataService {
 
     private static final Logger LOG = LoggerFactory.getLogger(MatchDataService.class);
     private static final int RECENT_MATCH_PAGE_SIZE = 50;
-    private static final int BULK_MATCH_PAGE_SIZE = 3_000;
-    private static final int MAX_BULK_MATCH_PAGES = 17; // 51,000 matches
+    // Keep a history page small enough that its match and derived-insight writes
+    // reliably finish inside the worker Lambda timeout. Each completed page is
+    // checkpointed and continued by a separate SQS message.
+    private static final int BULK_MATCH_PAGE_SIZE = 500;
+    private static final int MAX_BULK_MATCH_PAGES = 100; // 50,000 matches
     private static final int MAX_STORED_MATCH_PAGES = 1_000; // legacy local sync safety cap
 
     private final DynamoDbService dynamoDbService;
@@ -153,20 +156,6 @@ public class MatchDataService {
     public BackfillResult processBackfill(RefreshJob job) {
         String syncScope = syncScope(job);
         dynamoDbService.updateBackfillState(job.puuid(), syncScope, "RUNNING", Math.max(1, job.page()));
-        if ("HISTORY".equalsIgnoreCase(job.kind())) {
-            StoredMatchesResponse response = apiRequestQueue.executeLowPriority(
-                    "all stored matches for " + job.name() + "#" + job.tag(),
-                    () -> apiClient.getAllStoredMatches(job.region(), job.name(), job.tag()));
-            List<StoredMatchesResponse.StoredMatch> matches = response != null && response.data() != null
-                    ? response.data() : List.of();
-            int reportedTotal = response != null && response.results() != null
-                    ? response.results().total() : matches.size();
-            LOG.info("Henrik full stored-match response for {}#{} contains {} matches (reported total={})",
-                    job.name(), job.tag(), matches.size(), reportedTotal);
-            matchProcessor.processStoredMatchBatch(matches, job.puuid(), 1, true);
-            dynamoDbService.updateBackfillState(job.puuid(), syncScope, "COMPLETE", 2);
-            return new BackfillResult(true, 2, false);
-        }
         int startPage = Math.max(1, job.page());
         int pageBudget = Math.max(1, Math.min(job.pagesPerJob(), 20));
         boolean recent = "RECENT".equalsIgnoreCase(job.kind());
@@ -180,10 +169,18 @@ public class MatchDataService {
 
         for (int fetched = 0; fetched < pageBudget && page <= maximumPages; fetched++, page++) {
             int requestedPage = page;
-            StoredMatchesResponse response = apiRequestQueue.execute(
-                    "stored matches page " + requestedPage + " for " + job.name() + "#" + job.tag(),
-                    () -> apiClient.getStoredMatches(job.region(), job.name(), job.tag(),
-                            requestSize, requestedPage, null));
+            StoredMatchesResponse response;
+            if ("HISTORY".equalsIgnoreCase(job.kind())) {
+                response = apiRequestQueue.executeLowPriority(
+                        "stored matches page " + requestedPage + " for " + job.name() + "#" + job.tag(),
+                        () -> apiClient.getStoredMatches(job.region(), job.name(), job.tag(),
+                                requestSize, requestedPage, null));
+            } else {
+                response = apiRequestQueue.execute(
+                        "stored matches page " + requestedPage + " for " + job.name() + "#" + job.tag(),
+                        () -> apiClient.getStoredMatches(job.region(), job.name(), job.tag(),
+                                requestSize, requestedPage, null));
+            }
             List<StoredMatchesResponse.StoredMatch> matches = response != null && response.data() != null
                     ? response.data() : List.of();
             if (matches.isEmpty()) {

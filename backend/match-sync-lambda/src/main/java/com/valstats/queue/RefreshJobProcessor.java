@@ -9,13 +9,25 @@ public class RefreshJobProcessor {
 
     private final MatchDataService matchDataService;
     private final BackfillQueuePublisher queuePublisher;
+    private final NameHistoryJobProcessor nameHistoryProcessor;
 
-    public RefreshJobProcessor(MatchDataService matchDataService, BackfillQueuePublisher queuePublisher) {
+    public RefreshJobProcessor(MatchDataService matchDataService, BackfillQueuePublisher queuePublisher,
+                               NameHistoryJobProcessor nameHistoryProcessor) {
         this.matchDataService = matchDataService;
         this.queuePublisher = queuePublisher;
+        this.nameHistoryProcessor = nameHistoryProcessor;
     }
 
     public void process(RefreshJob job) {
+        if (job != null && "NAME_HISTORY".equalsIgnoreCase(job.kind())) {
+            try {
+                nameHistoryProcessor.process(job);
+            } catch (RuntimeException failure) {
+                nameHistoryProcessor.markFailed(job.puuid());
+                throw failure;
+            }
+            return;
+        }
         if (job == null || isBlank(job.puuid()) || isBlank(job.region())
                 || isBlank(job.name()) || isBlank(job.tag())) {
             throw new IllegalArgumentException("Refresh job is missing required player fields");
@@ -38,7 +50,7 @@ public class RefreshJobProcessor {
 
         RefreshJob continuation;
         if ("RECENT".equalsIgnoreCase(job.kind())) {
-            // HISTORY uses a different (large) page size, so it starts at its own page 1.
+            // HISTORY has its own checkpoint sequence, so it starts at page 1.
             continuation = RefreshJob.history(job.puuid(), job.region(), job.name(), job.tag(), 1);
         } else {
             continuation = job.withProgress(result.nextPage(), result.targetSeen());

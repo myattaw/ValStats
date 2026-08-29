@@ -19,7 +19,7 @@ public class PlayerCacheService {
 
     private static final Logger LOG = LoggerFactory.getLogger(PlayerCacheService.class);
     private static final long FETCH_COOLDOWN_SECONDS = 180; // 3 minutes
-    private static final long NAME_HISTORY_BACKFILL_SECONDS = 86400; // once per day
+    private static final long NAME_HISTORY_WORKER_LEASE_SECONDS = 360; // SQS visibility is five minutes
     private static final String NAME_HISTORY_META_SK = "NAME_HISTORY_META_V3";
     private static final String NAME_HISTORY_CHECKPOINT_PREFIX = "NAME_HISTORY_CHECKPOINT_V3#";
 
@@ -296,16 +296,61 @@ public class PlayerCacheService {
     public boolean shouldBackfillNameHistory(String puuid) {
         GetItemResponse response = ddb.getItem(GetItemRequest.builder().tableName(tableName)
                 .key(Map.of("PK", AttributeValue.fromS("PLAYER#" + puuid), "SK", AttributeValue.fromS(NAME_HISTORY_META_SK))).build());
-        if (!response.hasItem() || !response.item().containsKey("lastBackfill")) return true;
-        long lastBackfill = Long.parseLong(response.item().get("lastBackfill").n());
-        return Instant.now().getEpochSecond() - lastBackfill >= NAME_HISTORY_BACKFILL_SECONDS;
+        if (!response.hasItem()) return true;
+        String status = response.item().getOrDefault("status", AttributeValue.fromS("")).s();
+        if ("QUEUED".equals(status)) return false;
+        if ("RUNNING".equals(status) || "RETRYING".equals(status))
+            return !hasActiveNameHistoryWorker(response.item());
+        // Historical name discovery is a one-time backfill. New stored-match
+        // payloads provide names as matches arrive, so a completed scan must not
+        // become automatically eligible again. A caller can still explicitly
+        // request a forced refresh through the name-history refresh endpoint.
+        return !"COMPLETE".equals(status);
+    }
+
+    public Map<String, Object> getNameHistoryScanState(String puuid) {
+        GetItemResponse response = ddb.getItem(GetItemRequest.builder().tableName(tableName)
+                .key(Map.of("PK", AttributeValue.fromS("PLAYER#" + puuid), "SK", AttributeValue.fromS(NAME_HISTORY_META_SK))).build());
+        if (!response.hasItem()) return Map.of("refreshing", false, "complete", false);
+        String status = response.item().getOrDefault("status", AttributeValue.fromS("")).s();
+        boolean refreshing = "QUEUED".equals(status);
+        if ("RUNNING".equals(status) || "RETRYING".equals(status)) {
+            refreshing = hasActiveNameHistoryWorker(response.item());
+            if (!refreshing) status = "FAILED";
+        }
+        return Map.of("refreshing", refreshing, "complete", "COMPLETE".equals(status), "scanStatus", status);
+    }
+
+    private boolean hasActiveNameHistoryWorker(Map<String, AttributeValue> item) {
+        String updatedAt = item.getOrDefault("updatedAt", AttributeValue.fromS("")).s();
+        try {
+            return !updatedAt.isBlank()
+                    && Instant.now().getEpochSecond() - Instant.parse(updatedAt).getEpochSecond()
+                    < NAME_HISTORY_WORKER_LEASE_SECONDS;
+        } catch (Exception ignored) {
+            // A missing or malformed lease cannot belong to a live worker.
+            return false;
+        }
+    }
+
+    public void markNameHistoryQueued(String puuid) {
+        ddb.updateItem(UpdateItemRequest.builder().tableName(tableName)
+                .key(Map.of("PK", AttributeValue.fromS("PLAYER#" + puuid), "SK", AttributeValue.fromS(NAME_HISTORY_META_SK)))
+                .updateExpression("SET #status = :queued, updatedAt = :now")
+                .expressionAttributeNames(Map.of("#status", "status"))
+                .expressionAttributeValues(Map.of(
+                        ":queued", AttributeValue.fromS("QUEUED"),
+                        ":now", AttributeValue.fromS(Instant.now().toString())))
+                .build());
     }
 
     public void markNameHistoryBackfilled(String puuid) {
         ddb.putItem(PutItemRequest.builder().tableName(tableName).item(Map.of(
                 "PK", AttributeValue.fromS("PLAYER#" + puuid),
                 "SK", AttributeValue.fromS(NAME_HISTORY_META_SK),
-                "lastBackfill", AttributeValue.fromN(String.valueOf(Instant.now().getEpochSecond()))
+                "lastBackfill", AttributeValue.fromN(String.valueOf(Instant.now().getEpochSecond())),
+                "status", AttributeValue.fromS("COMPLETE"),
+                "updatedAt", AttributeValue.fromS(Instant.now().toString())
                 )).build());
     }
 

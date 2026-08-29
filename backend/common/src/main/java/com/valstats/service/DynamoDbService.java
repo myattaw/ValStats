@@ -144,18 +144,27 @@ public class DynamoDbService {
 
     public void updateBackfillState(String puuid, String scope, String status, int nextPage) {
         long now = Instant.now().getEpochSecond();
-        dbClient.updateItem(UpdateItemRequest.builder()
-                .tableName(tableName)
-                .key(Map.of("PK", AttributeValue.fromS("PLAYER#" + puuid),
-                        "SK", AttributeValue.fromS("SYNC#" + scope)))
-                .updateExpression("SET #status = :status, nextPage = :page, leaseUntil = :lease, updatedAt = :updated")
-                .expressionAttributeNames(Map.of("#status", "status"))
-                .expressionAttributeValues(Map.of(
-                        ":status", AttributeValue.fromS(status),
-                        ":page", AttributeValue.fromN(String.valueOf(nextPage)),
-                        ":lease", AttributeValue.fromN(String.valueOf("COMPLETE".equals(status) ? now : now + 600)),
-                        ":updated", AttributeValue.fromS(Instant.now().toString())))
-                .build());
+        try {
+            dbClient.updateItem(UpdateItemRequest.builder()
+                    .tableName(tableName)
+                    .key(Map.of("PK", AttributeValue.fromS("PLAYER#" + puuid),
+                            "SK", AttributeValue.fromS("SYNC#" + scope)))
+                    .updateExpression("SET #status = :status, nextPage = :page, leaseUntil = :lease, updatedAt = :updated")
+                    // SQS is at-least-once and multiple workers may overlap. An
+                    // older delivery must never move a checkpoint backwards.
+                    .conditionExpression("attribute_not_exists(nextPage) OR nextPage < :page "
+                            + "OR (nextPage = :page AND (#status <> :complete OR :status = :complete))")
+                    .expressionAttributeNames(Map.of("#status", "status"))
+                    .expressionAttributeValues(Map.of(
+                            ":status", AttributeValue.fromS(status),
+                            ":complete", AttributeValue.fromS("COMPLETE"),
+                            ":page", AttributeValue.fromN(String.valueOf(nextPage)),
+                            ":lease", AttributeValue.fromN(String.valueOf("COMPLETE".equals(status) ? now : now + 600)),
+                            ":updated", AttributeValue.fromS(Instant.now().toString())))
+                    .build());
+        } catch (ConditionalCheckFailedException staleUpdate) {
+            LOG.debug("Ignored stale {} backfill update for {} at page {}", scope, puuid, nextPage);
+        }
     }
 
     public Optional<Map<String, Object>> getBackfillState(String puuid, String scope) {

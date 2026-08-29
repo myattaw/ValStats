@@ -19,7 +19,24 @@ class ApiGatewayPathNormalizerTest {
         event.setRequestContext(requestContext);
 
         assertSame(event, ApiGatewayPathNormalizer.normalize(event));
-        assertEquals("/api/valorant/account/EVERYONE%20LIES/207", event.getRequestContext().getHttp().getPath());
+        assertEquals("EVERYONE LIES", ApiGatewayPathCodec.decodeSegment(
+                event.getRequestContext().getHttp().getPath().split("/")[4]));
+    }
+
+    @Test
+    void doesNotDoubleEncodeApiGatewayRawPath() {
+        var http = new APIGatewayV2HTTPEvent.RequestContext.Http();
+        http.setPath("/api/valorant/account/mentally chill/207");
+        var requestContext = new APIGatewayV2HTTPEvent.RequestContext();
+        requestContext.setHttp(http);
+        var event = new APIGatewayV2HTTPEvent();
+        event.setRawPath("/api/valorant/account/mentally%20chill/207");
+        event.setRequestContext(requestContext);
+
+        ApiGatewayPathNormalizer.normalize(event);
+
+        assertEquals("mentally chill", ApiGatewayPathCodec.decodeSegment(
+                event.getRequestContext().getHttp().getPath().split("/")[4]));
     }
 
     @Test

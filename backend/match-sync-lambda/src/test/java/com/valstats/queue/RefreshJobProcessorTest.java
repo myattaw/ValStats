@@ -10,11 +10,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.never;
 
 class RefreshJobProcessorTest {
     private final MatchDataService matchDataService = mock(MatchDataService.class);
     private final BackfillQueuePublisher publisher = mock(BackfillQueuePublisher.class);
-    private final RefreshJobProcessor processor = new RefreshJobProcessor(matchDataService, publisher);
+    private final NameHistoryJobProcessor nameHistoryProcessor = mock(NameHistoryJobProcessor.class);
+    private final RefreshJobProcessor processor = new RefreshJobProcessor(matchDataService, publisher, nameHistoryProcessor);
 
     @Test
     void delegatesValidJobToMatchRefreshService() {
@@ -48,6 +50,31 @@ class RefreshJobProcessorTest {
     }
 
     @Test
+    void incompleteHistoryJobQueuesItsCheckpointedNextPage() {
+        RefreshJob job = RefreshJob.history("puuid", "na", "Player", "NA1", 1);
+        when(matchDataService.processBackfill(job))
+                .thenReturn(new MatchDataService.BackfillResult(false, 2, false));
+
+        processor.process(job);
+
+        verify(matchDataService).markBackfillQueued(argThat(next ->
+                "HISTORY".equals(next.kind()) && next.page() == 2));
+        verify(publisher).enqueue(argThat(next ->
+                "HISTORY".equals(next.kind()) && next.page() == 2), eq(true));
+    }
+
+    @Test
+    void completeHistoryJobDoesNotQueueAnotherPage() {
+        RefreshJob job = RefreshJob.history("puuid", "na", "Player", "NA1", 8);
+        when(matchDataService.processBackfill(job))
+                .thenReturn(new MatchDataService.BackfillResult(true, 9, false));
+
+        processor.process(job);
+
+        verify(publisher, never()).enqueue(argThat(next -> true), eq(true));
+    }
+
+    @Test
     void failedJobRecordsTerminalStateBeforeSqsRetriesIt() {
         RefreshJob job = RefreshJob.recent("puuid", "na", "Player", "NA1");
         when(matchDataService.processBackfill(job)).thenThrow(new IllegalStateException("Henrik unavailable"));
@@ -55,5 +82,14 @@ class RefreshJobProcessorTest {
         assertThrows(IllegalStateException.class, () -> processor.process(job));
 
         verify(matchDataService).markBackfillFailed(job);
+    }
+
+    @Test
+    void nameHistoryJobsUseTheDedicatedWorker() {
+        RefreshJob job = RefreshJob.nameHistory("puuid", "na", "Player", "NA1");
+
+        processor.process(job);
+
+        verify(nameHistoryProcessor).process(job);
     }
 }

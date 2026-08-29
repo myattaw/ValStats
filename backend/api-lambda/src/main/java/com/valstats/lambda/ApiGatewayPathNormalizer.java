@@ -5,13 +5,14 @@ import com.amazonaws.services.lambda.runtime.events.APIGatewayV2HTTPEvent;
 import java.net.URISyntaxException;
 
 /**
- * Restores a valid percent-encoded path before Micronaut constructs a URI.
+ * Restores a decoded path before Micronaut constructs a URI.
  *
  * <p>For the HTTP API default route, API Gateway can supply both {@code rawPath}
  * and the request-context path in decoded form ({@code EVERYONE LIES}). Micronaut AWS
  * 4.11 uses the request-context value when adapting payload-v2 events, and
- * Java's URI parser rejects the resulting literal space before controller
- * routing can begin.</p>
+ * Micronaut's API Gateway adapter passes this value through {@code UriBuilder},
+ * which performs the required URI encoding. Supplying an already escaped path
+ * makes the builder escape the percent sign a second time.</p>
  */
 final class ApiGatewayPathNormalizer {
 
@@ -24,23 +25,32 @@ final class ApiGatewayPathNormalizer {
         }
 
         var requestContext = event.getRequestContext();
-        if (requestContext == null || requestContext.getHttp() == null
-                || requestContext.getHttp().getPath() == null
-                || requestContext.getHttp().getPath().isBlank()) {
+        if (requestContext == null || requestContext.getHttp() == null) {
             return event;
         }
 
-        requestContext.getHttp().setPath(encodePath(requestContext.getHttp().getPath()));
+        // API Gateway's rawPath normally retains escapes such as %20. Prefer it
+        // as the source of truth, then decode it for Micronaut's UriBuilder.
+        String sourcePath = event.getRawPath();
+        if (sourcePath == null || sourcePath.isBlank()) {
+            sourcePath = requestContext.getHttp().getPath();
+        }
+        if (sourcePath == null || sourcePath.isBlank()) {
+            return event;
+        }
+
+        requestContext.getHttp().setPath(ApiGatewayPathCodec.encodeUnsafeSegments(decodePath(sourcePath)));
         return event;
     }
 
-    private static String encodePath(String decodedPath) {
+    private static String decodePath(String path) {
         try {
-            // The component constructor quotes characters that are illegal in a
-            // URI path while retaining '/' as the path-segment separator.
-            return new java.net.URI(null, null, decodedPath, null).toASCIIString();
-        } catch (URISyntaxException exception) {
-            throw new IllegalArgumentException("Unable to encode API Gateway request path", exception);
+            // getPath decodes percent escapes without treating '+' as a space,
+            // which is the correct behavior for a URI path component.
+            return new java.net.URI(path).getPath();
+        } catch (URISyntaxException ignored) {
+            // requestContext.http.path may already be decoded and contain spaces.
+            return path;
         }
     }
 }

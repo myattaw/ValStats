@@ -55,6 +55,44 @@ class ValorantServiceTest {
     }
 
     @Test
+    void stalledHistoryIsResumedBeforeStartingAnotherRecentRefresh() {
+        when(playerCacheService.getPuuidByNameTag("Player", "NA1"))
+                .thenReturn(Optional.of("puuid"));
+        when(refreshQueuePublisher.isConfigured()).thenReturn(true);
+        when(dynamoDbService.getBackfillState("puuid", "HISTORY")).thenReturn(Optional.of(Map.of(
+                "status", "STALLED", "refreshing", false, "nextPage", 16L)));
+        when(dynamoDbService.tryQueueBackfill("puuid", "HISTORY")).thenReturn(true);
+        ValorantService service = new ValorantService(
+                matchDataService, playerStatsService, playerCacheService, apiClient,
+                dynamoDbService, apiRequestQueue, refreshQueuePublisher);
+
+        Map<String, Object> response = service.refreshMatches("na", "Player", "NA1");
+
+        assertEquals(202, response.get("status"));
+        verify(refreshQueuePublisher).enqueueLowPriority(argThat((RefreshJob job) ->
+                "HISTORY".equals(job.kind()) && job.page() == 16));
+        verifyNoInteractions(matchDataService);
+    }
+
+    @Test
+    void actBackfillIsNotQueuedWhileFullHistoryIsActive() {
+        when(playerCacheService.getPuuidByNameTag("Player", "NA1"))
+                .thenReturn(Optional.of("puuid"));
+        when(refreshQueuePublisher.isConfigured()).thenReturn(true);
+        when(dynamoDbService.getBackfillState("puuid", "HISTORY")).thenReturn(Optional.of(Map.of(
+                "status", "RUNNING", "refreshing", true, "nextPage", 4L)));
+        ValorantService service = new ValorantService(
+                matchDataService, playerStatsService, playerCacheService, apiClient,
+                dynamoDbService, apiRequestQueue, refreshQueuePublisher);
+
+        Map<String, Object> response = service.refreshActMatches(
+                "na", "Player", "NA1", "season-1");
+
+        assertEquals(202, response.get("status"));
+        verify(refreshQueuePublisher, org.mockito.Mockito.never()).enqueue(any());
+    }
+
+    @Test
     void invalidAccountReturnsPlayerNotFoundWhenHenrikResponseIsNull() {
         when(playerCacheService.getPuuidByNameTag("mentally chill", "lol"))
                 .thenReturn(Optional.empty());

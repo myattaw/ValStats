@@ -12,7 +12,7 @@ class RefreshQueuePublisherTest {
 
     @Test
     void serializesEveryRequiredPlayerField() throws Exception {
-        var publisher = new RefreshQueuePublisher(mock(SqsClient.class), "queue-url");
+        var publisher = new RefreshQueuePublisher(mock(SqsClient.class), "queue-url", "history-queue-url");
         var body = publisher.messageBody(new RefreshJob("player-id", "na", "EVERYONE LIES", "207", 123));
         var json = new ObjectMapper().readTree(body);
 

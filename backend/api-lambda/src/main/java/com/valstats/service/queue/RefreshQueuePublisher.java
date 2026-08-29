@@ -21,14 +21,17 @@ public class RefreshQueuePublisher {
     private final SqsClient sqsClient;
     private final ObjectMapper objectMapper;
     private final String queueUrl;
+    private final String historyQueueUrl;
 
     public RefreshQueuePublisher(
             SqsClient sqsClient,
-            @Value("${refresh.queue-url:}") String queueUrl
+            @Value("${refresh.queue-url:}") String queueUrl,
+            @Value("${refresh.history-queue-url:}") String historyQueueUrl
     ) {
         this.sqsClient = sqsClient;
         this.objectMapper = new ObjectMapper();
         this.queueUrl = queueUrl;
+        this.historyQueueUrl = historyQueueUrl;
     }
 
     public boolean isConfigured() {
@@ -36,15 +39,25 @@ public class RefreshQueuePublisher {
     }
 
     public void enqueue(RefreshJob job) {
+        enqueue(job, false);
+    }
+
+    public void enqueueLowPriority(RefreshJob job) {
+        enqueue(job, true);
+    }
+
+    private void enqueue(RefreshJob job, boolean lowPriority) {
         if (!isConfigured()) {
             throw new IllegalStateException("refresh.queue-url is not configured");
         }
         try {
+            String destination = lowPriority && historyQueueUrl != null && !historyQueueUrl.isBlank()
+                    ? historyQueueUrl : queueUrl;
             sqsClient.sendMessage(SendMessageRequest.builder()
-                    .queueUrl(queueUrl)
+                    .queueUrl(destination)
                     .messageBody(messageBody(job))
                     .build());
-            LOG.info("Queued match refresh for {}#{}", job.name(), job.tag());
+            LOG.info("Queued {} refresh for {}#{}", job.kind(), job.name(), job.tag());
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("Unable to serialize refresh job", e);
         }

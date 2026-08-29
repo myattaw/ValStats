@@ -13,6 +13,7 @@ import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 
 import java.util.List;
 import java.util.Map;
+import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -59,6 +60,68 @@ class PlayerCacheServiceTest {
         PlayerCacheService service = new PlayerCacheService(dynamoDbClient);
 
         assertTrue(service.getCachedAccount("Player", "Tag").isEmpty());
+    }
+
+    @Test
+    void expiredRunningNameScanDoesNotStayRefreshingForever() {
+        when(dynamoDbClient.getItem(org.mockito.ArgumentMatchers.any(GetItemRequest.class)))
+                .thenReturn(nameScanState("RUNNING", Instant.now().minusSeconds(361)));
+
+        Map<String, Object> state = new PlayerCacheService(dynamoDbClient)
+                .getNameHistoryScanState("player-puuid");
+
+        assertFalse((boolean) state.get("refreshing"));
+        assertEquals("FAILED", state.get("scanStatus"));
+    }
+
+    @Test
+    void recentRunningNameScanIsStillRefreshing() {
+        when(dynamoDbClient.getItem(org.mockito.ArgumentMatchers.any(GetItemRequest.class)))
+                .thenReturn(nameScanState("RUNNING", Instant.now()));
+
+        Map<String, Object> state = new PlayerCacheService(dynamoDbClient)
+                .getNameHistoryScanState("player-puuid");
+
+        assertTrue((boolean) state.get("refreshing"));
+        assertEquals("RUNNING", state.get("scanStatus"));
+    }
+
+    @Test
+    void activeFirstNameScanDoesNotRequestAnotherBackfill() {
+        when(dynamoDbClient.getItem(org.mockito.ArgumentMatchers.any(GetItemRequest.class)))
+                .thenReturn(nameScanState("RUNNING", Instant.now()));
+
+        assertFalse(new PlayerCacheService(dynamoDbClient)
+                .shouldBackfillNameHistory("player-puuid"));
+    }
+
+    @Test
+    void completedNameScanNeverRequestsAnAutomaticRescan() {
+        when(dynamoDbClient.getItem(org.mockito.ArgumentMatchers.any(GetItemRequest.class)))
+                .thenReturn(GetItemResponse.builder().item(Map.of(
+                        "status", AttributeValue.fromS("COMPLETE"),
+                        "lastBackfill", AttributeValue.fromN("1"),
+                        "updatedAt", AttributeValue.fromS(Instant.EPOCH.toString())
+                )).build());
+
+        assertFalse(new PlayerCacheService(dynamoDbClient)
+                .shouldBackfillNameHistory("player-puuid"));
+    }
+
+    @Test
+    void failedNameScanCanBeRetriedAutomatically() {
+        when(dynamoDbClient.getItem(org.mockito.ArgumentMatchers.any(GetItemRequest.class)))
+                .thenReturn(nameScanState("FAILED", Instant.now()));
+
+        assertTrue(new PlayerCacheService(dynamoDbClient)
+                .shouldBackfillNameHistory("player-puuid"));
+    }
+
+    private GetItemResponse nameScanState(String status, Instant updatedAt) {
+        return GetItemResponse.builder().item(Map.of(
+                "status", AttributeValue.fromS(status),
+                "updatedAt", AttributeValue.fromS(updatedAt.toString())
+        )).build();
     }
 
     private UpdateItemRequest findProfileUpdate(List<UpdateItemRequest> requests) {

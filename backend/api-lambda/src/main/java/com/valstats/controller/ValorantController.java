@@ -1,5 +1,6 @@
 package com.valstats.controller;
 
+import com.valstats.lambda.ApiGatewayPathCodec;
 import com.valstats.service.ValorantService;
 import io.micronaut.http.annotation.*;
 import io.micronaut.http.HttpResponse;
@@ -32,8 +33,8 @@ public class ValorantController {
     ) {
         return valorantService.getUnifiedMatches(
                 region,
-                name,
-                tag,
+                decode(name),
+                decode(tag),
                 size,
                 lastKey.orElse(null),
                 act,
@@ -46,7 +47,7 @@ public class ValorantController {
             @PathVariable String region,
             @PathVariable String name,
             @PathVariable String tag) {
-        Map<String, Object> response = valorantService.refreshMatches(region, name, tag);
+        Map<String, Object> response = valorantService.refreshMatches(region, decode(name), decode(tag));
         return Integer.valueOf(202).equals(response.get("status"))
                 ? HttpResponse.<Map<String, Object>>status(HttpStatus.ACCEPTED).body(response)
                 : HttpResponse.ok(response);
@@ -57,7 +58,7 @@ public class ValorantController {
             @PathVariable String region,
             @PathVariable String name,
             @PathVariable String tag) {
-        return valorantService.getMatchRefreshStatus(region, name, tag);
+        return valorantService.getMatchRefreshStatus(region, decode(name), decode(tag));
     }
 
     @Post("/matches/{region}/{name}/{tag}/acts/{seasonId}/refresh")
@@ -66,7 +67,7 @@ public class ValorantController {
             @PathVariable String name,
             @PathVariable String tag,
             @PathVariable String seasonId) {
-        Map<String, Object> response = valorantService.refreshActMatches(region, name, tag, seasonId);
+        Map<String, Object> response = valorantService.refreshActMatches(region, decode(name), decode(tag), seasonId);
         return Integer.valueOf(202).equals(response.get("status"))
                 ? HttpResponse.<Map<String, Object>>status(HttpStatus.ACCEPTED).body(response)
                 : HttpResponse.ok(response);
@@ -76,19 +77,19 @@ public class ValorantController {
     public Map<String, Object> getBackfillStatus(
             @PathVariable String region, @PathVariable String name, @PathVariable String tag,
             @QueryValue(defaultValue = "all") String seasonId) {
-        return valorantService.getBackfillStatus(region, name, tag, seasonId);
+        return valorantService.getBackfillStatus(region, decode(name), decode(tag), seasonId);
     }
 
     @Get("/modes/{region}/{name}/{tag}")
     public Object getModes(@PathVariable String region, @PathVariable String name, @PathVariable String tag) {
-        return valorantService.getAvailableModes(region, name, tag);
+        return valorantService.getAvailableModes(region, decode(name), decode(tag));
     }
 
     @Get("/account/{name}/{tag}")
     public Map<String, Object> getAccount(
             @PathVariable String name,
             @PathVariable String tag) {
-        return valorantService.getAccountDetails(name, tag);
+        return valorantService.getAccountDetails(decode(name), decode(tag));
     }
 
     @Get("/match/{matchid}")
@@ -107,10 +108,13 @@ public class ValorantController {
     }
 
     @Post("/players/{puuid}/names/refresh")
-    public Map<String, Object> refreshPlayerNameHistory(
+    public HttpResponse<Map<String, Object>> refreshPlayerNameHistory(
             @PathVariable String puuid,
             @QueryValue(defaultValue = "false") boolean force) {
-        return valorantService.refreshPlayerNameHistory(puuid, force);
+        Map<String, Object> response = valorantService.refreshPlayerNameHistory(puuid, force);
+        return Integer.valueOf(202).equals(response.get("status"))
+                ? HttpResponse.<Map<String, Object>>status(HttpStatus.ACCEPTED).body(response)
+                : HttpResponse.ok(response);
     }
 
     @Get("/players/{puuid}")
@@ -125,7 +129,7 @@ public class ValorantController {
             @PathVariable String tag,
             @QueryValue(defaultValue = "all") String seasonId,
             @QueryValue(defaultValue = "competitive") String mode) {
-        return valorantService.getPlayerStats(region, name, tag, seasonId, mode);
+        return valorantService.getPlayerStats(region, decode(name), decode(tag), seasonId, mode);
     }
 
     @Get("/stats/{region}/{name}/{tag}/adr")
@@ -135,7 +139,7 @@ public class ValorantController {
             @PathVariable String tag,
             @QueryValue(defaultValue = "all") String seasonId,
             @QueryValue(defaultValue = "competitive") String mode) {
-        return valorantService.getPlayerAdr(region, name, tag, seasonId, mode);
+        return valorantService.getPlayerAdr(region, decode(name), decode(tag), seasonId, mode);
     }
 
     @Get("/acts/{region}/{name}/{tag}")
@@ -144,7 +148,7 @@ public class ValorantController {
             @PathVariable String name,
             @PathVariable String tag
     ) {
-        return valorantService.getAvailableActs(region, name, tag);
+        return valorantService.getAvailableActs(region, decode(name), decode(tag));
     }
 
     @Get("/mmr/{region}/{name}/{tag}")
@@ -154,13 +158,17 @@ public class ValorantController {
             @PathVariable String tag,
             @QueryValue(defaultValue = "all") String seasonId
     ) {
-        return valorantService.getPlayerMMR(region, name, tag, seasonId);
+        return valorantService.getPlayerMMR(region, decode(name), decode(tag), seasonId);
     }
 
     @Get("/insights/{region}/{name}/{tag}")
     public Map<String, Object> getPlayerInsights(
             @PathVariable String region, @PathVariable String name, @PathVariable String tag) {
-        return valorantService.getPlayerInsights(region, name, tag);
+        return valorantService.getPlayerInsights(region, decode(name), decode(tag));
+    }
+
+    private String decode(String pathSegment) {
+        return ApiGatewayPathCodec.decodeSegment(pathSegment);
     }
 
 }

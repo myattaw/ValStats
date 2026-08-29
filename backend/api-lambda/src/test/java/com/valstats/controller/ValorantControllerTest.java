@@ -1,6 +1,7 @@
 package com.valstats.controller;
 
 import com.valstats.service.ValorantService;
+import com.valstats.lambda.ApiGatewayPathCodec;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpStatus;
 import io.micronaut.http.client.HttpClient;
@@ -43,6 +44,35 @@ class ValorantControllerTest {
         assertEquals("player", response.body().get("name"));
         assertEquals("NA1", response.body().get("tag"));
         verify(valorantService).getAccountDetails("player", "NA1");
+    }
+
+    @Test
+    void accountRouteAcceptsPercentEncodedSpacesInRiotName() {
+        when(valorantService.getAccountDetails("mentally chill", "207"))
+                .thenReturn(Map.of("name", "mentally chill", "tag", "207"));
+
+        var response = client.toBlocking().exchange(
+                HttpRequest.GET("/api/valorant/account/mentally%20chill/207"),
+                Map.class
+        );
+
+        assertEquals(HttpStatus.OK, response.getStatus());
+        verify(valorantService).getAccountDetails("mentally chill", "207");
+    }
+
+    @Test
+    void accountRouteDecodesApiGatewaySafeNameSegment() {
+        String encodedName = ApiGatewayPathCodec.encodeSegment("mentally chill");
+        when(valorantService.getAccountDetails("mentally chill", "207"))
+                .thenReturn(Map.of("name", "mentally chill", "tag", "207"));
+
+        var response = client.toBlocking().exchange(
+                HttpRequest.GET("/api/valorant/account/" + encodedName + "/207"),
+                Map.class
+        );
+
+        assertEquals(HttpStatus.OK, response.getStatus());
+        verify(valorantService).getAccountDetails("mentally chill", "207");
     }
 
     @Test

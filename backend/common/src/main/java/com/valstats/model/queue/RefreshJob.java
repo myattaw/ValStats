@@ -37,6 +37,10 @@ public record RefreshJob(
         return new RefreshJob(puuid, region, name, tag, Instant.now().getEpochSecond(), "ACT", 1, 1, seasonId, false);
     }
 
+    public static RefreshJob nameHistory(String puuid, String region, String name, String tag) {
+        return new RefreshJob(puuid, region, name, tag, Instant.now().getEpochSecond(), "NAME_HISTORY", 1, 1, "", false);
+    }
+
     public RefreshJob nextPage(int nextPage) {
         return new RefreshJob(puuid, region, name, tag, requestedAt, kind, nextPage, pagesPerJob, targetSeasonId, targetSeen);
     }

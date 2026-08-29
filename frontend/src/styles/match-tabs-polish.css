@@ -92,16 +92,16 @@
 .round-strip-controls svg { width:14px; height:14px; }
 .tab-round-strip button,.tab-round-strip button.ally,.tab-round-strip button.enemy { height:50px; }
 .tab-round-strip button,.tab-round-strip button.ally,.tab-round-strip button.enemy { gap:0; }
-.round-combat-marker { position:relative; width:27px; height:29px; display:block; color:#eef2f3!important; transform:translateY(-2px); }
-.round-combat-marker .round-skull-image { position:absolute; top:0; left:.5px; width:26px; height:26px; object-fit:contain; user-select:none; pointer-events:none; filter:drop-shadow(0 1px 1px rgba(0,0,0,.28)); }
+.round-combat-marker { position:relative; width:34px; height:29px; display:block; color:#eef2f3!important; transform:translateY(-2px); }
+.round-combat-marker .round-skull-image { position:absolute; top:0; left:4px; width:26px; height:26px; object-fit:contain; user-select:none; pointer-events:none; filter:drop-shadow(0 1px 1px rgba(0,0,0,.28)); }
 .round-combat-marker.kills .round-skull-image { filter:brightness(0) invert(1) drop-shadow(0 1px 1px rgba(0,0,0,.28)); }
 .round-combat-marker.death .round-skull-image { opacity:0; }
-.round-combat-marker.death::before { content:""; position:absolute; top:0; left:.5px; width:26px; height:26px; background:#e53935; -webkit-mask:url('/icons/rounds/skull.svg') center/contain no-repeat; mask:url('/icons/rounds/skull.svg') center/contain no-repeat; filter:drop-shadow(0 1px 1px rgba(0,0,0,.28)); }
+.round-combat-marker.death::before { content:""; position:absolute; top:0; left:4px; width:26px; height:26px; background:#e53935; -webkit-mask:url('/icons/rounds/skull.svg') center/contain no-repeat; mask:url('/icons/rounds/skull.svg') center/contain no-repeat; filter:drop-shadow(0 1px 1px rgba(0,0,0,.28)); }
 .round-combat-marker.death { color:var(--death-skull)!important; }
-.round-combat-dots { position:absolute; z-index:2; right:0; bottom:1px; left:0; height:3px; display:flex; align-items:center; justify-content:center; gap:2px; }
-.round-combat-dots>i { width:3px; height:3px; flex:0 0 3px; display:block; border-radius:.5px; background:#f4f7f8; }
+.round-combat-dots { position:absolute; z-index:2; right:0; bottom:0; left:0; height:4px; display:flex; align-items:center; justify-content:center; gap:2px; }
+.round-combat-dots>i { width:4px; height:4px; flex:0 0 4px; display:block; border-radius:1px; background:#f4f7f8; }
 .round-combat-dots>.death-dot { background:#e53935; }
-.round-combat-empty { width:27px; height:29px; display:block; }
+.round-combat-empty { width:34px; height:29px; display:block; }
 .half-context,.round-phase-divider { height:50px; }
 .round-phase-divider::after { top:28px; }
 .round-strip-controls button { height:50px; }

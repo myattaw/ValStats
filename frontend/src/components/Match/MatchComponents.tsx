@@ -25,7 +25,7 @@ const AccountLevelBadge = ({level}: {level: number}) => {
     const borderLevel = level < 20 ? 1 : Math.min(480, Math.floor(level / 20) * 20);
     const borderSrc = LEVEL_BORDER_ASSETS[`../../assets/level-borders/level-${borderLevel}.png`];
 
-    return <span className="scoreboard-account-level" title={`Account level ${level}`} aria-label={`Account level ${level}`}>
+    return <span className={`scoreboard-account-level ${level >= 1000 ? 'is-four-digit' : ''}`} title={`Account level ${level}`} aria-label={`Account level ${level}`}>
         <img src={borderSrc} alt="" aria-hidden="true"/>
         <span>{level}</span>
     </span>;

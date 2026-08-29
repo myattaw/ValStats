@@ -197,8 +197,32 @@ export function MatchHistory({
                         setNewMatchIds((current) => new Set([...current, ...addedIds]));
                     }
                 }
-                visibleMatchIds.current = new Set(data.map((match) => match.id));
-                setMatches(data);
+                setMatches((currentMatches) => {
+                    if (showLoading) {
+                        visibleMatchIds.current = new Set(data.map((match) => match.id));
+                        return data;
+                    }
+
+                    const currentById = new Map(currentMatches.map((match) => [match.id, match]));
+                    const refreshedIds = new Set(data.map((match) => match.id));
+                    const refreshedMatches = data.map((match) => {
+                        const current = currentById.get(match.id);
+                        if (!current?.details) return match;
+
+                        return {
+                            ...match,
+                            players: current.players,
+                            details: current.details,
+                            hasDetails: true
+                        };
+                    });
+                    const previouslyLoadedMatches = currentMatches.filter((match) => !refreshedIds.has(match.id));
+                    const mergedMatches = [...refreshedMatches, ...previouslyLoadedMatches]
+                        .sort((a, b) => b.date_raw - a.date_raw);
+
+                    visibleMatchIds.current = new Set(mergedMatches.map((match) => match.id));
+                    return mergedMatches;
+                });
                 // Season mode is still not cursor-paginated on the backend, so don't show load-more there.
                 setLastKey(json?.lastKey ?? null);
                 setHasMore(!!json?.lastKey);

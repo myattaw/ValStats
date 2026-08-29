@@ -102,7 +102,11 @@ export function PlayerNameHistory({
 
         const pollDelays = [5000, 7500, 10000];
         let pollAttempt = 0;
-        while (!controller.signal.aborted) {
+        // This scan can span many queued jobs for older accounts, especially
+        // while Henrik is rate-limiting. Do not present background work as an
+        // indefinitely blocking profile operation.
+        const maxPollAttempts = 12;
+        while (!controller.signal.aborted && pollAttempt < maxPollAttempts) {
           await new Promise((resolve) => window.setTimeout(
             resolve,
             pollDelays[Math.min(pollAttempt++, pollDelays.length - 1)]

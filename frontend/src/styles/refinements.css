@@ -77,6 +77,8 @@
 .scoreboard-player-link { min-width:0; display:inline-flex; vertical-align:middle; }
 .scoreboard-player-name-line .scoreboard-player-link { flex:0 1 auto; }
 .scoreboard-player-row .you-pill { flex:0 0 auto; display:inline-flex; margin:0; vertical-align:middle; }
+.scoreboard-party-indicator { height:16px; flex:0 0 auto; display:inline-flex; align-items:center; gap:2px; padding:0 4px; border:1px solid color-mix(in srgb,var(--party-color) 48%,transparent); border-radius:4px; background:color-mix(in srgb,var(--party-color) 13%,transparent); color:var(--party-color); font-size:7px; font-weight:800; line-height:1; white-space:nowrap; }
+.scoreboard-party-indicator svg { width:9px; height:9px; stroke-width:2.2; }
 .scoreboard-account-level { position:relative; width:32px; height:16px; flex:0 0 32px; display:inline-grid; place-items:center; color:#f4f6f8; font-size:7px; font-weight:650; line-height:1; text-shadow:0 1px 2px #000,0 0 2px #000; vertical-align:middle; white-space:nowrap; }
 .scoreboard-account-level img,.player-rank-line .scoreboard-account-level img { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; }
 .scoreboard-account-level span { position:relative; z-index:1; transform:translateY(-.5px); }
@@ -232,6 +234,8 @@
 .compact-team-table>h4 { min-height:42px; display:flex; align-items:center; justify-content:space-between; gap:10px; }.compact-team-table>h4 span { font-size:10px; }.compact-team-table>h4 small { color:var(--faint); font-size:7px; font-weight:550; letter-spacing:.02em; text-transform:none; white-space:nowrap; }.compact-team-table.ally>h4 { background:linear-gradient(90deg,rgba(69,212,131,.045),transparent 70%); }.compact-team-table.enemy>h4 { background:linear-gradient(90deg,rgba(240,100,104,.04),transparent 70%); }
 .compact-score-player a { max-width:calc(100% - 4px); }.compact-score-rank span { max-width:58px; }
 .compact-score-player .scoreboard-player-name-line { gap:4px; }
+.compact-score-player .scoreboard-party-indicator { height:14px; padding-inline:3px; font-size:6px; }
+.compact-score-player .scoreboard-party-indicator svg { width:8px; height:8px; }
 .compact-score-player .scoreboard-account-level { width:32px; height:16px; flex-basis:32px; font-size:7px; }
 .compact-player-agent-line { display:flex; align-items:center; gap:4px; margin-top:4px; }
 .compact-score-player .compact-player-agent-line small { margin-top:0; }

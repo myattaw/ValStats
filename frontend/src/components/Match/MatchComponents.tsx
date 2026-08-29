@@ -1,10 +1,11 @@
 import {useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type UIEvent as ReactUIEvent} from "react";
-import {ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Crosshair, Crown, Map as MapIcon, RotateCcw, ZoomIn, ZoomOut} from "lucide-react";
+import {ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Crosshair, Crown, Map as MapIcon, RotateCcw, Users, ZoomIn, ZoomOut} from "lucide-react";
 import {Skeleton} from "../ui/skeleton";
 import {EventLocation, MatchDetails, MatchRound, PlayerStats, RoundKill} from './types/matchTypes';
 import {playerUuidPath} from '../../lib/player';
 
 const TIER_SET = "03621f52-342b-cf4e-4f86-9350a49c6d04";
+const PARTY_COLORS = ['#a78bfa', '#38bdf8', '#fbbf24', '#f472b6', '#2dd4bf'];
 const LEVEL_BORDER_ASSETS = import.meta.glob('../../assets/level-borders/*.png', {
     eager: true,
     query: '?url',
@@ -20,6 +21,8 @@ const AccountLevelBadge = ({level}: {level: number}) => {
         <span>{level}</span>
     </span>;
 };
+
+const getPartyLabel = (size: number) => size === 2 ? 'Duo' : `${size}-stack`;
 
 interface MapData {
     displayIcon: string;
@@ -172,10 +175,12 @@ function getHeadshotPercentage(player: PlayerStats): string {
 }
 
 // Component for displaying match player data
-export const MatchPlayerRow = ({player, teamStyle, partyColor, rounds_played, rounds = [], selectedRound, onRoundSelect, isViewer = false}: {
+export const MatchPlayerRow = ({player, teamStyle, partyColor, partyNumber, partySize, rounds_played, rounds = [], selectedRound, onRoundSelect, isViewer = false}: {
     player: PlayerStats;
     teamStyle: string;
     partyColor?: string;
+    partyNumber?: number;
+    partySize?: number;
     rounds_played: number;
     rounds?: MatchRound[];
     selectedRound?: number;
@@ -215,6 +220,7 @@ export const MatchPlayerRow = ({player, teamStyle, partyColor, rounds_played, ro
                             </a>
                         ) : <div className="text-white text-sm">{player.name}</div>}
                         {isViewer && <span className="you-pill">You</span>}
+                        {partyColor && partyNumber && partySize && <span className="scoreboard-party-indicator" style={{"--party-color": partyColor} as CSSProperties} title={`Premade ${partyNumber} · ${getPartyLabel(partySize)}`}><Users/><span>P{partyNumber}</span></span>}
                     </div>
                     <div className="player-rank-line">
                         <img src={`https://media.valorant-api.com/competitivetiers/${TIER_SET}/${player.currentTier || 0}/smallicon.png`} alt=""/>
@@ -479,6 +485,11 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: {
     });
 
     const renderScoreboardTeam = (label: string, players: PlayerStats[], relation: 'ally' | 'enemy') => {
+        const partyCounts = players.reduce((counts, player) => {
+            if (player.partyId) counts.set(player.partyId, (counts.get(player.partyId) ?? 0) + 1);
+            return counts;
+        }, new Map<string, number>());
+        const partyIds = [...partyCounts.entries()].filter(([, count]) => count > 1).map(([id]) => id);
         const averageAcs = players.length ? Math.round(players.reduce((sum, player) => sum + (player.rounds_played ?? roundsPlayed ? player.score / (player.rounds_played ?? roundsPlayed) : 0), 0) / players.length) : 0;
         const averageAdr = players.length ? Math.round(players.reduce((sum, player) => sum + (player.rounds_played ?? roundsPlayed ? player.damage_made / (player.rounds_played ?? roundsPlayed) : 0), 0) / players.length) : 0;
         return <section className={`compact-team-table ${relation}`}>
@@ -489,8 +500,11 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: {
             const differential = player.kills - player.deaths;
             const firsts = firstEngagements.get(player.puuid) ?? {kills: 0, deaths: 0};
             const isViewer = Boolean(viewerPuuid && player.puuid === viewerPuuid);
+            const partyIndex = player.partyId ? partyIds.indexOf(player.partyId) : -1;
+            const partySize = player.partyId ? partyCounts.get(player.partyId) : undefined;
+            const partyColor = partyIndex >= 0 ? PARTY_COLORS[partyIndex % PARTY_COLORS.length] : undefined;
             return <div className={`compact-score-row ${isViewer ? 'is-viewer' : ''}`} key={player.puuid || `${player.name}-${player.agent}`}>
-                <div className="compact-score-player"><div className="compact-score-agent-avatar">{player.agentIcon ? <img src={player.agentIcon} alt={player.agent}/> : <span>{player.agent[0]}</span>}{typeof player.level === "number" && <AccountLevelBadge level={player.level}/>}</div><div><div className="scoreboard-player-name-line"><a href={playerUuidPath(player.puuid)}>{player.name}{player.tag && <i>#{player.tag}</i>}</a>{isViewer && <b>You</b>}</div><div className="compact-player-agent-line"><small>{player.agent}</small></div></div></div>
+                <div className="compact-score-player"><div className="compact-score-agent-avatar">{player.agentIcon ? <img src={player.agentIcon} alt={player.agent}/> : <span>{player.agent[0]}</span>}{typeof player.level === "number" && <AccountLevelBadge level={player.level}/>}</div><div><div className="scoreboard-player-name-line"><a href={playerUuidPath(player.puuid)}>{player.name}{player.tag && <i>#{player.tag}</i>}</a>{isViewer && <b>You</b>}{partyColor && partySize && <span className="scoreboard-party-indicator" style={{"--party-color": partyColor} as CSSProperties} title={`Premade ${partyIndex + 1} · ${getPartyLabel(partySize)}`}><Users/><span>P{partyIndex + 1}</span></span>}</div><div className="compact-player-agent-line"><small>{player.agent}</small></div></div></div>
                 <div className="compact-score-rank"><img src={`https://media.valorant-api.com/competitivetiers/${TIER_SET}/${player.currentTier || 0}/smallicon.png`} alt={player.currentTierName || 'Unranked'}/><span>{player.currentTierName || 'Unranked'}</span></div>
                 <span>{player.kills}/{player.deaths}/{player.assists}</span><span>{rp ? Math.round(player.score / rp) : 0}</span><span>{rp ? Math.round(player.damage_made / rp) : 0}</span><span>{getHeadshotPercentage(player)}</span><span>{firsts.kills}</span><span>{firsts.deaths}</span><strong className={differential >= 0 ? 'positive' : 'negative'}>{differential > 0 ? '+' : ''}{differential}</strong>
             </div>;
@@ -621,7 +635,6 @@ export const TeamDisplay = ({
         return counts;
     }, new Map<string, number>());
     const partyIds = [...groupedParties.entries()].filter(([, count]) => count > 1).map(([id]) => id);
-    const partyColors = ['#a78bfa', '#38bdf8', '#fbbf24', '#f472b6', '#2dd4bf'];
 
     return (
         <div
@@ -636,19 +649,25 @@ export const TeamDisplay = ({
                 <span aria-hidden="true" />
             </div>
             <div className="scoreboard-player-list">
-                {players.map((player, idx) => (
+                {players.map((player, idx) => {
+                    const partyIndex = player.partyId ? partyIds.indexOf(player.partyId) : -1;
+                    const partySize = player.partyId ? groupedParties.get(player.partyId) : undefined;
+                    const partyColor = partyIndex >= 0 ? PARTY_COLORS[partyIndex % PARTY_COLORS.length] : undefined;
+                    return (
                     <MatchPlayerRow
                         key={idx}
                         player={player}
                         teamStyle={teamStyle}
-                        partyColor={player.partyId && partyIds.includes(player.partyId) ? partyColors[partyIds.indexOf(player.partyId) % partyColors.length] : undefined}
+                        partyColor={partyColor}
+                        partyNumber={partyIndex >= 0 ? partyIndex + 1 : undefined}
+                        partySize={partySize}
                         rounds_played={rounds_played}
                         rounds={rounds}
                         selectedRound={selectedRound}
                         onRoundSelect={onRoundSelect}
                         isViewer={Boolean(viewerPuuid && player.puuid === viewerPuuid)}
                     />
-                ))}
+                );})}
             </div>
         </div>
     );

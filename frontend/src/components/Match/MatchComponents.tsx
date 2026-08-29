@@ -5,6 +5,21 @@ import {EventLocation, MatchDetails, MatchRound, PlayerStats, RoundKill} from '.
 import {playerUuidPath} from '../../lib/player';
 
 const TIER_SET = "03621f52-342b-cf4e-4f86-9350a49c6d04";
+const LEVEL_BORDER_ASSETS = import.meta.glob('../../assets/level-borders/*.png', {
+    eager: true,
+    query: '?url',
+    import: 'default',
+}) as Record<string, string>;
+
+const AccountLevelBadge = ({level}: {level: number}) => {
+    const borderLevel = level < 20 ? 1 : Math.min(480, Math.floor(level / 20) * 20);
+    const borderSrc = LEVEL_BORDER_ASSETS[`../../assets/level-borders/level-${borderLevel}.png`];
+
+    return <span className="scoreboard-account-level" title={`Account level ${level}`} aria-label={`Account level ${level}`}>
+        <img src={borderSrc} alt="" aria-hidden="true"/>
+        <span>{level}</span>
+    </span>;
+};
 
 interface MapData {
     displayIcon: string;
@@ -174,29 +189,33 @@ export const MatchPlayerRow = ({player, teamStyle, partyColor, rounds_played, ro
             style={partyColor ? {"--party-color": partyColor} as CSSProperties : undefined}
         >
             <div className="scoreboard-player-identity">
-                <div className={`w-7 h-7 rounded flex items-center justify-center overflow-hidden ${teamStyle}`}>
-                    {player.agentIcon ? (
-                        <img
-                            src={player.agentIcon}
-                            alt={player.agent}
-                            className="w-6 h-6 object-contain"
-                        />
-                    ) : (
-                        <span className="text-xs">{player.agent[0]}</span>
-                    )}
+                <div className="scoreboard-agent-avatar">
+                    <div className={`w-7 h-7 rounded flex items-center justify-center overflow-hidden ${teamStyle}`}>
+                        {player.agentIcon ? (
+                            <img
+                                src={player.agentIcon}
+                                alt={player.agent}
+                                className="w-6 h-6 object-contain"
+                            />
+                        ) : (
+                            <span className="text-xs">{player.agent[0]}</span>
+                        )}
+                    </div>
+                    {typeof player.level === "number" && <AccountLevelBadge level={player.level}/>}
                 </div>
                 <div>
-                    {player.puuid ? (
-                        <a
-                            className="scoreboard-player-link text-sm"
-                            href={playerUuidPath(player.puuid)}
-                            title={`View ${player.name}#${player.tag}'s profile`}
-                        >
-                            <span>{player.name}</span>{player.tag && <span>#{player.tag}</span>}
-                        </a>
-                    ) : <div className="text-white text-sm">{player.name}</div>}
-                    {typeof player.level === "number" && <span className="scoreboard-account-level">LVL {player.level}</span>}
-                    {isViewer && <span className="you-pill">You</span>}
+                    <div className="scoreboard-player-name-line">
+                        {player.puuid ? (
+                            <a
+                                className="scoreboard-player-link text-sm"
+                                href={playerUuidPath(player.puuid)}
+                                title={`View ${player.name}#${player.tag}'s profile`}
+                            >
+                                <span>{player.name}</span>{player.tag && <span>#{player.tag}</span>}
+                            </a>
+                        ) : <div className="text-white text-sm">{player.name}</div>}
+                        {isViewer && <span className="you-pill">You</span>}
+                    </div>
                     <div className="player-rank-line">
                         <img src={`https://media.valorant-api.com/competitivetiers/${TIER_SET}/${player.currentTier || 0}/smallicon.png`} alt=""/>
                         <span>{player.currentTierName || "Unranked"}</span>
@@ -471,7 +490,7 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: {
             const firsts = firstEngagements.get(player.puuid) ?? {kills: 0, deaths: 0};
             const isViewer = Boolean(viewerPuuid && player.puuid === viewerPuuid);
             return <div className={`compact-score-row ${isViewer ? 'is-viewer' : ''}`} key={player.puuid || `${player.name}-${player.agent}`}>
-                <div className="compact-score-player">{player.agentIcon ? <img src={player.agentIcon} alt={player.agent}/> : <span>{player.agent[0]}</span>}<div><a href={playerUuidPath(player.puuid)}>{player.name}{player.tag && <i>#{player.tag}</i>}</a>{typeof player.level === "number" && <span className="scoreboard-account-level">LVL {player.level}</span>}{isViewer && <b>You</b>}<small>{player.agent}</small></div></div>
+                <div className="compact-score-player"><div className="compact-score-agent-avatar">{player.agentIcon ? <img src={player.agentIcon} alt={player.agent}/> : <span>{player.agent[0]}</span>}{typeof player.level === "number" && <AccountLevelBadge level={player.level}/>}</div><div><div className="scoreboard-player-name-line"><a href={playerUuidPath(player.puuid)}>{player.name}{player.tag && <i>#{player.tag}</i>}</a>{isViewer && <b>You</b>}</div><div className="compact-player-agent-line"><small>{player.agent}</small></div></div></div>
                 <div className="compact-score-rank"><img src={`https://media.valorant-api.com/competitivetiers/${TIER_SET}/${player.currentTier || 0}/smallicon.png`} alt={player.currentTierName || 'Unranked'}/><span>{player.currentTierName || 'Unranked'}</span></div>
                 <span>{player.kills}/{player.deaths}/{player.assists}</span><span>{rp ? Math.round(player.score / rp) : 0}</span><span>{rp ? Math.round(player.damage_made / rp) : 0}</span><span>{getHeadshotPercentage(player)}</span><span>{firsts.kills}</span><span>{firsts.deaths}</span><strong className={differential >= 0 ? 'positive' : 'negative'}>{differential > 0 ? '+' : ''}{differential}</strong>
             </div>;

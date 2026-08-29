@@ -73,7 +73,9 @@ export const fetchMatchDetails = async (matchId: string) => {
         team: p.team,
         currentTier: p.currenttier ?? p.competitive_tier ?? p.tier ?? 0,
         currentTierName: p.currenttier_patched || p.competitive_tier_name || p.rank || "Unranked",
-        level: p.account_level,
+        level: Number.isFinite(Number(p.account_level ?? p.accountLevel ?? p.level))
+            ? Number(p.account_level ?? p.accountLevel ?? p.level)
+            : undefined,
         economySpent: p.economy?.spent?.overall ?? 0,
         economyLoadout: p.economy?.loadout_value?.average ?? 0,
         partyId: p.party_id || p.partyId || p.party?.id,

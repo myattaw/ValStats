@@ -19,6 +19,7 @@ dynamodb:
 
 refresh:
   queue-url: ${REFRESH_QUEUE_URL:}
+  history-queue-url: ${HISTORY_QUEUE_URL:}
 
 valorant:
   api-key: ${HDEV_KEY:}

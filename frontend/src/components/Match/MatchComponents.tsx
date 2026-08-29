@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type UIEvent as ReactUIEvent} from "react";
-import {ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Crosshair, Crown, Map as MapIcon, RotateCcw, Users, ZoomIn, ZoomOut} from "lucide-react";
+import {ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Crosshair, Crown, Map as MapIcon, RotateCcw, ZoomIn, ZoomOut} from "lucide-react";
 import {Skeleton} from "../ui/skeleton";
 import {EventLocation, MatchDetails, MatchRound, PlayerStats, RoundKill} from './types/matchTypes';
 import {playerUuidPath} from '../../lib/player';
@@ -21,8 +21,6 @@ const AccountLevelBadge = ({level}: {level: number}) => {
         <span>{level}</span>
     </span>;
 };
-
-const getPartyLabel = (size: number) => size === 2 ? 'Duo' : `${size}-stack`;
 
 interface MapData {
     displayIcon: string;
@@ -175,12 +173,10 @@ function getHeadshotPercentage(player: PlayerStats): string {
 }
 
 // Component for displaying match player data
-export const MatchPlayerRow = ({player, teamStyle, partyColor, partyNumber, partySize, rounds_played, rounds = [], selectedRound, onRoundSelect, isViewer = false}: {
+export const MatchPlayerRow = ({player, teamStyle, partyColor, rounds_played, rounds = [], selectedRound, onRoundSelect, isViewer = false}: {
     player: PlayerStats;
     teamStyle: string;
     partyColor?: string;
-    partyNumber?: number;
-    partySize?: number;
     rounds_played: number;
     rounds?: MatchRound[];
     selectedRound?: number;
@@ -194,7 +190,7 @@ export const MatchPlayerRow = ({player, teamStyle, partyColor, partyNumber, part
             style={partyColor ? {"--party-color": partyColor} as CSSProperties : undefined}
         >
             <div className="scoreboard-player-identity">
-                <div className="scoreboard-agent-avatar">
+                <div className={`scoreboard-agent-avatar ${partyColor ? "has-party" : ""}`}>
                     <div className={`w-7 h-7 rounded flex items-center justify-center overflow-hidden ${teamStyle}`}>
                         {player.agentIcon ? (
                             <img
@@ -220,7 +216,6 @@ export const MatchPlayerRow = ({player, teamStyle, partyColor, partyNumber, part
                             </a>
                         ) : <div className="text-white text-sm">{player.name}</div>}
                         {isViewer && <span className="you-pill">You</span>}
-                        {partyColor && partyNumber && partySize && <span className="scoreboard-party-indicator" style={{"--party-color": partyColor} as CSSProperties} title={`Premade ${partyNumber} · ${getPartyLabel(partySize)}`}><Users/><span>P{partyNumber}</span></span>}
                     </div>
                     <div className="player-rank-line">
                         <img src={`https://media.valorant-api.com/competitivetiers/${TIER_SET}/${player.currentTier || 0}/smallicon.png`} alt=""/>
@@ -501,10 +496,9 @@ export const MatchDetailsPanel = ({details, roundsPlayed, viewerPuuid, mapId}: {
             const firsts = firstEngagements.get(player.puuid) ?? {kills: 0, deaths: 0};
             const isViewer = Boolean(viewerPuuid && player.puuid === viewerPuuid);
             const partyIndex = player.partyId ? partyIds.indexOf(player.partyId) : -1;
-            const partySize = player.partyId ? partyCounts.get(player.partyId) : undefined;
             const partyColor = partyIndex >= 0 ? PARTY_COLORS[partyIndex % PARTY_COLORS.length] : undefined;
             return <div className={`compact-score-row ${isViewer ? 'is-viewer' : ''}`} key={player.puuid || `${player.name}-${player.agent}`}>
-                <div className="compact-score-player"><div className="compact-score-agent-avatar">{player.agentIcon ? <img src={player.agentIcon} alt={player.agent}/> : <span>{player.agent[0]}</span>}{typeof player.level === "number" && <AccountLevelBadge level={player.level}/>}</div><div><div className="scoreboard-player-name-line"><a href={playerUuidPath(player.puuid)}>{player.name}{player.tag && <i>#{player.tag}</i>}</a>{isViewer && <b>You</b>}{partyColor && partySize && <span className="scoreboard-party-indicator" style={{"--party-color": partyColor} as CSSProperties} title={`Premade ${partyIndex + 1} · ${getPartyLabel(partySize)}`}><Users/><span>P{partyIndex + 1}</span></span>}</div><div className="compact-player-agent-line"><small>{player.agent}</small></div></div></div>
+                <div className="compact-score-player"><div className={`compact-score-agent-avatar ${partyColor ? 'has-party' : ''}`} style={partyColor ? {"--party-color": partyColor} as CSSProperties : undefined}>{player.agentIcon ? <img src={player.agentIcon} alt={player.agent}/> : <span>{player.agent[0]}</span>}{typeof player.level === "number" && <AccountLevelBadge level={player.level}/>}</div><div><div className="scoreboard-player-name-line"><a href={playerUuidPath(player.puuid)}>{player.name}{player.tag && <i>#{player.tag}</i>}</a>{isViewer && <b>You</b>}</div><div className="compact-player-agent-line"><small>{player.agent}</small></div></div></div>
                 <div className="compact-score-rank"><img src={`https://media.valorant-api.com/competitivetiers/${TIER_SET}/${player.currentTier || 0}/smallicon.png`} alt={player.currentTierName || 'Unranked'}/><span>{player.currentTierName || 'Unranked'}</span></div>
                 <span>{player.kills}/{player.deaths}/{player.assists}</span><span>{rp ? Math.round(player.score / rp) : 0}</span><span>{rp ? Math.round(player.damage_made / rp) : 0}</span><span>{getHeadshotPercentage(player)}</span><span>{firsts.kills}</span><span>{firsts.deaths}</span><strong className={differential >= 0 ? 'positive' : 'negative'}>{differential > 0 ? '+' : ''}{differential}</strong>
             </div>;
@@ -651,7 +645,6 @@ export const TeamDisplay = ({
             <div className="scoreboard-player-list">
                 {players.map((player, idx) => {
                     const partyIndex = player.partyId ? partyIds.indexOf(player.partyId) : -1;
-                    const partySize = player.partyId ? groupedParties.get(player.partyId) : undefined;
                     const partyColor = partyIndex >= 0 ? PARTY_COLORS[partyIndex % PARTY_COLORS.length] : undefined;
                     return (
                     <MatchPlayerRow
@@ -659,8 +652,6 @@ export const TeamDisplay = ({
                         player={player}
                         teamStyle={teamStyle}
                         partyColor={partyColor}
-                        partyNumber={partyIndex >= 0 ? partyIndex + 1 : undefined}
-                        partySize={partySize}
                         rounds_played={rounds_played}
                         rounds={rounds}
                         selectedRound={selectedRound}

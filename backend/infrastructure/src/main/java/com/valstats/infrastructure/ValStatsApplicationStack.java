@@ -98,7 +98,8 @@ public final class ValStatsApplicationStack extends Stack {
                 .tracing(Tracing.ACTIVE)
                 .logGroup(apiLogGroup)
                 .environment(mergeEnvironment(sharedEnvironment, Map.of(
-                        "REFRESH_QUEUE_URL", refreshQueue.getQueueUrl())))
+                        "REFRESH_QUEUE_URL", refreshQueue.getQueueUrl(),
+                        "HISTORY_QUEUE_URL", nameHistoryQueue.getQueueUrl())))
                 .build();
 
         Function syncFunction = Function.Builder.create(this, "SyncFunction")
@@ -120,6 +121,7 @@ public final class ValStatsApplicationStack extends Stack {
         dataTable.grantReadWriteData(apiFunction);
         dataTable.grantReadWriteData(syncFunction);
         refreshQueue.grantSendMessages(apiFunction);
+        nameHistoryQueue.grantSendMessages(apiFunction);
         refreshQueue.grantSendMessages(syncFunction);
         nameHistoryQueue.grantSendMessages(syncFunction);
         henrikApiSecret.grantRead(apiFunction);

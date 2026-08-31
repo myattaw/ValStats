@@ -14,6 +14,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.Map;
 import java.util.Optional;
 import com.valstats.model.queue.RefreshJob;
+import com.valstats.model.response.MatchResponses;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -34,6 +35,29 @@ class ValorantServiceTest {
     @Mock DynamoDbService dynamoDbService;
     @Mock HenrikApiRequestQueue apiRequestQueue;
     @Mock RefreshQueuePublisher refreshQueuePublisher;
+
+    @Test
+    void summaryUsesCachedAggregateAndBoundedRecentMatches() {
+        when(playerCacheService.getCachedAccount("Player", "NA1"))
+                .thenReturn(Optional.of(Map.of(
+                        "puuid", "puuid", "name", "Player", "tag", "NA1", "account_level", 100L)));
+        when(playerStatsService.getOverallStats("puuid"))
+                .thenReturn(Map.of("status", 200, "data", Map.of("matches_played", 25L)));
+        when(matchDataService.getPlayerMatches("puuid", "na", "Player", "NA1", 10, null, "all", "all"))
+                .thenReturn(new MatchResponses.MatchHistoryResponse(200, true, java.util.List.of(), null));
+        ValorantService service = new ValorantService(
+                matchDataService, playerStatsService, playerCacheService, apiClient,
+                dynamoDbService, apiRequestQueue, refreshQueuePublisher);
+
+        Map<String, Object> response = service.getPlayerSummary("na", "Player", "NA1", 99);
+
+        assertEquals(200, response.get("status"));
+        Map<?, ?> data = (Map<?, ?>) response.get("data");
+        assertEquals(10, data.get("recent_match_limit"));
+        assertEquals(25L, ((Map<?, ?>) data.get("overall")).get("matches_played"));
+        assertEquals(java.util.List.of(), data.get("recent_matches"));
+        verifyNoInteractions(apiClient, apiRequestQueue);
+    }
 
     @Test
     void refreshIsQueuedWhenSqsIsConfigured() {

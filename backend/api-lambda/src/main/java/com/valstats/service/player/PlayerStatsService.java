@@ -35,6 +35,10 @@ public class PlayerStatsService {
             String seasonId,
             String mode
     ) {
+        if ((seasonId == null || seasonId.isBlank() || "all".equalsIgnoreCase(seasonId))
+                && (mode == null || mode.isBlank() || "all".equalsIgnoreCase(mode))) {
+            return getOverallStats(puuid);
+        }
         String normalizedMode = mode == null ? "all" : mode.replaceAll("[^A-Za-z0-9]", "").toLowerCase(Locale.ROOT);
         Map<String, Long> stats = new HashMap<>();
         for (Map<String, AttributeValue> item : dynamoDbService.getStoredMatchesForPlayer(puuid, MAX_MATCHES, 1)) {
@@ -64,6 +68,14 @@ public class PlayerStatsService {
             add(stats, "total_rounds", numberValue(item, "rounds_played"));
         }
         return formatStats(stats);
+    }
+
+    /**
+     * Constant-time all-mode totals used by lightweight profile and lobby views.
+     * The TOTAL row is maintained when new match summaries are persisted.
+     */
+    public Map<String, Object> getOverallStats(String puuid) {
+        return formatStats(dynamoDbService.getPlayerTotalStats(puuid));
     }
 
     private void add(Map<String, Long> stats, String key, long value) {

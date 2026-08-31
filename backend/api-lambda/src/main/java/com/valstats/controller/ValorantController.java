@@ -92,6 +92,16 @@ public class ValorantController {
         return valorantService.getAccountDetails(decode(name), decode(tag));
     }
 
+    @Get("/summary/{region}/{name}/{tag}")
+    public Map<String, Object> getPlayerSummary(
+            @PathVariable String region,
+            @PathVariable String name,
+            @PathVariable String tag,
+            @QueryValue(defaultValue = "10") Integer recentMatches) {
+        return valorantService.getPlayerSummary(
+                region, decode(name), decode(tag), recentMatches);
+    }
+
     @Get("/match/{matchid}")
     public Object getMatchById(@PathVariable String matchid) {
         return valorantService.getMatchById(matchid);

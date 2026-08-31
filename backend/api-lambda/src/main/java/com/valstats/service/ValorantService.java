@@ -3,6 +3,7 @@ package com.valstats.service;
 import com.valstats.client.ValorantApiClient;
 import com.valstats.client.HenrikApiRequestQueue;
 import com.valstats.model.stored.StoredMatchesResponse;
+import com.valstats.model.response.MatchResponses;
 import com.valstats.model.queue.RefreshJob;
 import com.valstats.service.queue.RefreshQueuePublisher;
 import com.valstats.service.match.MatchDataService;
@@ -152,6 +153,19 @@ public class ValorantService {
     public Map<String, Object> refreshMatches(String region, String name, String tag) {
         String puuid = resolvePuuid(name, tag, region);
         if (puuid == null) return errorResponse("Player not found");
+        Optional<Map<String, Object>> historyState = dynamoDbService.getBackfillState(puuid, "HISTORY");
+        if (refreshQueuePublisher.isConfigured()
+                && historyState.filter(state -> "STALLED".equals(state.get("status"))).isPresent()) {
+            int nextPage = Math.toIntExact(((Number) historyState.get()
+                    .getOrDefault("nextPage", 1L)).longValue());
+            if (dynamoDbService.tryQueueBackfill(puuid, "HISTORY")) {
+                refreshQueuePublisher.enqueueLowPriority(
+                        RefreshJob.history(puuid, region, name, tag, nextPage));
+                return Map.of("status", 202, "data", Map.of(
+                        "updated", false, "refreshing", true, "queued", true,
+                        "resumedHistoryPage", nextPage));
+            }
+        }
         if (!matchDataService.needsRefresh(puuid, region, name, tag)) {
             return Map.of("status", 200, "data", Map.of("updated", false, "refreshing", false));
         }
@@ -198,6 +212,12 @@ public class ValorantService {
         if (!refreshQueuePublisher.isConfigured()) {
             return errorResponse("Background refresh is not configured");
         }
+        Optional<Map<String, Object>> historyState = dynamoDbService.getBackfillState(puuid, "HISTORY");
+        if (historyState.filter(state -> Boolean.TRUE.equals(state.get("refreshing"))).isPresent()) {
+            return Map.of("status", 202, "data", Map.of(
+                    "refreshing", true, "seasonId", seasonId, "queued", false,
+                    "blockedBy", "HISTORY"));
+        }
         String scope = "ACT#" + seasonId;
         Optional<Map<String, Object>> existingState = dynamoDbService.getBackfillState(puuid, scope);
         if (existingState.filter(state -> "COMPLETE".equals(state.get("status"))).isPresent()) {
@@ -239,6 +259,49 @@ public class ValorantService {
         if (response != null && response.get("data") instanceof Map<?, ?> data) {
             playerCacheService.storeAccountProfile(data, name, tag, region);
         }
+        return response;
+    }
+
+    /**
+     * Lightweight initial-load response. This performs only bounded cached reads:
+     * a profile item, a precomputed TOTAL item, and a limited recent-match query.
+     * Live MMR and history refreshes remain explicit background operations.
+     */
+    public Map<String, Object> getPlayerSummary(
+            String region, String name, String tag, int recentMatchCount) {
+        int boundedMatchCount = Math.max(1, Math.min(recentMatchCount, 10));
+        Map<String, Object> account;
+        Optional<Map<String, Object>> cachedAccount = playerCacheService.getCachedAccount(name, tag);
+        if (cachedAccount.isPresent()) {
+            account = cachedAccount.get();
+        } else {
+            Map<String, Object> response = refreshAccountDetails(name, tag, region);
+            if (response == null || !(response.get("data") instanceof Map<?, ?> raw)) {
+                return errorResponse("Player not found");
+            }
+            account = new HashMap<>();
+            raw.forEach((key, value) -> account.put(Objects.toString(key), value));
+        }
+        String puuid = Objects.toString(account.get("puuid"), "");
+        if (puuid.isBlank()) return errorResponse("Player not found");
+
+        Map<String, Object> statsResponse = playerStatsService.getOverallStats(puuid);
+        Object overall = statsResponse.getOrDefault("data", Map.of());
+        Object recentMatches = matchDataService.getPlayerMatches(
+                puuid, region, name, tag, boundedMatchCount, null, "all", "all");
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("account", account);
+        data.put("overall", overall);
+        data.put("recent_matches", responseData(recentMatches));
+        data.put("recent_match_limit", boundedMatchCount);
+        data.put("cached", true);
+        return Map.of("status", 200, "data", data);
+    }
+
+    private Object responseData(Object response) {
+        if (response instanceof MatchResponses.MatchHistoryResponse history) return history.data();
+        if (response instanceof Map<?, ?> map && map.containsKey("data")) return map.get("data");
         return response;
     }
 
@@ -305,9 +368,10 @@ public class ValorantService {
     }
 
     public Map<String, Object> getPlayerNameHistoryRefreshStatus(String puuid) {
-        return Map.of("status", 200, "data", Map.of(
-                "refreshRequired", playerCacheService.shouldBackfillNameHistory(puuid),
-                "source", "sampled-match-details"));
+        Map<String, Object> data = new HashMap<>(playerCacheService.getNameHistoryScanState(puuid));
+        data.put("refreshRequired", playerCacheService.shouldBackfillNameHistory(puuid));
+        data.put("source", "sampled-match-details");
+        return Map.of("status", 200, "data", data);
     }
 
     public Map<String, Object> refreshPlayerNameHistory(String puuid) {
@@ -315,12 +379,30 @@ public class ValorantService {
     }
 
     public Map<String, Object> refreshPlayerNameHistory(String puuid, boolean force) {
+        Map<String, Object> scanState = playerCacheService.getNameHistoryScanState(puuid);
+        if (Boolean.TRUE.equals(scanState.get("refreshing"))) {
+            return Map.of("status", 202, "data", Map.of(
+                    "updated", false, "complete", false, "refreshing", true, "queued", true));
+        }
         if (!force && !playerCacheService.shouldBackfillNameHistory(puuid)) {
             return Map.of("status", 200, "data", Map.of(
                     "updated", false,
                     "complete", true,
                     "refreshing", false,
                     "source", "sampled-match-details"));
+        }
+        if (refreshQueuePublisher.isConfigured()) {
+            Optional<Map<String, String>> identity = playerCacheService.getCurrentIdentity(puuid);
+            if (identity.isEmpty()) return errorResponse("Player identity unavailable");
+            Map<String, String> player = identity.get();
+            playerCacheService.markNameHistoryQueued(puuid);
+            refreshQueuePublisher.enqueueLowPriority(RefreshJob.nameHistory(
+                    puuid,
+                    player.getOrDefault("region", "na"),
+                    player.getOrDefault("name", ""),
+                    player.getOrDefault("tag", "")));
+            return Map.of("status", 202, "data", Map.of(
+                    "updated", false, "complete", false, "refreshing", true, "queued", true));
         }
         boolean complete = backfillRecentNameHistory(puuid, force);
         return Map.of("status", 200, "data", Map.of(

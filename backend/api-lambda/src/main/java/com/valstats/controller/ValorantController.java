@@ -97,9 +97,10 @@ public class ValorantController {
             @PathVariable String region,
             @PathVariable String name,
             @PathVariable String tag,
+            @QueryValue Optional<String> puuid,
             @QueryValue(defaultValue = "10") Integer recentMatches) {
         return valorantService.getPlayerSummary(
-                region, decode(name), decode(tag), recentMatches);
+                region, decode(name), decode(tag), puuid.orElse(null), recentMatches);
     }
 
     @Get("/match/{matchid}")

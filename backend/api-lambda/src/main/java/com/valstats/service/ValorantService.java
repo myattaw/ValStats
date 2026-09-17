@@ -249,6 +249,14 @@ public class ValorantService {
     public Map<String, Object> getAccountDetails(String name, String tag) {
         Optional<Map<String, Object>> cached = playerCacheService.getCachedAccount(name, tag);
         if (cached.isPresent()) return Map.of("status", 200, "data", cached.get());
+        Optional<Map<String, Object>> identity = playerCacheService.getCachedIdentity(name, tag);
+        if (identity.isPresent() && refreshQueuePublisher.isConfigured()) {
+            Map<String, Object> partial = identity.get();
+            refreshQueuePublisher.enqueue(RefreshJob.profile(
+                    Objects.toString(partial.get("puuid"), ""),
+                    Objects.toString(partial.get("region"), "na"), name, tag));
+            return Map.of("status", 200, "data", partial);
+        }
         return refreshAccountDetails(name, tag, "na");
     }
 
@@ -269,11 +277,25 @@ public class ValorantService {
      */
     public Map<String, Object> getPlayerSummary(
             String region, String name, String tag, int recentMatchCount) {
+        return getPlayerSummary(region, name, tag, null, recentMatchCount);
+    }
+
+    public Map<String, Object> getPlayerSummary(
+            String region, String name, String tag, String knownPuuid, int recentMatchCount) {
         int boundedMatchCount = Math.max(1, Math.min(recentMatchCount, 10));
         Map<String, Object> account;
         Optional<Map<String, Object>> cachedAccount = playerCacheService.getCachedAccount(name, tag);
         if (cachedAccount.isPresent()) {
             account = cachedAccount.get();
+        } else if (knownPuuid != null && !knownPuuid.isBlank()) {
+            playerCacheService.storePlayerProfile(knownPuuid, name, tag, region);
+            account = playerCacheService.getCachedIdentity(knownPuuid)
+                    .orElseGet(() -> new HashMap<>(Map.of(
+                            "puuid", knownPuuid, "name", name, "tag", tag,
+                            "region", region, "profile_complete", false)));
+            if (refreshQueuePublisher.isConfigured()) {
+                refreshQueuePublisher.enqueue(RefreshJob.profile(knownPuuid, region, name, tag));
+            }
         } else {
             Map<String, Object> response = refreshAccountDetails(name, tag, region);
             if (response == null || !(response.get("data") instanceof Map<?, ?> raw)) {
@@ -330,10 +352,11 @@ public class ValorantService {
         for (Object value : allPlayers) {
             if (!(value instanceof Map<?, ?> player)) continue;
             String playerPuuid = Objects.toString(player.get("puuid"), "");
-            playerCacheService.recordPlayerName(
+            playerCacheService.storeObservedPlayerIdentity(
                     playerPuuid,
                     Objects.toString(player.get("name"), ""),
                     Objects.toString(player.get("tag"), ""),
+                    "na",
                     observedAt
             );
             if (requiredPuuid != null && requiredPuuid.equals(playerPuuid)) {
@@ -413,17 +436,31 @@ public class ValorantService {
     }
 
     public Map<String, Object> getPlayerIdentity(String puuid) {
-        Optional<Map<String, String>> cached = playerCacheService.getCurrentIdentity(puuid)
-                .filter(identity -> !identity.getOrDefault("name", "").isBlank()
-                        && !identity.getOrDefault("tag", "").isBlank());
+        Optional<Map<String, Object>> cached = playerCacheService.getCachedIdentity(puuid)
+                .filter(identity -> !Objects.toString(identity.get("name"), "").isBlank()
+                        && !Objects.toString(identity.get("tag"), "").isBlank());
         if (cached.isPresent()) {
-            Map<String, String> identity = cached.get();
+            Map<String, Object> identity = cached.get();
             return identityResponse(
                     puuid,
-                    identity.get("name"),
-                    identity.get("tag"),
-                    identity.getOrDefault("region", "na")
+                    Objects.toString(identity.get("name"), ""),
+                    Objects.toString(identity.get("tag"), ""),
+                    Objects.toString(identity.get("region"), "na")
             );
+        }
+
+        List<Map<String, Object>> observedNames = playerCacheService.getPlayerNameHistory(puuid);
+        if (!observedNames.isEmpty()) {
+            Map<String, Object> observed = observedNames.get(0);
+            String name = Objects.toString(observed.get("name"), "");
+            String tag = Objects.toString(observed.get("tag"), "");
+            if (!name.isBlank() && !tag.isBlank()) {
+                playerCacheService.storePlayerProfile(puuid, name, tag, "na");
+                if (refreshQueuePublisher.isConfigured()) {
+                    refreshQueuePublisher.enqueue(RefreshJob.profile(puuid, "na", name, tag));
+                }
+                return identityResponse(puuid, name, tag, "na");
+            }
         }
 
         try {

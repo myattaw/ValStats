@@ -60,6 +60,68 @@ class ValorantServiceTest {
     }
 
     @Test
+    void summaryUsesKnownPuuidWithoutWaitingForHenrik() {
+        when(playerCacheService.getCachedAccount("Player", "NA1")).thenReturn(Optional.empty());
+        when(playerCacheService.getCachedIdentity("known-puuid")).thenReturn(Optional.of(Map.of(
+                "puuid", "known-puuid", "name", "Player", "tag", "NA1", "profile_complete", false)));
+        when(playerStatsService.getOverallStats("known-puuid"))
+                .thenReturn(Map.of("status", 200, "data", Map.of("matches_played", 0L)));
+        when(matchDataService.getPlayerMatches("known-puuid", "na", "Player", "NA1", 10, null, "all", "all"))
+                .thenReturn(new MatchResponses.MatchHistoryResponse(200, true, java.util.List.of(), null));
+        when(refreshQueuePublisher.isConfigured()).thenReturn(true);
+        ValorantService service = new ValorantService(
+                matchDataService, playerStatsService, playerCacheService, apiClient,
+                dynamoDbService, apiRequestQueue, refreshQueuePublisher);
+
+        Map<String, Object> response = service.getPlayerSummary(
+                "na", "Player", "NA1", "known-puuid", 10);
+
+        assertEquals(200, response.get("status"));
+        verify(playerCacheService).storePlayerProfile("known-puuid", "Player", "NA1", "na");
+        verify(refreshQueuePublisher).enqueue(argThat((RefreshJob job) ->
+                "PROFILE".equals(job.kind()) && "known-puuid".equals(job.puuid())));
+        verifyNoInteractions(apiClient, apiRequestQueue);
+    }
+
+    @Test
+    void accountReturnsPartialIdentityAndQueuesEnrichment() {
+        when(playerCacheService.getCachedAccount("Player", "NA1")).thenReturn(Optional.empty());
+        when(playerCacheService.getCachedIdentity("Player", "NA1")).thenReturn(Optional.of(Map.of(
+                "puuid", "known-puuid", "name", "Player", "tag", "NA1",
+                "region", "na", "profile_complete", false)));
+        when(refreshQueuePublisher.isConfigured()).thenReturn(true);
+        ValorantService service = new ValorantService(
+                matchDataService, playerStatsService, playerCacheService, apiClient,
+                dynamoDbService, apiRequestQueue, refreshQueuePublisher);
+
+        Map<String, Object> response = service.getAccountDetails("Player", "NA1");
+
+        assertEquals(200, response.get("status"));
+        assertEquals(false, ((Map<?, ?>) response.get("data")).get("profile_complete"));
+        verify(refreshQueuePublisher).enqueue(argThat((RefreshJob job) ->
+                "PROFILE".equals(job.kind()) && "known-puuid".equals(job.puuid())));
+        verifyNoInteractions(apiClient, apiRequestQueue);
+    }
+
+    @Test
+    void playerIdentityUsesObservedScoreboardNameWithoutHenrik() {
+        when(playerCacheService.getCachedIdentity("known-puuid")).thenReturn(Optional.empty());
+        when(playerCacheService.getPlayerNameHistory("known-puuid")).thenReturn(java.util.List.of(Map.of(
+                "name", "Player", "tag", "NA1", "lastSeen", 123L)));
+        when(refreshQueuePublisher.isConfigured()).thenReturn(true);
+        ValorantService service = new ValorantService(
+                matchDataService, playerStatsService, playerCacheService, apiClient,
+                dynamoDbService, apiRequestQueue, refreshQueuePublisher);
+
+        Map<String, Object> response = service.getPlayerIdentity("known-puuid");
+
+        assertEquals(200, response.get("status"));
+        verify(playerCacheService).storePlayerProfile("known-puuid", "Player", "NA1", "na");
+        verify(refreshQueuePublisher).enqueue(argThat((RefreshJob job) -> "PROFILE".equals(job.kind())));
+        verifyNoInteractions(apiClient, apiRequestQueue);
+    }
+
+    @Test
     void refreshIsQueuedWhenSqsIsConfigured() {
         when(playerCacheService.getPuuidByNameTag("Player", "NA1"))
                 .thenReturn(Optional.of("puuid"));

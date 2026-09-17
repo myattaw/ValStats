@@ -14,6 +14,7 @@ import software.amazon.awscdk.services.apigatewayv2.CfnRoute;
 import software.amazon.awscdk.services.apigatewayv2.CfnStage;
 import software.amazon.awscdk.services.dynamodb.ITable;
 import software.amazon.awscdk.services.lambda.Architecture;
+import software.amazon.awscdk.services.lambda.CfnFunction;
 import software.amazon.awscdk.services.lambda.Code;
 import software.amazon.awscdk.services.lambda.Function;
 import software.amazon.awscdk.services.lambda.Runtime;
@@ -117,6 +118,13 @@ public final class ValStatsApplicationStack extends Stack {
                         "REFRESH_QUEUE_URL", refreshQueue.getQueueUrl(),
                         "HISTORY_QUEUE_URL", nameHistoryQueue.getQueueUrl())))
                 .build();
+
+        // Backfills intentionally continue by publishing a bounded next-page job
+        // to SQS. AWS otherwise treats a history longer than ~16 worker hops as
+        // an accidental recursive loop. Keep this opt-out scoped to the worker;
+        // page limits, queue concurrency, retries, and DLQs remain the guardrails.
+        CfnFunction syncCfnFunction = (CfnFunction) syncFunction.getNode().getDefaultChild();
+        syncCfnFunction.setRecursiveLoop("Allow");
 
         dataTable.grantReadWriteData(apiFunction);
         dataTable.grantReadWriteData(syncFunction);

@@ -111,6 +111,20 @@ public class PlayerCacheService {
      * Store or update player profile with puuid lookup by name#tag.
      */
     public void storePlayerProfile(String puuid, String name, String tag, String region) {
+        storePlayerIdentity(puuid, name, tag, region);
+        recordPlayerName(puuid, name, tag, Instant.now().getEpochSecond());
+    }
+
+    /** Cache a player observed in a match while preserving the match timestamp in name history. */
+    public void storeObservedPlayerIdentity(
+            String puuid, String name, String tag, String region, long observedAt) {
+        if (puuid == null || puuid.isBlank() || name == null || name.isBlank()
+                || tag == null || tag.isBlank()) return;
+        storePlayerIdentity(puuid, name, tag, region);
+        recordPlayerName(puuid, name, tag, observedAt);
+    }
+
+    private void storePlayerIdentity(String puuid, String name, String tag, String region) {
         String now = Instant.now().toString();
 
         // Store name#tag -> puuid lookup
@@ -140,7 +154,6 @@ public class PlayerCacheService {
                             ":now", AttributeValue.fromS(now)))
                     .build());
             ddb.putItem(PutItemRequest.builder().tableName(tableName).item(lookupItem).build());
-            recordPlayerName(puuid, name, tag, Instant.now().getEpochSecond());
         } catch (DynamoDbException e) {
             LOG.error("Failed to store player profile: {}#{}", name, tag, e);
         }
@@ -261,6 +274,33 @@ public class PlayerCacheService {
         }
         if (!card.isEmpty()) data.put("card", card);
         return Optional.of(data);
+    }
+
+    public Optional<Map<String, Object>> getCachedIdentity(String puuid) {
+        if (puuid == null || puuid.isBlank()) return Optional.empty();
+        GetItemResponse response = ddb.getItem(GetItemRequest.builder().tableName(tableName)
+                .key(Map.of("PK", AttributeValue.fromS("PLAYER#" + puuid),
+                        "SK", AttributeValue.fromS("PROFILE"))).build());
+        if (!response.hasItem()) return Optional.empty();
+        Map<String, AttributeValue> item = response.item();
+        Map<String, Object> data = new HashMap<>();
+        data.put("puuid", puuid);
+        data.put("name", item.getOrDefault("name", AttributeValue.fromS("")).s());
+        data.put("tag", item.getOrDefault("tag", AttributeValue.fromS("")).s());
+        data.put("region", item.getOrDefault("region", AttributeValue.fromS("na")).s());
+        data.put("profile_complete", item.containsKey("accountLevel") && item.containsKey("cardSmall"));
+        if (item.containsKey("accountLevel")) data.put("account_level", Long.parseLong(item.get("accountLevel").n()));
+        Map<String, String> card = new HashMap<>();
+        for (String field : List.of("id", "small", "large", "wide")) {
+            String attribute = "card" + Character.toUpperCase(field.charAt(0)) + field.substring(1);
+            if (item.containsKey(attribute)) card.put(field, item.get(attribute).s());
+        }
+        if (!card.isEmpty()) data.put("card", card);
+        return Optional.of(data);
+    }
+
+    public Optional<Map<String, Object>> getCachedIdentity(String name, String tag) {
+        return getPuuidByNameTag(name, tag).flatMap(this::getCachedIdentity);
     }
 
     public void storeAccountProfile(Map<?, ?> data, String fallbackName, String fallbackTag, String fallbackRegion) {

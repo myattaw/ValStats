@@ -2,6 +2,9 @@ package com.valstats.queue;
 
 import com.valstats.model.queue.RefreshJob;
 import com.valstats.service.match.MatchDataService;
+import com.valstats.client.HenrikApiRequestQueue;
+import com.valstats.client.ValorantApiClient;
+import com.valstats.service.player.AccountProfileWriter;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -16,7 +19,11 @@ class RefreshJobProcessorTest {
     private final MatchDataService matchDataService = mock(MatchDataService.class);
     private final BackfillQueuePublisher publisher = mock(BackfillQueuePublisher.class);
     private final NameHistoryJobProcessor nameHistoryProcessor = mock(NameHistoryJobProcessor.class);
-    private final RefreshJobProcessor processor = new RefreshJobProcessor(matchDataService, publisher, nameHistoryProcessor);
+    private final ValorantApiClient apiClient = mock(ValorantApiClient.class);
+    private final HenrikApiRequestQueue requestQueue = mock(HenrikApiRequestQueue.class);
+    private final AccountProfileWriter profileWriter = mock(AccountProfileWriter.class);
+    private final RefreshJobProcessor processor = new RefreshJobProcessor(
+            matchDataService, publisher, nameHistoryProcessor, apiClient, requestQueue, profileWriter);
 
     @Test
     void delegatesValidJobToMatchRefreshService() {

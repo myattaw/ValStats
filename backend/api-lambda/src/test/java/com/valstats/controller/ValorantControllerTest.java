@@ -93,16 +93,16 @@ class ValorantControllerTest {
 
     @Test
     void summaryRouteDelegatesWithBoundedReadRequest() {
-        when(valorantService.getPlayerSummary("na", "Player One", "NA1", 10))
+        when(valorantService.getPlayerSummary("na", "Player One", "NA1", "known-puuid", 10))
                 .thenReturn(Map.of("status", 200, "data", Map.of("cached", true)));
 
         var response = client.toBlocking().exchange(
-                HttpRequest.GET("/api/valorant/summary/na/Player%20One/NA1?recentMatches=10"),
+                HttpRequest.GET("/api/valorant/summary/na/Player%20One/NA1?recentMatches=10&puuid=known-puuid"),
                 Map.class
         );
 
         assertEquals(HttpStatus.OK, response.getStatus());
-        verify(valorantService).getPlayerSummary("na", "Player One", "NA1", 10);
+        verify(valorantService).getPlayerSummary("na", "Player One", "NA1", "known-puuid", 10);
     }
 
     @MockBean(ValorantService.class)

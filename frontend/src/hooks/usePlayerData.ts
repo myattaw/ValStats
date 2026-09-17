@@ -138,7 +138,10 @@ export function usePlayerData(player: PlayerIdentifier | null, actId: string, mo
   }, [resolvedPlayer, region, actId, mode, refreshVersion]);
 
   const loadState = useMemo<'initial-loading' | 'refreshing' | 'updated'>(() => {
-    if ((identityLoading || profileLoading || rankLoading) && !profile && !stats && !mmr) return 'initial-loading';
+    // A valid account response is enough to render the profile. Stats and MMR
+    // are independent enrichment requests and must not keep a new account behind
+    // the full-page initial loader while they finish.
+    if ((identityLoading || profileLoading) && !profile) return 'initial-loading';
     if (identityLoading || profileLoading || rankLoading) return 'refreshing';
     return 'updated';
   }, [identityLoading, profileLoading, rankLoading, profile, stats, mmr]);

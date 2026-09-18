@@ -457,6 +457,17 @@ export function MatchHistory({
             </div>
 
             <div className="match-history-content space-y-4">
+                {(isBackgroundRefreshing || isHistoryBackfilling) && matches.length > 0 && (
+                    <div className="match-history-update-notice" role="status" aria-live="polite">
+                        <span className="match-history-update-icon" aria-hidden="true">
+                            <Loader2 />
+                        </span>
+                        <span className="match-history-update-copy">
+                            <strong>Checking for new matches</strong>
+                            <small>This list updates automatically as matches finish syncing.</small>
+                        </span>
+                    </div>
+                )}
                 {isInitialLoading || (isBackgroundRefreshing && matches.length === 0) ? (
                     <>
                         <p className="match-loading-message" role="status" aria-live="polite">

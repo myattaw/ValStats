@@ -384,7 +384,11 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline:2px solid v
 
 /* Final sizing and timeline corrections (kept last intentionally) */
 .rank-card strong,.rank-copy strong { max-width:none; overflow:visible; text-overflow:clip; }
-.match-history-heading { display:flex; align-items:center; }.match-history-heading h3 { margin:0; line-height:1; }
+.match-history-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }.match-history-heading h3 { margin:0; line-height:1; }
+.match-history-sync-status { display:inline-flex; align-items:center; gap:6px; color:#f5cf62; font-size:9px; font-weight:750; letter-spacing:.06em; text-transform:uppercase; }
+.match-history-sync-status svg { width:12px; height:12px; animation:status-spin 1.1s linear infinite; }
+.match-history-sync-status small { color:var(--muted); font-size:9px; font-weight:600; letter-spacing:.02em; text-transform:none; }
+@media (max-width: 520px) { .match-history-sync-status small { display:none; } }
 .timeline-panel .round-selector { gap:3px; padding:2px 0 10px; }
 .timeline-panel .round-selector:after { display:none; }
 .timeline-panel .round-selector button { width:34px; height:32px; flex-basis:34px; border:0!important; border-radius:5px; background:transparent!important; color:#7f8c97; cursor:pointer; transition:color .15s ease,background .15s ease; }

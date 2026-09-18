@@ -395,7 +395,8 @@
 }
 
 @media (max-width:420px) {
-  .match-entry-grid .match-rank-group,.match-entry-grid .match-rr-change { display:none; }
+  .match-entry-grid .match-rank-group { display:none; }
+  .match-entry-grid .match-rr-change { display:flex; }
   .match-primary-row { grid-template-rows:auto; }
   .match-performance-row>span:last-child,.match-performance-row>i:last-of-type { display:none; }
 }

@@ -447,6 +447,13 @@ export function MatchHistory({
         <section className="match-history-panel">
             <div className="match-history-heading">
                 <h3 className="text-white">Match History</h3>
+                {(isBackgroundRefreshing || isHistoryBackfilling) && (
+                    <div className="match-history-sync-status" role="status" aria-live="polite">
+                        <Loader2 aria-hidden="true" />
+                        <span>Updating</span>
+                        <small>New matches may appear</small>
+                    </div>
+                )}
             </div>
 
             <div className="match-history-content space-y-4">

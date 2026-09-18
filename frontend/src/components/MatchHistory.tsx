@@ -24,11 +24,13 @@ function normalizeMatch(raw: Match & Record<string, any>): Match {
             : 0;
 
     const server = raw.server ?? raw.cluster ?? raw.meta?.cluster;
+    const suppliedRrChange = raw.rrChange ?? raw.rr_change ?? raw.mmr_change_to_last_game ?? 0;
+    const numericRrChange = Number(suppliedRrChange);
 
-    return {...raw, adr, server};
+    return {...raw, adr, server, rrChange: Number.isFinite(numericRrChange) ? numericRrChange : 0};
 }
 
-function formatMatchDate(dateRaw: number, timestamp?: string) {
+function getMatchDate(dateRaw: number, timestamp?: string) {
     const numericDate = Number(dateRaw);
     const date = Number.isFinite(numericDate) && numericDate > 0
         ? new Date(numericDate > 10_000_000_000 ? numericDate : numericDate * 1000)
@@ -36,7 +38,12 @@ function formatMatchDate(dateRaw: number, timestamp?: string) {
             ? new Date(timestamp)
             : null;
 
-    if (!date || Number.isNaN(date.getTime())) return "Unknown date";
+    return date && !Number.isNaN(date.getTime()) ? date : null;
+}
+
+function formatMatchDate(dateRaw: number, timestamp?: string) {
+    const date = getMatchDate(dateRaw, timestamp);
+    if (!date) return "Unknown date";
 
     const day = new Intl.DateTimeFormat(undefined, {
         month: "short",
@@ -48,6 +55,28 @@ function formatMatchDate(dateRaw: number, timestamp?: string) {
     }).format(date);
 
     return `${day} · ${time}`;
+}
+
+function getMatchDay(match: Match) {
+    const date = getMatchDate(match.date_raw, match.timestamp);
+    if (!date) return {key: "unknown", label: "Unknown date"};
+
+    const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+    const today = new Date();
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const matchStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const daysAgo = Math.round((todayStart.getTime() - matchStart.getTime()) / 86_400_000);
+    const label = daysAgo === 0
+        ? "Today"
+        : daysAgo === 1
+            ? "Yesterday"
+            : new Intl.DateTimeFormat(undefined, {
+                weekday: "long",
+                month: "short",
+                day: "numeric"
+            }).format(date);
+
+    return {key, label};
 }
 
 function isRecentMatch(match: Match) {
@@ -447,13 +476,6 @@ export function MatchHistory({
         <section className="match-history-panel">
             <div className="match-history-heading">
                 <h3 className="text-white">Match History</h3>
-                {(isBackgroundRefreshing || isHistoryBackfilling) && (
-                    <div className="match-history-sync-status" role="status" aria-live="polite">
-                        <Loader2 aria-hidden="true" />
-                        <span>Updating</span>
-                        <small>New matches may appear</small>
-                    </div>
-                )}
             </div>
 
             <div className="match-history-content space-y-4">
@@ -479,7 +501,10 @@ export function MatchHistory({
                     </>
                 ) : (
                     <>
-                        {matches.map((match) => {
+                        {matches.map((match, index) => {
+                            const matchDay = getMatchDay(match);
+                            const previousMatchDay = index > 0 ? getMatchDay(matches[index - 1]).key : null;
+                            const startsNewDay = matchDay.key !== previousMatchDay;
                             const detailAdr = calculateADR(match, puuid ?? undefined);
                             const displayedAdr = match.adr && match.adr > 0 ? Math.round(match.adr) : detailAdr;
                             const matchBgStyle = match.mapId
@@ -505,8 +530,13 @@ export function MatchHistory({
                             const rrChangeColor = match.rrChange > 0 ? "text-[#4ade80]" : "text-[#f87171]";
 
                             return (
+                                <div className="match-day-entry" key={match.id}>
+                                {startsNewDay && (
+                                    <div className="match-day-divider">
+                                        <span>{matchDay.label}</span>
+                                    </div>
+                                )}
                                 <Collapsible
-                                    key={match.id}
                                     open={isExpanded && !!match.details}
                                     onOpenChange={() => handleExpand(match, isExpanded)}
                                 >
@@ -743,6 +773,7 @@ export function MatchHistory({
                                         )}
                                     </div>
                                 </Collapsible>
+                                </div>
                             );
                         })}
                     </>

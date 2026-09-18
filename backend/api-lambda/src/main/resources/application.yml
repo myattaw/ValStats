@@ -33,3 +33,11 @@ henrik-api:
     # below the API Lambda's 30-second timeout.
     max-retries: 1
     max-retry-delay-seconds: 3
+
+admin:
+  auth:
+    email: ${ADMIN_EMAIL:}
+    from-email: ${ADMIN_FROM_EMAIL:}
+    code-ttl-seconds: 600
+    session-ttl-seconds: 28800
+    resend-cooldown-seconds: 60

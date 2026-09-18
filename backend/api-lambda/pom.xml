@@ -75,6 +75,16 @@
             <artifactId>dynamodb-enhanced</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sesv2</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.micronaut.views</groupId>
+            <artifactId>micronaut-views-thymeleaf</artifactId>
+        </dependency>
+
         <!-- Logging -->
         <dependency>
             <groupId>ch.qos.logback</groupId>
@@ -131,6 +141,8 @@
                         <configuration>
                             <buildArgs combine.children="append">
                                 <buildArg>--initialize-at-build-time=ch.qos.logback,org.slf4j</buildArg>
+                                <!-- Thymeleaf resolves templates as classpath resources at runtime. -->
+                                <buildArg>-H:IncludeResources=views/.*\.html</buildArg>
                             </buildArgs>
                         </configuration>
                     </plugin>

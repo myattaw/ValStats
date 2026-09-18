@@ -28,6 +28,8 @@ import software.amazon.awscdk.services.secretsmanager.ISecret;
 import software.amazon.awscdk.services.sqs.DeadLetterQueue;
 import software.amazon.awscdk.services.sqs.Queue;
 import software.amazon.awscdk.services.sqs.QueueEncryption;
+import software.amazon.awscdk.services.iam.PolicyStatement;
+import software.amazon.awscdk.services.iam.Effect;
 import software.constructs.Construct;
 
 import java.nio.file.Path;
@@ -84,6 +86,8 @@ public final class ValStatsApplicationStack extends Stack {
 
         String apiFunctionName = "valstats-" + deploymentName + "-api";
         String syncFunctionName = "valstats-" + deploymentName + "-match-sync";
+        String adminEmail = System.getenv().getOrDefault("ADMIN_EMAIL", "");
+        String adminFromEmail = System.getenv().getOrDefault("ADMIN_FROM_EMAIL", "");
         LogGroup apiLogGroup = functionLogGroup("ApiLogGroup", apiFunctionName);
         LogGroup syncLogGroup = functionLogGroup("SyncLogGroup", syncFunctionName);
 
@@ -100,7 +104,9 @@ public final class ValStatsApplicationStack extends Stack {
                 .logGroup(apiLogGroup)
                 .environment(mergeEnvironment(sharedEnvironment, Map.of(
                         "REFRESH_QUEUE_URL", refreshQueue.getQueueUrl(),
-                        "HISTORY_QUEUE_URL", nameHistoryQueue.getQueueUrl())))
+                        "HISTORY_QUEUE_URL", nameHistoryQueue.getQueueUrl(),
+                        "ADMIN_EMAIL", adminEmail,
+                        "ADMIN_FROM_EMAIL", adminFromEmail)))
                 .build();
 
         Function syncFunction = Function.Builder.create(this, "SyncFunction")
@@ -130,6 +136,13 @@ public final class ValStatsApplicationStack extends Stack {
         dataTable.grantReadWriteData(syncFunction);
         refreshQueue.grantSendMessages(apiFunction);
         nameHistoryQueue.grantSendMessages(apiFunction);
+        refreshQueue.grantConsumeMessages(apiFunction);
+        nameHistoryQueue.grantConsumeMessages(apiFunction);
+        apiFunction.addToRolePolicy(PolicyStatement.Builder.create()
+                .effect(Effect.ALLOW)
+                .actions(List.of("ses:SendEmail"))
+                .resources(sesIdentityResources(adminFromEmail, adminEmail))
+                .build());
         refreshQueue.grantSendMessages(syncFunction);
         nameHistoryQueue.grantSendMessages(syncFunction);
         henrikApiSecret.grantRead(apiFunction);
@@ -249,6 +262,22 @@ public final class ValStatsApplicationStack extends Stack {
         java.util.HashMap<String, String> merged = new java.util.HashMap<>(base);
         merged.putAll(additions);
         return Map.copyOf(merged);
+    }
+
+    private List<String> sesIdentityResources(String senderEmail, String recipientEmail) {
+        if (senderEmail == null || senderEmail.isBlank()) return List.of("*");
+        String identityArn = "arn:" + getPartition() + ":ses:" + getRegion() + ":" + getAccount()
+                + ":identity/";
+        java.util.LinkedHashSet<String> resources = new java.util.LinkedHashSet<>();
+        resources.add(identityArn + senderEmail);
+        int at = senderEmail.lastIndexOf('@');
+        if (at > 0 && at < senderEmail.length() - 1) {
+            resources.add(identityArn + senderEmail.substring(at + 1));
+        }
+        if (recipientEmail != null && !recipientEmail.isBlank()) {
+            resources.add(identityArn + recipientEmail);
+        }
+        return List.copyOf(resources);
     }
 
     private LogGroup functionLogGroup(String id, String functionName) {

@@ -15,6 +15,8 @@ public final class ValStatsInfrastructureApp {
         String region = contextValue(app, "region", "us-east-1");
         LambdaDeploymentMode deploymentMode = LambdaDeploymentMode.fromContext(
                 contextValue(app, "lambdaRuntime", "jvm"));
+        requireEnvironmentVariable("ADMIN_EMAIL");
+        requireEnvironmentVariable("ADMIN_FROM_EMAIL");
         Environment awsEnvironment = Environment.builder()
                 .account(System.getenv("CDK_DEFAULT_ACCOUNT"))
                 .region(region)
@@ -61,5 +63,12 @@ public final class ValStatsInfrastructureApp {
 
     private static String artifactPath(App app, String key, String defaultValue) {
         return contextValue(app, key, defaultValue);
+    }
+
+    private static void requireEnvironmentVariable(String name) {
+        String value = System.getenv(name);
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException(name + " must be set before synthesizing or deploying ValStats");
+        }
     }
 }

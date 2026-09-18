@@ -28,6 +28,7 @@ class ValStatsInfrastructureTest {
         template.hasResourceProperties("AWS::DynamoDB::Table", Map.of(
                 "BillingMode", "PAY_PER_REQUEST",
                 "DeletionProtectionEnabled", true,
+                "TimeToLiveSpecification", Map.of("AttributeName", "expiresAt", "Enabled", true),
                 "KeySchema", Match.arrayWith(java.util.List.of(
                         Map.of("AttributeName", "PK", "KeyType", "HASH"),
                         Map.of("AttributeName", "SK", "KeyType", "RANGE")
@@ -63,6 +64,15 @@ class ValStatsInfrastructureTest {
         template.hasResourceProperties("AWS::Lambda::Function", Match.objectLike(Map.of(
                 "Runtime", "java21",
                 "Architectures", java.util.List.of("arm64")
+        )));
+        template.hasResourceProperties("AWS::Lambda::Function", Match.objectLike(Map.of(
+                "FunctionName", "valstats-test-api",
+                "Environment", Match.objectLike(Map.of(
+                        "Variables", Match.objectLike(Map.of(
+                                "ADMIN_EMAIL", "",
+                                "ADMIN_FROM_EMAIL", ""
+                        ))
+                ))
         )));
         template.hasResourceProperties("AWS::ApiGatewayV2::Stage", Match.objectLike(Map.of(
                 "StageName", "$default",

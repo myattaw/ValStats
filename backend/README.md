@@ -426,3 +426,27 @@ All Valorant routes are below `/api/valorant`.
 - Treat Lambda-local maps, locks and queues as caches only, never global coordination.
 - Avoid a NAT Gateway unless the architecture genuinely requires private subnets; its hourly charge can exceed the rest of a small serverless stack.
 - Use DynamoDB on-demand initially and revisit provisioned capacity only after traffic becomes predictable.
+# ValStats
+
+## Admin panel
+
+The server-rendered admin panel is available at `/admin`. It uses a six-digit,
+single-use email code and an encrypted, HTTP-only session cookie. Authentication
+records are stored in the main DynamoDB table and expire through the `expiresAt`
+TTL attribute.
+
+Set these variables before synthesizing/deploying the application stack:
+
+```powershell
+$env:ADMIN_EMAIL = "admin@example.com"
+$env:ADMIN_FROM_EMAIL = "valstats@example.com"
+```
+
+`ADMIN_FROM_EMAIL` must be an Amazon SES verified identity. While SES is in the
+sandbox, `ADMIN_EMAIL` must also be verified. The Lambda role receives permission
+to send email, read/write its authentication records, and inspect the two worker
+queues. Codes expire after 10 minutes, allow at most five attempts, and may only
+be requested once per minute. Sessions expire after eight hours.
+
+Do not put an email API key or password in either variable; SES authentication is
+provided by the Lambda execution role.

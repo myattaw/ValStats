@@ -35,6 +35,7 @@ public final class ValStatsStatefulStack extends Stack {
                 .partitionKey(Attribute.builder().name("PK").type(AttributeType.STRING).build())
                 .sortKey(Attribute.builder().name("SK").type(AttributeType.STRING).build())
                 .billingMode(BillingMode.PAY_PER_REQUEST)
+                .timeToLiveAttribute("expiresAt")
                 .pointInTimeRecoverySpecification(PointInTimeRecoverySpecification.builder()
                         .pointInTimeRecoveryEnabled(true)
                         .build())

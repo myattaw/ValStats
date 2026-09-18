@@ -5,6 +5,7 @@ import io.micronaut.http.HttpStatus;
 import io.micronaut.http.client.exceptions.HttpClientResponseException;
 import io.micronaut.http.client.exceptions.HttpClientException;
 import jakarta.inject.Singleton;
+import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,12 +39,15 @@ public class HenrikApiRequestQueue {
     private final long minimumIntervalMillis;
     private final int maxRetries;
     private final long maxRetryDelaySeconds;
+    private final HenrikApiTelemetry telemetry;
 
+    @Inject
     public HenrikApiRequestQueue(
             @Value("${henrik-api.rate-limit.requests-per-second:1}") double requestsPerSecond,
             @Value("${henrik-api.rate-limit.max-queued-requests:100}") int maxQueuedRequests,
             @Value("${henrik-api.rate-limit.max-retries:3}") int maxRetries,
-            @Value("${henrik-api.rate-limit.max-retry-delay-seconds:60}") long maxRetryDelaySeconds
+            @Value("${henrik-api.rate-limit.max-retry-delay-seconds:60}") long maxRetryDelaySeconds,
+            HenrikApiTelemetry telemetry
     ) {
         if (requestsPerSecond <= 0 || maxQueuedRequests < 1 || maxRetries < 0 || maxRetryDelaySeconds < 1) {
             throw new IllegalArgumentException("Invalid Henrik API rate-limit configuration");
@@ -53,6 +57,12 @@ public class HenrikApiRequestQueue {
         this.lowQueueCapacity = new Semaphore(maxQueuedRequests, true);
         this.maxRetries = maxRetries;
         this.maxRetryDelaySeconds = maxRetryDelaySeconds;
+        this.telemetry = telemetry;
+    }
+
+    public HenrikApiRequestQueue(double requestsPerSecond, int maxQueuedRequests, int maxRetries,
+                                 long maxRetryDelaySeconds) {
+        this(requestsPerSecond, maxQueuedRequests, maxRetries, maxRetryDelaySeconds, null);
     }
 
     public <T> T execute(String operation, Callable<T> request) {
@@ -81,6 +91,7 @@ public class HenrikApiRequestQueue {
                     try {
                         awaitNextRequestSlot();
                         T result = request.call();
+                        if (telemetry != null) telemetry.success(operation);
                         logSlowRequest(operation, operationStartedAt, attempt);
                         return result;
                     } finally {
@@ -91,17 +102,23 @@ public class HenrikApiRequestQueue {
                     boolean temporaryServerFailure = exception.getStatus().getCode() == 408
                             || exception.getStatus().getCode() >= 500;
                     if ((!rateLimited && !temporaryServerFailure) || attempt >= maxRetries) {
+                        if (telemetry != null) {
+                            if (rateLimited) telemetry.rateLimited(operation, retryDelaySeconds(exception));
+                            else telemetry.failure(operation);
+                        }
                         throw exception;
                     }
 
                     long delaySeconds = rateLimited
                             ? retryDelaySeconds(exception)
                             : transientRetryDelaySeconds(attempt);
+                    if (telemetry != null && rateLimited) telemetry.rateLimited(operation, delaySeconds);
                     LOG.warn("Henrik API temporary HTTP {} during {}. Retrying in {}s ({}/{})",
                             exception.getStatus().getCode(), operation, delaySeconds, attempt + 1, maxRetries);
                     sleep(TimeUnit.SECONDS.toMillis(delaySeconds));
                 } catch (HttpClientException exception) {
                     if (!isTransientNetworkFailure(exception) || attempt >= maxRetries) {
+                        if (telemetry != null) telemetry.failure(operation);
                         throw exception;
                     }
                     long delaySeconds = transientRetryDelaySeconds(attempt);

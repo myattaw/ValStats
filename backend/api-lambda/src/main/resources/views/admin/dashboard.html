@@ -22,7 +22,7 @@
         }
 
         header, main {
-            width: min(1000px, calc(100% - 32px));
+            width: min(1180px, calc(100% - 32px));
             margin: auto
         }
 
@@ -39,17 +39,24 @@
             letter-spacing: .08em
         }
 
-        .brand span {
+        .brand span, .eyebrow {
             color: #e8c35b
         }
 
-        button {
+        button, .button {
             border: 1px solid #33414c;
             border-radius: 6px;
             background: #111920;
-            color: #b8c2c9;
-            padding: 8px 12px;
-            cursor: pointer
+            color: #d5dde2;
+            padding: 9px 13px;
+            cursor: pointer;
+            font: inherit
+        }
+
+        .danger {
+            border-color: #713d43;
+            color: #f4a5aa;
+            background: #211317
         }
 
         main {
@@ -57,7 +64,6 @@
         }
 
         .eyebrow {
-            color: #e8c35b;
             font-size: 11px;
             font-weight: 800;
             letter-spacing: .14em;
@@ -69,6 +75,11 @@
             font-size: 30px
         }
 
+        h2 {
+            font-size: 16px;
+            margin: 0 0 16px
+        }
+
         p {
             margin: 0;
             color: #8997a1
@@ -76,9 +87,9 @@
 
         .grid {
             display: grid;
-            grid-template-columns:repeat(auto-fit, minmax(270px, 1fr));
+            grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));
             gap: 14px;
-            margin-top: 28px
+            margin-top: 24px
         }
 
         .card {
@@ -86,11 +97,6 @@
             border: 1px solid #26333d;
             border-radius: 10px;
             background: #0e151c
-        }
-
-        .card h2 {
-            margin: 0 0 18px;
-            font-size: 14px
         }
 
         .metrics {
@@ -111,16 +117,114 @@
             font-size: 24px
         }
 
-        .metric small {
+        .metric small, .muted {
             color: #7e8b94;
-            font-size: 9px;
-            font-weight: 750;
-            letter-spacing: .08em;
-            text-transform: uppercase
+            font-size: 11px
         }
 
-        .offline {
-            color: #e58b92
+        .section {
+            margin-top: 34px
+        }
+
+        .section-head {
+            display: flex;
+            align-items: end;
+            justify-content: space-between;
+            gap: 18px;
+            margin-bottom: 12px
+        }
+
+        .search {
+            display: flex;
+            gap: 8px;
+            width: min(520px, 100%)
+        }
+
+        .search input {
+            flex: 1;
+            min-width: 0;
+            border: 1px solid #33414c;
+            border-radius: 7px;
+            background: #090f14;
+            color: #fff;
+            padding: 10px 12px;
+            font: inherit
+        }
+
+        .table-wrap {
+            overflow: auto;
+            border: 1px solid #26333d;
+            border-radius: 10px;
+            background: #0e151c
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 720px
+        }
+
+        th, td {
+            padding: 12px 14px;
+            text-align: left;
+            border-bottom: 1px solid #202b33;
+            font-size: 13px
+        }
+
+        th {
+            color: #7e8b94;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: .08em
+        }
+
+        tr:last-child td {
+            border-bottom: 0
+        }
+
+        .status {
+            display: inline-block;
+            border-radius: 99px;
+            padding: 4px 8px;
+            background: #17242c;
+            color: #91d3a8;
+            font-size: 10px;
+            font-weight: 800
+        }
+
+        .status.stalled {
+            color: #f4a5aa;
+            background: #2a171a
+        }
+
+        .empty {
+            padding: 22px;
+            color: #7e8b94
+        }
+
+        .notice {
+            margin-top: 18px;
+            padding: 10px 12px;
+            border: 1px solid #365844;
+            border-radius: 7px;
+            background: #102018;
+            color: #a9daba
+        }
+
+        .mono {
+            font-family: ui-monospace, SFMono-Regular, monospace;
+            font-size: 11px
+        }
+
+        @media (max-width: 700px) {
+            .section-head {
+                align-items: stretch;
+                flex-direction: column
+            }
+
+            .search {
+                width: 100%
+            }
         }
     </style>
 </head>
@@ -128,23 +232,196 @@
 <header>
     <div class="brand">VAL<span>STATS</span> / ADMIN</div>
     <form method="post" action="/admin/logout">
-        <button type="submit">Sign out</button>
+        <button>Sign out</button>
     </form>
 </header>
 <main><span class="eyebrow">Operations</span>
     <h1>System overview</h1>
-    <p>Approximate live queue activity from AWS SQS.</p>
+    <p>Live workload, limits, and account administration. <span id="live-indicator" class="status">Connecting…</span></p>
+    <p class="notice" th:if="${deleted != null}" th:text="${deleted + ' account records deleted.'}">Account deleted.</p>
+
     <section class="grid">
-        <article class="card" th:each="queue : ${queues}">
-            <h2 th:text="${queue.name}">Queue</h2>
+        <article class="card queue-card" th:each="queue, iter : ${queues}" th:attr="data-queue-index=${iter.index}"><h2 th:text="${queue.name}">Queue</h2>
             <div class="metrics" th:if="${queue.available}">
-                <div class="metric"><strong th:text="${queue.waiting}">0</strong><small>Waiting</small></div>
-                <div class="metric"><strong th:text="${queue.running}">0</strong><small>Running</small></div>
-                <div class="metric"><strong th:text="${queue.delayed}">0</strong><small>Delayed</small></div>
+                <div class="metric"><strong class="queue-waiting" th:text="${queue.waiting}">0</strong><small>Waiting</small></div>
+                <div class="metric"><strong class="queue-running" th:text="${queue.running}">0</strong><small>In flight</small></div>
+                <div class="metric"><strong class="queue-delayed" th:text="${queue.delayed}">0</strong><small>Delayed</small></div>
             </div>
-            <p class="offline" th:unless="${queue.available}">Queue is not configured.</p>
-        </article>
+            <p th:unless="${queue.available}">Queue unavailable.</p></article>
+        <article class="card"><h2>Henrik API <span id="henrik-status" class="status" th:classappend="${henrik.status == 'THROTTLED' || henrik.status == 'ERROR'} ? ' stalled'" th:text="${henrik.status}">NO DATA</span></h2>
+            <div class="metrics">
+                <div class="metric"><strong th:text="${henrik.requestsPerSecond}">1</strong><small>Requests/sec</small>
+                </div>
+                <div class="metric"><strong th:text="${henrik.maxQueued}">100</strong><small>Max queued</small></div>
+                <div class="metric"><strong th:text="${henrik.maxRetries}">1</strong><small>Retries</small></div>
+            </div>
+            <p class="muted" style="margin-top:12px"><span id="henrik-success" th:text="${henrik.successfulRequests}">0</span> successful · <span id="henrik-limited" th:text="${henrik.rateLimitedRequests}">0</span> rate limited · <span id="henrik-failed" th:text="${henrik.failedRequests}">0</span> failed</p>
+            <p id="henrik-last" class="muted" style="margin-top:6px" th:text="${henrik.lastEventAt == '' ? 'Waiting for Henrik telemetry' : 'Last event: ' + henrik.lastEventAt + ' · ' + henrik.lastOperation}">Waiting for telemetry</p></article>
+        <article class="card"><h2>Client IP limiter</h2>
+            <div class="metrics">
+                <div class="metric"><strong th:text="${ipLimits.trackedIps}">0</strong><small>Tracked IPs</small></div>
+                <div class="metric"><strong th:text="${ipLimits.pressuredIps}">0</strong><small>At limit</small></div>
+                <div class="metric"><strong th:text="${ipLimits.rejectedRequests}">0</strong><small>Rejected</small>
+                </div>
+            </div>
+            <p class="muted" style="margin-top:12px"><span th:text="${ipLimits.requestsPerMinute}">60</span>/min, burst
+                <span th:text="${ipLimits.burst}">15</span> · current warm API instance</p></article>
+    </section>
+
+    <section class="section">
+        <div class="section-head">
+            <div><h2>Live account update activity</h2>
+                <p>Queued, running, and completed match refreshes from the last 15 minutes. Updates automatically every five seconds.</p></div>
+        </div>
+        <div class="table-wrap">
+            <table id="active-table" th:style="${activeSyncs.empty} ? 'display:none'">
+                <thead>
+                <tr>
+                    <th>Account</th>
+                    <th>Scope</th>
+                    <th>Status</th>
+                    <th>Next page</th>
+                    <th>Last activity</th>
+                    <th>PUUID</th>
+                </tr>
+                </thead>
+                <tbody id="active-sync-body">
+                <tr th:each="sync : ${activeSyncs}">
+                    <td th:text="${sync.account}">Account</td>
+                    <td th:text="${sync.scope}">HISTORY</td>
+                    <td><span class="status" th:classappend="${sync.status == 'STALLED'} ? ' stalled'"
+                              th:text="${sync.status}">RUNNING</span></td>
+                    <td th:text="${sync.page}">1</td>
+                    <td th:text="${sync.updatedAt}">time</td>
+                    <td class="mono" th:text="${sync.puuid}">id</td>
+                </tr>
+                </tbody>
+            </table>
+            <div id="active-empty" class="empty" th:style="${!activeSyncs.empty} ? 'display:none'">No account refresh activity in the last 15 minutes.</div>
+        </div>
+    </section>
+
+    <section id="stalled-section" class="section" th:style="${stalledSyncs.empty} ? 'display:none'">
+        <div class="section-head">
+            <div><h2>Needs attention</h2>
+                <p>Sync leases that expired during the last seven days without reaching a terminal state.</p></div>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Account</th>
+                    <th>Scope</th>
+                    <th>Status</th>
+                    <th>Next page</th>
+                    <th>Last activity</th>
+                    <th>PUUID</th>
+                </tr>
+                </thead>
+                <tbody id="stalled-sync-body">
+                <tr th:each="sync : ${stalledSyncs}">
+                    <td th:text="${sync.account}">Account</td>
+                    <td th:text="${sync.scope}">HISTORY</td>
+                    <td><span class="status stalled">STALLED</span></td>
+                    <td th:text="${sync.page}">1</td>
+                    <td th:text="${sync.updatedAt}">time</td>
+                    <td class="mono" th:text="${sync.puuid}">id</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="section">
+        <div class="section-head">
+            <div><h2>Account search</h2>
+                <p>Search by Riot ID or PUUID. Deletion removes cached profile, matches, insights, sync state, and
+                    lookup records.</p></div>
+            <form class="search" method="get" action="/admin"><input name="q" th:value="${query}"
+                                                                     placeholder="Player#TAG or PUUID"
+                                                                     aria-label="Account search">
+                <button>Search</button>
+            </form>
+        </div>
+        <div class="table-wrap" th:if="${searched}">
+            <table th:if="${!accounts.empty}">
+                <thead>
+                <tr>
+                    <th>Account</th>
+                    <th>Region</th>
+                    <th>Level</th>
+                    <th>Updated</th>
+                    <th>PUUID</th>
+                    <th></th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="account : ${accounts}">
+                    <td th:text="${account.account}">Account</td>
+                    <td th:text="${account.region}">na</td>
+                    <td th:text="${account.level}">0</td>
+                    <td th:text="${account.updatedAt}">time</td>
+                    <td class="mono" th:text="${account.puuid}">id</td>
+                    <td>
+                        <form method="post" action="/admin/accounts/delete"
+                              onsubmit="return confirm('Permanently delete this account and all of its cached data?')">
+                            <input type="hidden" name="puuid" th:value="${account.puuid}">
+                            <button class="danger">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+            <div class="empty" th:if="${accounts.empty}">No matching cached accounts.</div>
+        </div>
     </section>
 </main>
+<script>
+    const text = (selector, value, root = document) => { const node = root.querySelector(selector); if (node) node.textContent = value; };
+    function renderSyncs(rows, bodyId) {
+        const body = document.getElementById(bodyId);
+        if (!body) return;
+        body.replaceChildren(...rows.map(sync => {
+            const row = document.createElement('tr');
+            [sync.account, sync.scope].forEach(value => { const cell = row.insertCell(); cell.textContent = value || '' });
+            const statusCell = row.insertCell();
+            const badge = document.createElement('span'); badge.className = 'status' + (sync.status === 'STALLED' ? ' stalled' : ''); badge.textContent = sync.status;
+            statusCell.appendChild(badge);
+            [sync.page, sync.updatedAt, sync.puuid].forEach((value, index) => { const cell = row.insertCell(); cell.textContent = value ?? ''; if (index === 2) cell.className = 'mono' });
+            return row;
+        }));
+    }
+    async function refreshOperations() {
+        try {
+            const response = await fetch('/admin/live', {headers: {'Accept': 'application/json'}, cache: 'no-store'});
+            if (response.status === 401) { location.href = '/admin/login'; return; }
+            if (!response.ok) throw new Error('Live status request failed');
+            const data = await response.json();
+            document.querySelectorAll('.queue-card').forEach(card => {
+                const queue = data.queues[Number(card.dataset.queueIndex)];
+                if (!queue) return;
+                text('.queue-waiting', queue.waiting ?? 0, card); text('.queue-running', queue.running ?? 0, card); text('.queue-delayed', queue.delayed ?? 0, card);
+            });
+            renderSyncs(data.activeSyncs || [], 'active-sync-body');
+            document.getElementById('active-table').style.display = data.activeSyncs?.length ? '' : 'none';
+            document.getElementById('active-empty').style.display = data.activeSyncs?.length ? 'none' : '';
+            renderSyncs(data.stalledSyncs || [], 'stalled-sync-body');
+            document.getElementById('stalled-section').style.display = data.stalledSyncs?.length ? '' : 'none';
+            const henrik = data.henrik || {};
+            const badge = document.getElementById('henrik-status');
+            badge.textContent = henrik.status || 'NO DATA';
+            badge.className = 'status' + (henrik.status === 'THROTTLED' || henrik.status === 'ERROR' ? ' stalled' : '');
+            text('#henrik-success', henrik.successfulRequests ?? 0); text('#henrik-limited', henrik.rateLimitedRequests ?? 0); text('#henrik-failed', henrik.failedRequests ?? 0);
+            text('#henrik-last', henrik.lastEventAt ? `Last event: ${henrik.lastEventAt} · ${henrik.lastOperation}${henrik.retryAfterSeconds ? ` · retry in ${henrik.retryAfterSeconds}s` : ''}` : 'Waiting for Henrik telemetry');
+            const refreshed = new Date(data.refreshedAt);
+            text('#live-indicator', `Live · ${refreshed.toLocaleTimeString()}`);
+        } catch (error) {
+            const indicator = document.getElementById('live-indicator');
+            indicator.textContent = 'Disconnected'; indicator.className = 'status stalled';
+            console.warn(error);
+        } finally { setTimeout(refreshOperations, 5000); }
+    }
+    refreshOperations();
+</script>
 </body>
 </html>

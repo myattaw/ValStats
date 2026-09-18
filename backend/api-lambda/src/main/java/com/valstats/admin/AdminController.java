@@ -8,6 +8,7 @@ import io.micronaut.http.annotation.Body;
 import io.micronaut.http.annotation.Controller;
 import io.micronaut.http.annotation.Get;
 import io.micronaut.http.annotation.Post;
+import io.micronaut.http.annotation.Produces;
 import io.micronaut.http.cookie.Cookie;
 import io.micronaut.http.cookie.SameSite;
 import io.micronaut.views.ModelAndView;
@@ -30,7 +31,32 @@ public class AdminController {
     @Get
     public Object index(HttpRequest<?> request) {
         if (!authenticated(request)) return HttpResponse.redirect(URI.create("/admin/login"));
-        return new ModelAndView<>("admin/dashboard", Map.of("queues", dashboard.queueStatus()));
+        String query = request.getParameters().get("q");
+        Map<String, Object> model = new HashMap<>();
+        model.put("queues", dashboard.queueStatus());
+        model.put("activeSyncs", dashboard.activeSyncs());
+        model.put("stalledSyncs", dashboard.stalledSyncs());
+        model.put("henrik", dashboard.henrikStatus());
+        model.put("ipLimits", dashboard.ipRateLimitStatus());
+        model.put("query", query == null ? "" : query);
+        model.put("accounts", dashboard.searchAccounts(query));
+        model.put("searched", query != null && !query.isBlank());
+        model.put("deleted", request.getParameters().get("deleted"));
+        return new ModelAndView<>("admin/dashboard", model);
+    }
+
+    @Post(uri = "/accounts/delete", consumes = MediaType.APPLICATION_FORM_URLENCODED)
+    public HttpResponse<?> deleteAccount(HttpRequest<?> request, @Body("puuid") String puuid) {
+        if (!authenticated(request)) return HttpResponse.redirect(URI.create("/admin/login"));
+        int deleted = dashboard.deleteAccount(puuid == null ? null : puuid.trim());
+        return HttpResponse.redirect(URI.create("/admin?deleted=" + deleted));
+    }
+
+    @Get("/live")
+    @Produces(MediaType.APPLICATION_JSON)
+    public HttpResponse<?> live(HttpRequest<?> request) {
+        if (!authenticated(request)) return HttpResponse.unauthorized();
+        return HttpResponse.ok(dashboard.liveStatus());
     }
 
     @Get("/login")

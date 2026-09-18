@@ -17,12 +17,14 @@ import java.net.SocketAddress;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Filter("/api/valorant/**")
 @Singleton
 public class RateLimitFilter implements HttpServerFilter {
 
     private final ConcurrentHashMap<String, SimpleRateLimiter> limiters = new ConcurrentHashMap<>();
+    private final AtomicLong rejectedRequests = new AtomicLong();
 
     // Allow burst of 15 requests (handles 3 parallel calls × 5 users simultaneously)
     private static final double BURST_CAPACITY = 15.0;
@@ -40,6 +42,7 @@ public class RateLimitFilter implements HttpServerFilter {
         SimpleRateLimiter limiter = limiters.computeIfAbsent(clientKey, k -> createLimiter());
 
         if (!limiter.tryConsume()) {
+            rejectedRequests.incrementAndGet();
             Map<String, Object> errorBody = new HashMap<>();
             errorBody.put("error", "Too Many Requests");
             errorBody.put("message", "Rate limit exceeded. Please wait before retrying.");
@@ -92,6 +95,13 @@ public class RateLimitFilter implements HttpServerFilter {
         limiters.entrySet().removeIf(entry ->
                 entry.getValue().getAvailableTokens() >= BURST_CAPACITY - 0.1
         );
+    }
+
+    public Map<String, Object> snapshot() {
+        long pressured = limiters.values().stream().filter(limiter -> limiter.getAvailableTokens() < 1).count();
+        return Map.of("requestsPerMinute", (int) REQUESTS_PER_MINUTE, "burst", (int) BURST_CAPACITY,
+                "trackedIps", limiters.size(), "pressuredIps", pressured,
+                "rejectedRequests", rejectedRequests.get());
     }
 
 }

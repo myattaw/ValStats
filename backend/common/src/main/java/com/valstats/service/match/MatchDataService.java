@@ -27,7 +27,7 @@ import java.util.*;
 public class MatchDataService {
 
     private static final Logger LOG = LoggerFactory.getLogger(MatchDataService.class);
-    private static final int RECENT_MATCH_PAGE_SIZE = 10;
+    private static final int RECENT_MATCH_PAGE_SIZE = 20;
     // Keep a history page small enough that its match and derived-insight writes
     // reliably finish inside the worker Lambda timeout. Each completed page is
     // checkpointed and continued by a separate SQS message.
@@ -107,7 +107,9 @@ public class MatchDataService {
         // FORMAT RESPONSE
         // =========================
         MatchResponses.MatchHistoryResponse result =
-                responseFormatter.formatCachedMatches(cachedMatches, cachedMMR);
+                responseFormatter.formatCachedMatches(cachedMatches, cachedMMR,
+                        fullMatchCache.getPlacements(cachedMatches.stream()
+                                .map(row -> row.get("matchId").s()).toList(), puuid));
 
         MatchResponses.Cursor cursor = (responseLastKey != null && !responseLastKey.isEmpty())
                 ? convertLastKey(responseLastKey)
@@ -210,6 +212,9 @@ public class MatchDataService {
             }
             matchProcessor.processStoredMatchBatch(matches, job.puuid(), requestedPage,
                     "HISTORY".equalsIgnoreCase(job.kind()));
+            if ("HISTORY".equalsIgnoreCase(job.kind()) && requestedPage == 1) {
+                refreshMmrHistory(job.puuid(), job.region(), job.name(), job.tag());
+            }
 
             if (targeted && targetSeen && !pageContainsTarget) {
                 complete = true;
@@ -241,25 +246,73 @@ public class MatchDataService {
                 : job.kind().toUpperCase(Locale.ROOT);
     }
 
-    private void refreshRecentMatches(String puuid, String region, String name, String tag) {
-        Map<String, Object> response = apiRequestQueue.execute(
-                "recent matches for " + name + "#" + tag,
-                () -> apiClient.getRecentMatches(region, name, tag, RECENT_MATCH_PAGE_SIZE));
-        if (response == null || !(response.get("status") instanceof Number status) || status.intValue() != 200
-                || !(response.get("data") instanceof List<?> matches)) {
-            throw new IllegalStateException("Henrik returned an invalid recent-match response");
+    private record RecentBatch(List<Map<String, AttributeValue>> rows, Map<String, Map<String, Object>> details) {}
+
+    private RecentBatch refreshRecentMatches(String puuid, String region, String name, String tag) {
+        List<Object> matches = new ArrayList<>();
+        // Henrik caps each matches response at 10, including requests with size=20.
+        // v4 exposes start pagination; v3 does not.
+        for (int start = 0; start < RECENT_MATCH_PAGE_SIZE; start += 10) {
+            int offset = start;
+            Map<String, Object> response = apiRequestQueue.execute(
+                    "recent matches offset " + offset + " for " + name + "#" + tag,
+                    () -> apiClient.getRecentMatches(region, name, tag, 10, offset));
+            if (response == null || !(response.get("status") instanceof Number status) || status.intValue() != 200
+                    || !(response.get("data") instanceof List<?> page)) {
+                throw new IllegalStateException("Henrik returned an invalid recent-match response");
+            }
+            matches.addAll(page);
+            if (page.size() < 10) break;
         }
         Set<String> processed = new HashSet<>();
+        List<Map<String, AttributeValue>> rows = new ArrayList<>();
+        Map<String, Map<String, Object>> details = new LinkedHashMap<>();
         for (Object value : matches) {
             if (!(value instanceof Map<?, ?> raw)) continue;
-            Map<String, Object> match = new HashMap<>();
-            raw.forEach((key, field) -> match.put(key.toString(), field));
+            Map<String, Object> fields = new HashMap<>();
+            raw.forEach((key, field) -> fields.put(key.toString(), field));
+            Map<String, Object> match = RecentMatchAdapter.adapt(fields);
+            String id = match.get("metadata") instanceof Map<?, ?> metadata
+                    ? Objects.toString(metadata.get("matchid"), "") : "";
+            if (id.isBlank() || !processed.add(id) || !FullMatchCache.isComplete(id, match)) continue;
+            // Detail caching must not depend on optional summary metadata such as season_id.
+            fullMatchCache.put(id, match);
+            details.put(id, match);
             RecentMatchMapper.summary(match, puuid).ifPresent(summary -> {
-                if (!processed.add(summary.meta().id())) return;
-                fullMatchCache.put(summary.meta().id(), match);
-                matchProcessor.processStoredMatchSummary(summary, puuid);
+                // A later stored-history response supplies missing season identity. Avoid duplicate keys.
+                if (!"unknown".equals(summary.meta().season().id())) {
+                    matchProcessor.processStoredMatchSummary(summary, puuid);
+                }
+                var row = matchProcessor.storedMatchItem(summary, puuid);
+                if (row != null) rows.add(row);
             });
         }
+        LOG.info("Recent matches: requested={}, returned={}, cached={}, summaries={}",
+                RECENT_MATCH_PAGE_SIZE, matches.size(), details.size(), rows.size());
+        return new RecentBatch(rows, details);
+    }
+
+    /** Return the new recent slice directly; do not wait for history, MMR, or GSI propagation. */
+    public Map<String, Object> getRecentMatchHistory(String puuid, String region, String name, String tag,
+                                                    String mode, boolean refresh) {
+        MatchResponses.MatchHistoryResponse history;
+        Map<String, Object> preloaded;
+        if (refresh) {
+            RecentBatch batch = refreshRecentMatches(puuid, region, name, tag);
+            String normalizedMode = mode == null ? "all" : mode.replaceAll("[^A-Za-z0-9]", "").toLowerCase(Locale.ROOT);
+            var rows = batch.rows().stream().filter(row -> "all".equals(normalizedMode)
+                    || normalizedMode.equals(row.get("mode").s())).toList();
+            history = responseFormatter.formatCachedMatches(rows, dynamoDbService.getMMRHistory(puuid),
+                    fullMatchCache.getPlacements(rows.stream().map(row -> row.get("matchId").s()).toList(), puuid));
+            preloaded = projectDetails(history.data().stream().map(MatchResponses.MatchSummary::id).toList(),
+                    id -> Optional.ofNullable(batch.details().get(id)));
+            dynamoDbService.updatePlayerLastRecentMatchUpdate(region, name, tag);
+        } else {
+            history = getPlayerMatches(puuid, region, name, tag, RECENT_MATCH_PAGE_SIZE, null, "all", mode);
+            preloaded = getCachedMatchDetails(history.data().stream().map(MatchResponses.MatchSummary::id).toList());
+        }
+        return Map.of("status", 200, "data", history.data(), "details", preloaded.get("data"),
+                "deferred", preloaded.get("deferred"), "updated", refresh);
     }
 
     /** Records a terminal worker failure so clients do not display a permanent refresh state. */
@@ -357,7 +410,10 @@ public class MatchDataService {
      */
     public Object getMatchDetails(String matchId) {
         var cached = fullMatchCache.get(matchId);
-        if (cached.isPresent()) return Map.of("status", 200, "cached", true, "data", cached.get());
+        if (cached.isPresent()) {
+            fullMatchCache.persistPlacements(matchId, cached.get());
+            return Map.of("status", 200, "cached", true, "data", cached.get());
+        }
         LOG.info("Fetching full match details for {}", matchId);
         Map<String, Object> response = apiRequestQueue.execute(
                 "match details " + matchId,
@@ -373,22 +429,32 @@ public class MatchDataService {
 
     /** Cache-only preloading must never fan out into Henrik calls for older history. */
     public Map<String, Object> getCachedMatchDetails(List<String> ids) {
+        return projectDetails(ids, id -> {
+            var cached = fullMatchCache.get(id);
+            cached.ifPresent(data -> fullMatchCache.persistPlacements(id, data));
+            return cached;
+        });
+    }
+
+    private Map<String, Object> projectDetails(List<String> ids,
+            java.util.function.Function<String, Optional<Map<String, Object>>> source) {
         Map<String, Object> matches = new LinkedHashMap<>();
         List<String> deferred = new ArrayList<>();
         int bytes = 0;
         ObjectMapper json = new ObjectMapper();
         for (String id : ids.stream().filter(Objects::nonNull).filter(s -> !s.isBlank()).distinct().limit(20).toList()) {
-            var cached = fullMatchCache.get(id);
+            var cached = source.apply(id);
             if (cached.isEmpty()) continue;
             try {
-                int size = json.writeValueAsBytes(cached.get()).length;
+                var projected = MatchDetailProjection.forDisplay(cached.get());
+                int size = json.writeValueAsBytes(projected).length;
                 // Leave room for JSON escaping in the Lambda proxy envelope.
                 if (size > 2_000_000) continue;
                 if (bytes + size > 2_000_000) {
                     deferred.add(id);
                     continue;
                 }
-                matches.put(id, cached.get());
+                matches.put(id, projected);
                 bytes += size;
             } catch (java.io.IOException e) {
                 LOG.warn("Cannot serialize cached match {}", id, e);

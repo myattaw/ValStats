@@ -1,4 +1,4 @@
-import type { MatchDetails } from "../types/matchTypes";
+import type { Match, MatchDetails } from "../types/matchTypes";
 
 /**
  * In development Vite proxies this path to Micronaut. In production, either
@@ -7,7 +7,7 @@ import type { MatchDetails } from "../types/matchTypes";
  */
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api/valorant").replace(/\/$/, "");
 
-export const INITIAL_MATCHES_SIZE = 15;
+export const INITIAL_MATCHES_SIZE = 20;
 export const LOAD_MORE_SIZE = 10;
 
 /* ===============================
@@ -57,7 +57,15 @@ function rememberDetails(id: string, details: MatchDetails) {
     return details;
 }
 
-export const preloadMatchDetails = async (matchIds: string[]): Promise<Map<string, MatchDetails>> => {
+export function cacheMatchDetails(payload: Record<string, any>): Map<string, MatchDetails> {
+    const result = new Map<string, MatchDetails>();
+    for (const [id, data] of Object.entries(payload)) {
+        if (data?.players?.all_players?.length) result.set(id, rememberDetails(id, normalizeMatchDetails(data)));
+    }
+    return result;
+}
+
+export const preloadMatchDetails = async (matchIds: string[], onBatch?: (details: Map<string, MatchDetails>) => void): Promise<Map<string, MatchDetails>> => {
     const ids = [...new Set(matchIds)].slice(0, 20);
     const missing = ids.filter((id) => !detailCache.has(id) && !detailRequests.has(id));
     if (missing.length) {
@@ -71,6 +79,7 @@ export const preloadMatchDetails = async (matchIds: string[]): Promise<Map<strin
                     const payload = await response.json();
                     if (payload.status !== 200) break;
                     Object.assign(data, payload.data ?? {});
+                    onBatch?.(cacheMatchDetails(payload.data ?? {}));
                     const deferred: string[] = Array.isArray(payload.deferred) ? payload.deferred : [];
                     const next = remaining.filter((id) => deferred.includes(id) && !data[id]);
                     if (next.length >= remaining.length) break;
@@ -92,6 +101,7 @@ export const preloadMatchDetails = async (matchIds: string[]): Promise<Map<strin
         const details = detailCache.get(id) ?? await detailRequests.get(id)?.catch(() => undefined);
         if (details) result.set(id, details);
     }));
+    onBatch?.(result);
     return result;
 };
 
@@ -198,3 +208,37 @@ export const normalizeMatchDetails = (matchData: any): MatchDetails => {
 
     return { players: normalizedPlayers, rounds };
 };
+
+function getOrdinal(value: number) {
+    const mod100 = value % 100;
+    if (mod100 >= 11 && mod100 <= 13) return `${value}th`;
+    switch (value % 10) {
+        case 1: return `${value}st`;
+        case 2: return `${value}nd`;
+        case 3: return `${value}rd`;
+        default: return `${value}th`;
+    }
+}
+
+function getLobbyPlacement(players: Match["players"], viewerPuuid?: string | null) {
+    if (!players?.length || !viewerPuuid) return null;
+
+    const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
+    const placementIndex = sortedPlayers.findIndex((player) => player.puuid === viewerPuuid);
+    if (placementIndex < 0) return null;
+    const position = 1 + sortedPlayers.filter((player) => player.score > sortedPlayers[placementIndex].score).length;
+    if (position === 1) return "MVP";
+
+    const viewer = sortedPlayers[placementIndex];
+    const isTeamMvp = sortedPlayers
+        .filter((player) => player.team?.toLowerCase() === viewer.team?.toLowerCase())
+        .every((player) => player.puuid === viewer.puuid || player.score <= viewer.score);
+
+    return isTeamMvp ? "TEAM MVP" : getOrdinal(position);
+}
+
+export function getMatchPlacement(match: Match, viewerPuuid?: string | null): string | null {
+    const saved = match.placement;
+    return saved ? saved.matchMvp ? 'MVP' : saved.teamMvp ? 'TEAM MVP' : getOrdinal(saved.position)
+        : getLobbyPlacement(match.players, viewerPuuid);
+}

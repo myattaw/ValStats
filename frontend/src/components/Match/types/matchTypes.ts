@@ -86,6 +86,7 @@ export interface Match {
     agentIcon?: string;
     teams?: any;
     hasDetails?: boolean;
+    placement?: { position: number; matchMvp: boolean; teamMvp: boolean } | null;
     puuid?: string;
 }
 

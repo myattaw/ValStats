@@ -150,6 +150,55 @@ public class ValorantService {
         return matches;
     }
 
+    public Map<String, Object> getRecentMatches(String region, String name, String tag, String mode) {
+        String puuid = resolvePuuid(name, tag, region);
+        if (puuid == null) return errorResponse("Player not found");
+        boolean refresh = matchDataService.needsRefresh(puuid, region, name, tag);
+        if (!refresh) return matchDataService.getRecentMatchHistory(puuid, region, name, tag, mode, false);
+        if (!dynamoDbService.tryQueueBackfill(puuid, "RECENT")) {
+            Map<String, Object> response = new HashMap<>(
+                    matchDataService.getRecentMatchHistory(puuid, region, name, tag, mode, false));
+            response.put("refreshing", true);
+            return response;
+        }
+        try {
+            dynamoDbService.updateBackfillState(puuid, "RECENT", "RUNNING", 1);
+            Map<String, Object> response = matchDataService.getRecentMatchHistory(puuid, region, name, tag, mode, true);
+            dynamoDbService.updateBackfillState(puuid, "RECENT", "COMPLETE", 1);
+            return response;
+        } catch (RuntimeException failure) {
+            dynamoDbService.updateBackfillState(puuid, "RECENT", "FAILED", 1);
+            throw failure;
+        }
+    }
+
+    public Map<String, Object> refreshHistory(String region, String name, String tag, boolean updated) {
+        String puuid = resolvePuuid(name, tag, region);
+        if (puuid == null) return errorResponse("Player not found");
+        var state = dynamoDbService.getBackfillState(puuid, "HISTORY");
+        if (!updated && state.filter(s -> "COMPLETE".equals(s.get("status"))).isPresent()) {
+            return Map.of("status", 200, "data", Map.of("refreshing", false));
+        }
+        if (!dynamoDbService.tryQueueBackfill(puuid, "HISTORY")) {
+            return Map.of("status", 200, "data", Map.of("refreshing", true));
+        }
+        int page = state.filter(s -> "STALLED".equals(s.get("status")) || "FAILED".equals(s.get("status")))
+                .map(s -> Math.toIntExact(((Number) s.getOrDefault("nextPage", 1L)).longValue())).orElse(1);
+        try {
+            if (refreshQueuePublisher.isConfigured()) {
+                refreshQueuePublisher.enqueueLowPriority(RefreshJob.history(puuid, region, name, tag, page));
+                return Map.of("status", 202, "data", Map.of("refreshing", true));
+            }
+            // The browser requests this separately, after displaying the recent response.
+            boolean complete = matchDataService.syncStoredMatches(puuid, region, name, tag, 500, true);
+            dynamoDbService.updateBackfillState(puuid, "HISTORY", complete ? "COMPLETE" : "FAILED", page);
+            return Map.of("status", 200, "data", Map.of("refreshing", false));
+        } catch (RuntimeException failure) {
+            dynamoDbService.updateBackfillState(puuid, "HISTORY", "FAILED", page);
+            throw failure;
+        }
+    }
+
     public Map<String, Object> refreshMatches(String region, String name, String tag) {
         String puuid = resolvePuuid(name, tag, region);
         if (puuid == null) return errorResponse("Player not found");

@@ -12,10 +12,10 @@ import java.util.Map;
 @Client("https://api.henrikdev.xyz")
 public interface ValorantApiClient {
 
-    @Get("/valorant/v3/matches/{region}/{name}/{tag}")
+    @Get("/valorant/v4/matches/{region}/pc/{name}/{tag}")
     Map<String, Object> getRecentMatches(
             @PathVariable String region, @PathVariable String name, @PathVariable String tag,
-            @QueryValue("size") Integer size);
+            @QueryValue("size") Integer size, @QueryValue("start") Integer start);
 
     @Get("/valorant/v1/stored-matches/{region}/{name}/{tag}")
     StoredMatchesResponse getStoredMatches(

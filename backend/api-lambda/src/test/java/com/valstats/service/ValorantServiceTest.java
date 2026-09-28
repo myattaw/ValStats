@@ -37,6 +37,46 @@ class ValorantServiceTest {
     @Mock RefreshQueuePublisher refreshQueuePublisher;
 
     @Test
+    void recentResponseDoesNotWaitForOrQueueOlderHistory() {
+        when(playerCacheService.getPuuidByNameTag("Player", "Tag")).thenReturn(Optional.of("p1"));
+        when(matchDataService.needsRefresh("p1", "na", "Player", "Tag")).thenReturn(true);
+        when(dynamoDbService.tryQueueBackfill("p1", "RECENT")).thenReturn(true);
+        var expected = Map.<String, Object>of("status", 200, "data", java.util.List.of(), "updated", true);
+        when(matchDataService.getRecentMatchHistory("p1", "na", "Player", "Tag", "all", true)).thenReturn(expected);
+        var service = new ValorantService(matchDataService, playerStatsService, playerCacheService, apiClient,
+                dynamoDbService, apiRequestQueue, refreshQueuePublisher);
+        assertEquals(expected, service.getRecentMatches("na", "Player", "Tag", "all"));
+        verify(dynamoDbService).updateBackfillState("p1", "RECENT", "COMPLETE", 1);
+        verifyNoInteractions(refreshQueuePublisher, apiClient, apiRequestQueue);
+    }
+
+    @Test
+    void concurrentRecentRequestUsesCachedResponseWhileTheFirstRequestRuns() {
+        when(playerCacheService.getPuuidByNameTag("Player", "Tag")).thenReturn(Optional.of("p1"));
+        when(matchDataService.needsRefresh("p1", "na", "Player", "Tag")).thenReturn(true);
+        when(matchDataService.getRecentMatchHistory("p1", "na", "Player", "Tag", "all", false))
+                .thenReturn(Map.of("status", 200, "data", java.util.List.of()));
+        var service = new ValorantService(matchDataService, playerStatsService, playerCacheService, apiClient,
+                dynamoDbService, apiRequestQueue, refreshQueuePublisher);
+        assertEquals(true, service.getRecentMatches("na", "Player", "Tag", "all").get("refreshing"));
+        org.mockito.Mockito.verify(matchDataService, org.mockito.Mockito.never())
+                .getRecentMatchHistory("p1", "na", "Player", "Tag", "all", true);
+    }
+
+    @Test
+    void historyContinuationUsesLowPriorityQueueAfterRecentResponse() {
+        when(playerCacheService.getPuuidByNameTag("Player", "Tag")).thenReturn(Optional.of("p1"));
+        when(dynamoDbService.tryQueueBackfill("p1", "HISTORY")).thenReturn(true);
+        when(refreshQueuePublisher.isConfigured()).thenReturn(true);
+        var service = new ValorantService(matchDataService, playerStatsService, playerCacheService, apiClient,
+                dynamoDbService, apiRequestQueue, refreshQueuePublisher);
+        assertEquals(202, service.refreshHistory("na", "Player", "Tag", true).get("status"));
+        verify(refreshQueuePublisher).enqueueLowPriority(argThat((RefreshJob job) ->
+                "HISTORY".equals(job.kind()) && job.page() == 1));
+        verifyNoInteractions(matchDataService);
+    }
+
+    @Test
     void summaryUsesCachedAggregateAndBoundedRecentMatches() {
         when(playerCacheService.getCachedAccount("Player", "NA1"))
                 .thenReturn(Optional.of(Map.of(

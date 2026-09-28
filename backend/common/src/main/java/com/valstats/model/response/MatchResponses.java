@@ -47,9 +47,14 @@ public final class MatchResponses {
             long adr,
             Teams teams,
             String puuid,
-            boolean hasDetails
+            boolean hasDetails,
+            @JsonInclude(JsonInclude.Include.NON_NULL) MatchPlacement placement
     ) {
     }
+
+    @Introspected
+    @Serdeable
+    public record MatchPlacement(int position, boolean matchMvp, boolean teamMvp) {}
 
     @Introspected
     @Serdeable

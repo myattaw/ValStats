@@ -23,6 +23,8 @@ micronaut:
       mime-types: application/json
   http:
     client:
+      # Twenty full matches can exceed the default HTTP response limit.
+      max-content-length: 67108864
       read-timeout: 30s
       url-encoding: standard
 

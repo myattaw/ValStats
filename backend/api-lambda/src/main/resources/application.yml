@@ -3,6 +3,7 @@ micronaut:
     name: valstats-api-lambda
   http:
     client:
+      max-content-length: 67108864
       # API Gateway only gives this Lambda 30 seconds. A single Henrik socket
       # must not occupy that entire budget: retrying a short stalled attempt is
       # substantially more reliable than making the browser launch another

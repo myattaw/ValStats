@@ -255,7 +255,7 @@ public class MatchProcessor {
         return accepted;
     }
 
-    private Map<String, AttributeValue> storedMatchItem(StoredMatchesResponse.StoredMatch match, String puuid) {
+    Map<String, AttributeValue> storedMatchItem(StoredMatchesResponse.StoredMatch match, String puuid) {
         if (match == null || match.meta() == null || match.stats() == null) return null;
         StoredMatchesResponse.Meta meta = match.meta();
         StoredMatchesResponse.Stats stats = match.stats();

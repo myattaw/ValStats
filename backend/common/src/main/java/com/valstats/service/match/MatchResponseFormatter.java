@@ -28,6 +28,14 @@ public class MatchResponseFormatter {
             List<Map<String, AttributeValue>> cachedMatches,
             List<Map<String, AttributeValue>> cachedMMR
     ) {
+        return formatCachedMatches(cachedMatches, cachedMMR, Map.of());
+    }
+
+    public MatchResponses.MatchHistoryResponse formatCachedMatches(
+            List<Map<String, AttributeValue>> cachedMatches,
+            List<Map<String, AttributeValue>> cachedMMR,
+            Map<String, MatchResponses.MatchPlacement> placements
+    ) {
         // Create a map of MMR entries indexed by matchId for quick lookup
         Map<String, Map<String, AttributeValue>> mmrMap = cachedMMR.stream()
                 .collect(Collectors.toMap(
@@ -37,7 +45,8 @@ public class MatchResponseFormatter {
                 ));
 
         List<MatchResponses.MatchSummary> formattedMatches = cachedMatches.stream()
-                .map(match -> formatMatchRow(match, mmrMap.get(getString(match, "matchId"))))
+                .map(match -> formatMatchRow(match, mmrMap.get(getString(match, "matchId")),
+                        placements.get(getString(match, "matchId"))))
                 .toList();
 
         return new MatchResponses.MatchHistoryResponse(200, true, formattedMatches, null);
@@ -89,7 +98,8 @@ public class MatchResponseFormatter {
      */
     private MatchResponses.MatchSummary formatMatchRow(
             Map<String, AttributeValue> match,
-            Map<String, AttributeValue> mmr
+            Map<String, AttributeValue> mmr,
+            MatchResponses.MatchPlacement placement
     ) {
         String matchId = getString(match, "matchId");
         int kills = getInt(match, "kills");
@@ -168,7 +178,8 @@ public class MatchResponseFormatter {
                 adr,
                 teams,
                 "",
-                false
+                false,
+                placement
         );
     }
 

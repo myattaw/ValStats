@@ -52,9 +52,13 @@ DynamoDB          SQS refresh queue
                     DynamoDB
 ```
 
-The API Lambda should perform short DynamoDB reads and enqueue refresh work. It should not wait for HenrikDev. The browser continues displaying cached data, shows a refreshing indicator, and reads updated records after the worker finishes.
+The API Lambda serves cached data and performs the bounded recent-match fetch when requested. Full-history synchronization stays on SQS. The browser displays recent rows before loading older history, shows a refreshing indicator, and reads updated records as the worker progresses.
 
-Recent refreshes fetch the latest 10 full matches from Henrik's v3 matches endpoint. The worker converts these into player summaries and caches the original details separately under `MATCH#<id>` / `FULL`, with compression, chunking for large matches, and a 30-day TTL. Older history still uses paginated stored-matches. The browser preloads visible cached details through `GET /api/valorant/matches/cached-details?ids=...` (up to 20 IDs, bounded responses with deferred IDs), enabling scoreboards and MVP placement before expansion. Preloading never calls Henrik; opening an uncached match uses the single-match endpoint and caches the successful response.
+The match list first calls `POST /api/valorant/matches/{region}/{name}/{tag}/recent`, which fetches the latest 20 full PC matches through two pages of Henrik's v4 matches endpoint (`size=10`, `start=0` and `start=10`) when a refresh is needed. Live checks confirmed that even `size=20` is capped at 10 by the provider; v4 supplies the pagination missing from v3. The v4 payload is adapted for the existing detail UI, with the original retained in the full cache. The response returns summaries and compact detail payloads directly, without waiting for older history, MMR refresh, or DynamoDB index propagation. Fresh profiles reuse the existing five-minute refresh cooldown. Once recent rows are visible, the browser loads cached history and calls `POST /matches/{region}/{name}/{tag}/history/refresh`; older history continues through paginated stored-matches in the low-priority queue.
+
+Original details are cached under `MATCH#<id>` / `FULL`, with compression, chunking for large matches, and a 30-day TTL. Optional lobby position, match MVP, and team MVP are stored separately under `MATCH#<id>` / `PLACEMENTS`, with **no TTL**. Both recent-match fetches and single-match fetches write this enrichment for every player. Match-history reads batch-load it, so badges survive page reloads, detail-cache expiry, and summary backfills. Existing full-detail caches acquire permanent placement records when next read. Scores tied for a position share that position.
+
+The browser progressively preloads additional cached details through `GET /api/valorant/matches/cached-details?ids=...` (up to 20 IDs per request). Responses omit duplicate team rosters and round kill data, and return deferred IDs when a batch exceeds its size budget. Preloading never calls Henrik; opening an uncached match uses the single-match endpoint and persists its placement information before returning.
 
 ### Why Cloudflare
 

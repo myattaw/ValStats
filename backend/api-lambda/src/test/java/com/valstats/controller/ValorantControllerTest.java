@@ -24,6 +24,27 @@ import static org.mockito.Mockito.when;
 class ValorantControllerTest {
 
     @Test
+    void recentMatchesRouteReturnsTheImmediateSlice() {
+        when(valorantService.getRecentMatches("na", "Player", "Tag", "competitive"))
+                .thenReturn(Map.of("status", 200, "data", List.of(Map.of("id", "m1")), "details", Map.of()));
+        var response = client.toBlocking().exchange(
+                HttpRequest.POST("/api/valorant/matches/na/Player/Tag/recent?mode=competitive", ""), Map.class);
+        assertEquals(HttpStatus.OK, response.getStatus());
+        assertEquals(1, ((List<?>) response.body().get("data")).size());
+        verify(valorantService).getRecentMatches("na", "Player", "Tag", "competitive");
+    }
+
+    @Test
+    void historyRefreshRouteIsSeparateFromRecentLoading() {
+        when(valorantService.refreshHistory("na", "Player", "Tag", true))
+                .thenReturn(Map.of("status", 202, "data", Map.of("refreshing", true)));
+        var response = client.toBlocking().exchange(
+                HttpRequest.POST("/api/valorant/matches/na/Player/Tag/history/refresh?updated=true", ""), Map.class);
+        assertEquals(202, response.body().get("status"));
+        verify(valorantService).refreshHistory("na", "Player", "Tag", true);
+    }
+
+    @Test
     void cachedDetailsRouteAcceptsCommaSeparatedIds() {
         when(valorantService.getCachedMatchDetails(List.of("m1", "m2")))
                 .thenReturn(Map.of("status", 200, "data", Map.of("m1", Map.of("rounds", List.of()))));

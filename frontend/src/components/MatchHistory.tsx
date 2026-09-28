@@ -5,6 +5,8 @@ import { Match } from "./Match/types/matchTypes";
 import {
     API_BASE_URL,
     calculateADR,
+    getMatchPlacement,
+    cacheMatchDetails,
     fetchMatchDetails,
     preloadMatchDetails,
     INITIAL_MATCHES_SIZE
@@ -92,33 +94,6 @@ function isRecentMatch(match: Match) {
     return occurredAt > 0 && age >= 0 && age <= 60 * 60 * 1000;
 }
 
-function getOrdinal(value: number) {
-    const mod100 = value % 100;
-    if (mod100 >= 11 && mod100 <= 13) return `${value}th`;
-    switch (value % 10) {
-        case 1: return `${value}st`;
-        case 2: return `${value}nd`;
-        case 3: return `${value}rd`;
-        default: return `${value}th`;
-    }
-}
-
-function getLobbyPlacement(players: Match["players"], viewerPuuid?: string | null) {
-    if (!players?.length || !viewerPuuid) return null;
-
-    const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
-    const placementIndex = sortedPlayers.findIndex((player) => player.puuid === viewerPuuid);
-    if (placementIndex < 0) return null;
-    if (placementIndex === 0) return "MVP";
-
-    const viewer = sortedPlayers[placementIndex];
-    const isTeamMvp = sortedPlayers
-        .filter((player) => player.team?.toLowerCase() === viewer.team?.toLowerCase())
-        .every((player) => player.puuid === viewer.puuid || player.score <= viewer.score);
-
-    return isTeamMvp ? "TEAM MVP" : getOrdinal(placementIndex + 1);
-}
-
 export function MatchHistory({
                                  puuid,
                                  region,
@@ -138,6 +113,10 @@ export function MatchHistory({
     onRefreshingChange?: (refreshing: boolean) => void;
     onRefreshComplete?: () => void;
 }) {
+    const historyReload = useRef<(() => Promise<void>) | null>(null);
+    const historyProgress = useRef('');
+    const recentLoaded = useRef(false);
+    const loadGeneration = useRef(0);
     const [expandedMatch, setExpandedMatch] = useState<string | null>(null);
     const [loadingMatchId, setLoadingMatchId] = useState<string | null>(null);
     const [loadingMore, setLoadingMore] = useState(false);
@@ -160,6 +139,11 @@ export function MatchHistory({
             if (!response.ok) return;
             const payload = await response.json();
             const state = payload?.data?.status;
+            const progress = JSON.stringify(payload?.data);
+            if (recentLoaded.current && progress !== historyProgress.current) {
+                historyProgress.current = progress;
+                void historyReload.current?.();
+            }
             setIsHistoryBackfilling(state === "QUEUED" || state === "RUNNING");
         } catch (error) {
             console.error("Failed to check match-history backfill", error);
@@ -198,17 +182,19 @@ export function MatchHistory({
     );
 
     const preloadDetails = useCallback(async (rows: Match[]) => {
-        const detailsById = await preloadMatchDetails(rows.map((match) => match.id));
-        if (!detailsById.size) return;
-        setMatches((current) => current.map((match) => {
-            const details = detailsById.get(match.id);
-            return details && !match.details
-                ? {...match, details, players: details.players, hasDetails: true}
-                : match;
-        }));
+        await preloadMatchDetails(rows.map((match) => match.id), (detailsById) => {
+            if (!detailsById.size) return;
+            setMatches((current) => current.map((match) => {
+                const details = detailsById.get(match.id);
+                return details && !match.details
+                    ? {...match, details, players: details.players, hasDetails: true}
+                    : match;
+            }));
+        });
     }, []);
 
     const fetchInitialMatches = useCallback(async (showLoading = true) => {
+        const generation = loadGeneration.current;
         if (showLoading) setIsInitialLoading(true);
 
         try {
@@ -225,6 +211,7 @@ export function MatchHistory({
             }
 
             const json = await res.json();
+            if (generation !== loadGeneration.current) return;
             const data: Match[] = Array.isArray(json?.data) ? json.data.map(normalizeMatch) : [];
 
             data.sort((a: Match, b: Match) => b.date_raw - a.date_raw);
@@ -282,7 +269,10 @@ export function MatchHistory({
         }
     }, [buildMatchesUrl, isSeasonMode, preloadDetails]);
 
+    useEffect(() => { historyReload.current = () => fetchInitialMatches(false); }, [fetchInitialMatches]);
+
     const refreshMatches = useCallback(async () => {
+        const generation = loadGeneration.current;
         setIsBackgroundRefreshing(true);
         try {
             const baseUrl = `${API_BASE_URL}/matches/${encodeURIComponent(region)}/${encodeURIComponent(playerName)}/${encodeURIComponent(playerTag)}`;
@@ -323,53 +313,62 @@ export function MatchHistory({
                 return;
             }
 
-            const statusResponse = await fetch(`${baseUrl}/refresh-status`);
-            if (!statusResponse.ok) return;
-            const statusPayload = await statusResponse.json();
-            if (statusPayload?.data?.refreshRequired !== true) return;
-
-            const refreshResponse = await fetch(`${baseUrl}/refresh`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: "{}"
-            });
-            if (!refreshResponse.ok) return;
-
             const deadline = Date.now() + 2 * 60 * 1000;
-            const delays = [5000, 7500, 10000];
-            let poll = 0;
-            let lastProgress = "";
-            while (Date.now() < deadline) {
-                await new Promise((resolve) => window.setTimeout(
-                    resolve, delays[Math.min(poll++, delays.length - 1)]));
-
-                const nextStatusResponse = await fetch(`${baseUrl}/refresh-status`);
-                if (!nextStatusResponse.ok) continue;
-                const nextStatus = await nextStatusResponse.json();
-                const data = nextStatus?.data ?? {};
-                const state = data.backfillStatus ?? data.status;
-                const progress = `${data.nextPage ?? ""}:${data.updatedAt ?? ""}`;
-                if (progress !== lastProgress) {
-                    lastProgress = progress;
-                    await fetchInitialMatches(false);
-                }
-                if (state === "FAILED" || state === "STALLED") {
-                    throw new Error(`Match refresh ${state.toLowerCase()}`);
-                }
-                if (state === "COMPLETE" || data.refreshRequired !== true) break;
-            }
-
+            let updated = false;
+            do {
+                const response = await fetch(baseUrl + '/recent?' + new URLSearchParams({mode: selectedMode}), {method: 'POST'});
+                if (!response.ok) throw new Error('Failed to load recent matches');
+                const payload = await response.json();
+                if (payload.status !== 200) throw new Error('Failed to load recent matches');
+                if (generation !== loadGeneration.current) return;
+                const details = cacheMatchDetails(payload.details ?? {});
+                const rows: Match[] = (Array.isArray(payload.data) ? payload.data : []).map((raw: any) => {
+                    const match = normalizeMatch(raw);
+                    const detail = details.get(match.id);
+                    return detail ? {...match, details: detail, players: detail.players, hasDetails: true} : match;
+                });
+                setMatches((current) => {
+                    const merged = new Map(current.map((match) => [match.id, match]));
+                    for (const match of rows) {
+                        const previous = merged.get(match.id);
+                        merged.set(match.id, previous?.details && !match.details
+                            ? {...match, details: previous.details, players: previous.players, hasDetails: true} : match);
+                    }
+                    const result = [...merged.values()].sort((a,b) => b.date_raw - a.date_raw);
+                    visibleMatchIds.current = new Set(result.map((match) => match.id));
+                    return result;
+                });
+                recentLoaded.current = true;
+                setIsInitialLoading(false);
+                void preloadDetails(rows);
+                updated = updated || payload.updated === true || payload.refreshing === true;
+                if (!payload.refreshing) break;
+                await new Promise(resolve => window.setTimeout(resolve, 1500));
+            } while (Date.now() < deadline && generation === loadGeneration.current);
+            if (generation !== loadGeneration.current) return;
+            // Recent rows are visible before either the cached history read or its backfill starts.
             await fetchInitialMatches(false);
+            const historyResponse = await fetch(baseUrl + '/history/refresh?' + new URLSearchParams({updated: String(updated)}), {method: 'POST'});
+            if (!historyResponse.ok) throw new Error('Failed to continue match history');
+            if (generation !== loadGeneration.current) return;
             await checkHistoryBackfill();
             onRefreshComplete?.();
         } catch (error) {
             console.error("Background match refresh failed", error);
+            if (generation === loadGeneration.current) await fetchInitialMatches(false);
         } finally {
-            setIsBackgroundRefreshing(false);
+            if (generation === loadGeneration.current) {
+                setIsBackgroundRefreshing(false);
+                setIsInitialLoading(false);
+            }
         }
-    }, [region, playerName, playerTag, selectedAct, fetchInitialMatches, checkHistoryBackfill, onRefreshComplete]);
+    }, [region, playerName, playerTag, selectedAct, selectedMode, fetchInitialMatches, checkHistoryBackfill, onRefreshComplete, preloadDetails]);
 
     useEffect(() => {
+        loadGeneration.current++;
+        recentLoaded.current = false;
+        historyProgress.current = "";
+        setIsInitialLoading(true);
         setMatches([]);
         setNewMatchIds(new Set());
         visibleMatchIds.current = new Set();
@@ -378,8 +377,10 @@ export function MatchHistory({
         setLoadingMore(false);
         setLastKey(null);
         setHasMore(true);
-        void fetchInitialMatches().then(refreshMatches);
+        if (selectedAct === 'all') void refreshMatches();
+        else void fetchInitialMatches().then(() => { recentLoaded.current = true; return refreshMatches(); });
         return () => {
+            loadGeneration.current++;
             setIsBackgroundRefreshing(false);
             setIsHistoryBackfilling(false);
         };
@@ -533,7 +534,7 @@ export function MatchHistory({
                             const isExpanded = expandedMatch === match.id;
                             const isNew = newMatchIds.has(match.id);
                             const isRecent = isRecentMatch(match);
-                            const lobbyPlacement = getLobbyPlacement(match.players, puuid);
+                            const lobbyPlacement = getMatchPlacement(match, puuid);
                             const isVictory = match.result === "Victory";
                             const borderColor = isVictory ? "match-victory" : "match-defeat";
                             const overlayColor = "rgba(8, 13, 18, 0.70)";

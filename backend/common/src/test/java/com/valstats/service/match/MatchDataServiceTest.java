@@ -30,7 +30,7 @@ class MatchDataServiceTest {
         var cache = mock(FullMatchCache.class);
         var queue = new HenrikApiRequestQueue(100_000, 10, 0, 1);
         var full = RecentMatchMapperTest.fullMatch();
-        when(api.getRecentMatches("na", "Player", "Tag", 10))
+        when(api.getRecentMatches("na", "Player", "Tag", 10, 0))
                 .thenReturn(Map.of("status", 200, "data", List.of(full, full)));
         var service = new MatchDataService(dynamo, api, new MatchResponseFormatter(), processor, queue, cache);
         assertTrue(service.processBackfill(RefreshJob.matches("p1", "na", "Player", "Tag")).complete());
@@ -65,7 +65,8 @@ class MatchDataServiceTest {
         when(cache.get("m1")).thenReturn(java.util.Optional.of(full));
         var service = new MatchDataService(mock(DynamoDbService.class), api, new MatchResponseFormatter(),
                 mock(MatchProcessor.class), queue, cache);
-        assertEquals(Map.of("m1", full), service.getCachedMatchDetails(List.of("m1", "old", "m1")).get("data"));
+        assertEquals(Map.of("m1", MatchDetailProjection.forDisplay(full)),
+                service.getCachedMatchDetails(List.of("m1", "old", "m1")).get("data"));
         verify(cache).get("m1");
         verifyNoInteractions(api, queue);
     }
@@ -74,7 +75,7 @@ class MatchDataServiceTest {
     void invalidRecentResponseDoesNotAdvanceRefreshCooldown() {
         var dynamo = mock(DynamoDbService.class);
         var api = mock(ValorantApiClient.class);
-        when(api.getRecentMatches(any(), any(), any(), any())).thenReturn(Map.of("status", 503));
+        when(api.getRecentMatches(any(), any(), any(), any(), any())).thenReturn(Map.of("status", 503));
         var service = new MatchDataService(dynamo, api, new MatchResponseFormatter(), mock(MatchProcessor.class),
                 new HenrikApiRequestQueue(100_000, 10, 0, 1), mock(FullMatchCache.class));
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
@@ -85,13 +86,77 @@ class MatchDataServiceTest {
     @Test
     void preloadDefersDetailsThatWouldExceedTheResponseBudget() {
         var cache = mock(FullMatchCache.class);
-        var large = Map.<String, Object>of("rounds", "x".repeat(1_100_000));
+        var large = Map.<String, Object>of("metadata", Map.of("padding", "x".repeat(1_100_000)));
         when(cache.get(any())).thenReturn(java.util.Optional.of(large));
         var service = new MatchDataService(mock(DynamoDbService.class), mock(ValorantApiClient.class),
                 new MatchResponseFormatter(), mock(MatchProcessor.class), mock(HenrikApiRequestQueue.class), cache);
         var response = service.getCachedMatchDetails(List.of("m1", "m2"));
-        assertEquals(Map.of("m1", large), response.get("data"));
+        assertEquals(Map.of("m1", MatchDetailProjection.forDisplay(large)), response.get("data"));
         assertEquals(List.of("m2"), response.get("deferred"));
+    }
+
+    @Test
+    void returnsAllTwentyRecentMatchesDirectlyWithoutWaitingForHistoryOrIndexReads() {
+        var api = mock(ValorantApiClient.class);
+        var dynamo = mock(DynamoDbService.class);
+        var cache = mock(FullMatchCache.class);
+        var processor = spy(new MatchProcessor(mock(software.amazon.awssdk.services.dynamodb.DynamoDbClient.class), List.of()));
+        doReturn(true).when(processor).processStoredMatchSummary(any(), any());
+        var matches = java.util.stream.IntStream.range(0, 20).mapToObj(index -> {
+            var match = RecentMatchMapperTest.fullMatch();
+            @SuppressWarnings("unchecked") var metadata = (Map<String, Object>) match.get("metadata");
+            metadata.put("matchid", "match-" + index);
+            return match;
+        }).toList();
+        when(api.getRecentMatches("na", "Player", "Tag", 10, 0))
+                .thenReturn(Map.of("status", 200, "data", matches.subList(0, 10)));
+        when(api.getRecentMatches("na", "Player", "Tag", 10, 10))
+                .thenReturn(Map.of("status", 200, "data", matches.subList(10, 20)));
+        var service = new MatchDataService(dynamo, api, new MatchResponseFormatter(), processor,
+                new HenrikApiRequestQueue(100_000, 10, 0, 1), cache);
+        var result = service.getRecentMatchHistory("p1", "na", "Player", "Tag", "all", true);
+        assertEquals(20, ((List<?>) result.get("data")).size());
+        assertEquals(20, ((Map<?, ?>) result.get("details")).size());
+        verify(cache, times(20)).put(any(), any());
+        verify(api).getRecentMatches("na", "Player", "Tag", 10, 0);
+        verify(api).getRecentMatches("na", "Player", "Tag", 10, 10);
+        verify(api, never()).getStoredMatches(any(), any(), any(), any(), any(), any());
+        verify(api, never()).getMatchById(any());
+        verify(dynamo, never()).getMatchesFromGSI(any(), anyInt(), any());
+    }
+
+    @Test
+    void cachesDetailsEvenWhenSeasonMetadataIsMissing() {
+        var api = mock(ValorantApiClient.class);
+        var cache = mock(FullMatchCache.class);
+        var processor = mock(MatchProcessor.class);
+        var full = RecentMatchMapperTest.fullMatch();
+        ((Map<?, ?>) full.get("metadata")).remove("season_id");
+        when(api.getRecentMatches(any(), any(), any(), eq(10), eq(0))).thenReturn(Map.of("status", 200, "data", List.of(full)));
+        var service = new MatchDataService(mock(DynamoDbService.class), api, new MatchResponseFormatter(), processor,
+                new HenrikApiRequestQueue(100_000, 10, 0, 1), cache);
+        service.processBackfill(RefreshJob.matches("p1", "na", "Player", "Tag"));
+        verify(cache).put("m1", full);
+        verify(processor, never()).processStoredMatchSummary(any(), any());
+    }
+
+    @Test
+    void cachedHistoryIncludesPermanentPlacementWithoutFullDetails() {
+        var dynamo = mock(DynamoDbService.class);
+        var cache = mock(FullMatchCache.class);
+        var processor = new MatchProcessor(mock(software.amazon.awssdk.services.dynamodb.DynamoDbClient.class), List.of());
+        var summary = RecentMatchMapper.summary(RecentMatchMapperTest.fullMatch(), "p1").orElseThrow();
+        when(dynamo.getMatchesFromGSI(any(), anyInt(), any()))
+                .thenReturn(QueryResponse.builder().items(processor.storedMatchItem(summary, "p1")).build());
+        var placement = new com.valstats.model.response.MatchResponses.MatchPlacement(3, false, false);
+        when(cache.getPlacements(List.of("m1"), "p1")).thenReturn(Map.of("m1", placement));
+        var api = mock(ValorantApiClient.class);
+        var service = new MatchDataService(dynamo, api, new MatchResponseFormatter(), processor,
+                mock(HenrikApiRequestQueue.class), cache);
+        var response = service.getPlayerMatches("p1", "na", "Player", "Tag", 20, null, "all", "all");
+        assertEquals(placement, response.data().get(0).placement());
+        verify(cache, never()).get(any());
+        verifyNoInteractions(api);
     }
 
     @Test

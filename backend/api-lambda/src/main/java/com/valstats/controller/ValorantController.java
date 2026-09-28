@@ -61,6 +61,18 @@ public class ValorantController {
         return valorantService.getMatchRefreshStatus(region, decode(name), decode(tag));
     }
 
+    @Post("/matches/{region}/{name}/{tag}/recent")
+    public Map<String, Object> getRecentMatches(@PathVariable String region, @PathVariable String name,
+            @PathVariable String tag, @QueryValue(defaultValue = "all") String mode) {
+        return valorantService.getRecentMatches(region, decode(name), decode(tag), mode);
+    }
+
+    @Post("/matches/{region}/{name}/{tag}/history/refresh")
+    public Map<String, Object> refreshHistory(@PathVariable String region, @PathVariable String name,
+            @PathVariable String tag, @QueryValue(defaultValue = "false") boolean updated) {
+        return valorantService.refreshHistory(region, decode(name), decode(tag), updated);
+    }
+
     @Post("/matches/{region}/{name}/{tag}/acts/{seasonId}/refresh")
     public HttpResponse<Map<String, Object>> refreshActMatches(
             @PathVariable String region,

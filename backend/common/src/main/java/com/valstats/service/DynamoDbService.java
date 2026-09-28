@@ -627,10 +627,12 @@ public class DynamoDbService {
                             "PK", AttributeValue.fromS(pk),
                             "SK", AttributeValue.fromS("RECENT_MATCHES")
                     ))
-                    .projectionExpression("updatedAt")
+                    .projectionExpression("updatedAt, recentFetchVersion")
                     .build());
 
-            if (response.hasItem() && response.item().containsKey("updatedAt")) {
+            // Older cooldowns cover only the old ten-match fetch. Upgrade them on the next visit.
+            if (response.hasItem() && response.item().containsKey("updatedAt")
+                    && "2".equals(response.item().getOrDefault("recentFetchVersion", AttributeValue.fromN("0")).n())) {
                 return Optional.of(Long.parseLong(response.item().get("updatedAt").n()));
             }
         } catch (Exception e) {
@@ -653,9 +655,10 @@ public class DynamoDbService {
                             "PK", AttributeValue.fromS(pk),
                             "SK", AttributeValue.fromS("RECENT_MATCHES")
                     ))
-                    .updateExpression("SET updatedAt = :now")
+                    .updateExpression("SET updatedAt = :now, recentFetchVersion = :version")
                     .expressionAttributeValues(Map.of(
-                            ":now", AttributeValue.fromN(String.valueOf(now))
+                            ":now", AttributeValue.fromN(String.valueOf(now)),
+                            ":version", AttributeValue.fromN("2")
                     ))
                     .build());
 

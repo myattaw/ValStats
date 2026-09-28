@@ -128,6 +128,11 @@ public class ValorantController {
                 : HttpResponse.ok(response);
     }
 
+    @Get("/matches/cached-details")
+    public Map<String, Object> getCachedMatchDetails(@QueryValue String ids) {
+        return valorantService.getCachedMatchDetails(java.util.Arrays.asList(ids.split(",")));
+    }
+
     @Get("/players/{puuid}")
     public Map<String, Object> getPlayerIdentity(@PathVariable String puuid) {
         return valorantService.getPlayerIdentity(puuid);

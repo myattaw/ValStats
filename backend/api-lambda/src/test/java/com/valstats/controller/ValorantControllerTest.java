@@ -23,6 +23,17 @@ import static org.mockito.Mockito.when;
 @MicronautTest
 class ValorantControllerTest {
 
+    @Test
+    void cachedDetailsRouteAcceptsCommaSeparatedIds() {
+        when(valorantService.getCachedMatchDetails(List.of("m1", "m2")))
+                .thenReturn(Map.of("status", 200, "data", Map.of("m1", Map.of("rounds", List.of()))));
+        var response = client.toBlocking().exchange(
+                HttpRequest.GET("/api/valorant/matches/cached-details?ids=m1%2Cm2"), Map.class);
+        assertEquals(HttpStatus.OK, response.getStatus());
+        assertEquals(200, response.body().get("status"));
+        verify(valorantService).getCachedMatchDetails(List.of("m1", "m2"));
+    }
+
     @Inject
     @Client("/")
     HttpClient client;

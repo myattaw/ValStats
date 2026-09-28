@@ -23,6 +23,78 @@ import static org.mockito.Mockito.*;
 class MatchDataServiceTest {
 
     @Test
+    void recentRefreshCachesFullMatchesWithoutCallingStoredOrSingleMatchEndpoints() {
+        var dynamo = mock(DynamoDbService.class);
+        var api = mock(ValorantApiClient.class);
+        var processor = mock(MatchProcessor.class);
+        var cache = mock(FullMatchCache.class);
+        var queue = new HenrikApiRequestQueue(100_000, 10, 0, 1);
+        var full = RecentMatchMapperTest.fullMatch();
+        when(api.getRecentMatches("na", "Player", "Tag", 10))
+                .thenReturn(Map.of("status", 200, "data", List.of(full, full)));
+        var service = new MatchDataService(dynamo, api, new MatchResponseFormatter(), processor, queue, cache);
+        assertTrue(service.processBackfill(RefreshJob.matches("p1", "na", "Player", "Tag")).complete());
+        verify(cache).put("m1", full);
+        verify(processor).processStoredMatchSummary(any(), eq("p1"));
+        verify(api, never()).getStoredMatches(any(), any(), any(), any(), any(), any());
+        verify(api, never()).getMatchById(any());
+        verify(dynamo).updateBackfillState("p1", "RECENT", "COMPLETE", 1);
+    }
+
+    @Test
+    void detailCacheMissFetchesOnceThenServesFullCachedPayload() {
+        var api = mock(ValorantApiClient.class);
+        var cache = mock(FullMatchCache.class);
+        var full = RecentMatchMapperTest.fullMatch();
+        when(cache.get("m1")).thenReturn(java.util.Optional.empty(), java.util.Optional.of(full));
+        when(api.getMatchById("m1")).thenReturn(Map.of("status", 200, "data", full));
+        var service = new MatchDataService(mock(DynamoDbService.class), api, new MatchResponseFormatter(),
+                mock(MatchProcessor.class), new HenrikApiRequestQueue(100_000, 10, 0, 1), cache);
+        service.getMatchDetails("m1");
+        assertEquals(Map.of("status", 200, "cached", true, "data", full), service.getMatchDetails("m1"));
+        verify(api).getMatchById("m1");
+        verify(cache).put("m1", full);
+    }
+
+    @Test
+    void preloadingOnlyReturnsCachedDetailsAndNeverFetchesMissingMatches() {
+        var api = mock(ValorantApiClient.class);
+        var queue = mock(HenrikApiRequestQueue.class);
+        var cache = mock(FullMatchCache.class);
+        var full = RecentMatchMapperTest.fullMatch();
+        when(cache.get("m1")).thenReturn(java.util.Optional.of(full));
+        var service = new MatchDataService(mock(DynamoDbService.class), api, new MatchResponseFormatter(),
+                mock(MatchProcessor.class), queue, cache);
+        assertEquals(Map.of("m1", full), service.getCachedMatchDetails(List.of("m1", "old", "m1")).get("data"));
+        verify(cache).get("m1");
+        verifyNoInteractions(api, queue);
+    }
+
+    @Test
+    void invalidRecentResponseDoesNotAdvanceRefreshCooldown() {
+        var dynamo = mock(DynamoDbService.class);
+        var api = mock(ValorantApiClient.class);
+        when(api.getRecentMatches(any(), any(), any(), any())).thenReturn(Map.of("status", 503));
+        var service = new MatchDataService(dynamo, api, new MatchResponseFormatter(), mock(MatchProcessor.class),
+                new HenrikApiRequestQueue(100_000, 10, 0, 1), mock(FullMatchCache.class));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> service.processBackfill(RefreshJob.matches("p1", "na", "Player", "Tag")));
+        verify(dynamo, never()).updatePlayerLastRecentMatchUpdate(any(), any(), any());
+    }
+
+    @Test
+    void preloadDefersDetailsThatWouldExceedTheResponseBudget() {
+        var cache = mock(FullMatchCache.class);
+        var large = Map.<String, Object>of("rounds", "x".repeat(1_100_000));
+        when(cache.get(any())).thenReturn(java.util.Optional.of(large));
+        var service = new MatchDataService(mock(DynamoDbService.class), mock(ValorantApiClient.class),
+                new MatchResponseFormatter(), mock(MatchProcessor.class), mock(HenrikApiRequestQueue.class), cache);
+        var response = service.getCachedMatchDetails(List.of("m1", "m2"));
+        assertEquals(Map.of("m1", large), response.get("data"));
+        assertEquals(List.of("m2"), response.get("deferred"));
+    }
+
+    @Test
     void historyBackfillCheckpointsA500MatchPage() {
         DynamoDbService dynamo = mock(DynamoDbService.class);
         ValorantApiClient api = mock(ValorantApiClient.class);
@@ -34,7 +106,7 @@ class MatchDataServiceTest {
                 .thenReturn(storedResponse(3_868, matches));
 
         MatchDataService service = new MatchDataService(
-                dynamo, api, new MatchResponseFormatter(), processor, queue);
+                dynamo, api, new MatchResponseFormatter(), processor, queue, mock(FullMatchCache.class));
 
         MatchDataService.BackfillResult result = service.processBackfill(job);
 
@@ -56,7 +128,7 @@ class MatchDataServiceTest {
                 .thenReturn(storedResponse(3_868, matches));
 
         MatchDataService service = new MatchDataService(
-                dynamo, api, new MatchResponseFormatter(), processor, queue);
+                dynamo, api, new MatchResponseFormatter(), processor, queue, mock(FullMatchCache.class));
 
         MatchDataService.BackfillResult result = service.processBackfill(job);
 
@@ -76,7 +148,7 @@ class MatchDataServiceTest {
         when(dynamo.getMMRHistory(any())).thenReturn(List.of());
 
         MatchDataService service = new MatchDataService(
-                dynamo, api, new MatchResponseFormatter(), mock(MatchProcessor.class), queue);
+                dynamo, api, new MatchResponseFormatter(), mock(MatchProcessor.class), queue, mock(FullMatchCache.class));
 
         var response = service.getPlayerMatches(
                 "puuid", "na", "Player", "Tag", 15, null, "all", "competitive");
@@ -95,7 +167,7 @@ class MatchDataServiceTest {
 
         MatchDataService service = new MatchDataService(
                 dynamo, mock(ValorantApiClient.class), new MatchResponseFormatter(),
-                mock(MatchProcessor.class), mock(HenrikApiRequestQueue.class));
+                mock(MatchProcessor.class), mock(HenrikApiRequestQueue.class), mock(FullMatchCache.class));
 
         String cursor = "%7B%22PK%22%3A%22PLAYER%23p1%22%2C%22SK%22%3A%22MATCH%23m1%22%2C"
                 + "%22GSI1PK%22%3A%22PLAYER%23p1%22%2C%22GSI1SK%22%3A123%7D";

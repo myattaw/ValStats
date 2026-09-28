@@ -54,6 +54,8 @@ DynamoDB          SQS refresh queue
 
 The API Lambda should perform short DynamoDB reads and enqueue refresh work. It should not wait for HenrikDev. The browser continues displaying cached data, shows a refreshing indicator, and reads updated records after the worker finishes.
 
+Recent refreshes fetch the latest 10 full matches from Henrik's v3 matches endpoint. The worker converts these into player summaries and caches the original details separately under `MATCH#<id>` / `FULL`, with compression, chunking for large matches, and a 30-day TTL. Older history still uses paginated stored-matches. The browser preloads visible cached details through `GET /api/valorant/matches/cached-details?ids=...` (up to 20 IDs, bounded responses with deferred IDs), enabling scoreboards and MVP placement before expansion. Preloading never calls Henrik; opening an uncached match uses the single-match endpoint and caches the successful response.
+
 ### Why Cloudflare
 
 - Cloudflare Pages can host the static Vite build without an always-running web server.

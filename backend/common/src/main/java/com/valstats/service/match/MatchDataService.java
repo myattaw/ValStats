@@ -27,7 +27,7 @@ import java.util.*;
 public class MatchDataService {
 
     private static final Logger LOG = LoggerFactory.getLogger(MatchDataService.class);
-    private static final int RECENT_MATCH_PAGE_SIZE = 50;
+    private static final int RECENT_MATCH_PAGE_SIZE = 10;
     // Keep a history page small enough that its match and derived-insight writes
     // reliably finish inside the worker Lambda timeout. Each completed page is
     // checkpointed and continued by a separate SQS message.
@@ -40,19 +40,22 @@ public class MatchDataService {
     private final MatchResponseFormatter responseFormatter;
     private final MatchProcessor matchProcessor;
     private final HenrikApiRequestQueue apiRequestQueue;
+    private final FullMatchCache fullMatchCache;
 
     public MatchDataService(
             DynamoDbService dynamoDbService,
             ValorantApiClient apiClient,
             MatchResponseFormatter responseFormatter,
             MatchProcessor matchProcessor,
-            HenrikApiRequestQueue apiRequestQueue
+            HenrikApiRequestQueue apiRequestQueue,
+            FullMatchCache fullMatchCache
     ) {
         this.dynamoDbService = dynamoDbService;
         this.apiClient = apiClient;
         this.responseFormatter = responseFormatter;
         this.matchProcessor = matchProcessor;
         this.apiRequestQueue = apiRequestQueue;
+        this.fullMatchCache = fullMatchCache;
     }
 
     /**
@@ -134,8 +137,10 @@ public class MatchDataService {
         boolean initialBackfill = !hasAnyMatches || needsModeBackfill || needsDamageBackfill;
 
         boolean succeeded = syncStoredMatches(
-                puuid, region, name, tag, RECENT_MATCH_PAGE_SIZE, initialBackfill);
+                puuid, region, name, tag, BULK_MATCH_PAGE_SIZE, initialBackfill);
         if (!succeeded) return false;
+        // Preserve the old history watermark until incremental discovery finishes.
+        refreshRecentMatches(puuid, region, name, tag);
 
         dynamoDbService.updatePlayerLastRecentMatchUpdate(region, name, tag);
         // Match history and MMR history are separate Henrik datasets. Refresh MMR
@@ -156,11 +161,18 @@ public class MatchDataService {
     public BackfillResult processBackfill(RefreshJob job) {
         String syncScope = syncScope(job);
         dynamoDbService.updateBackfillState(job.puuid(), syncScope, "RUNNING", Math.max(1, job.page()));
+        if ("RECENT".equalsIgnoreCase(job.kind())) {
+            refreshRecentMatches(job.puuid(), job.region(), job.name(), job.tag());
+            dynamoDbService.updatePlayerLastRecentMatchUpdate(job.region(), job.name(), job.tag());
+            refreshMmrHistory(job.puuid(), job.region(), job.name(), job.tag());
+            dynamoDbService.updateBackfillState(job.puuid(), syncScope, "COMPLETE", 1);
+            // The worker always follows this bounded recent fetch with stored-history backfill.
+            return new BackfillResult(true, 1, false);
+        }
         int startPage = Math.max(1, job.page());
         int pageBudget = Math.max(1, Math.min(job.pagesPerJob(), 20));
-        boolean recent = "RECENT".equalsIgnoreCase(job.kind());
-        int requestSize = recent ? RECENT_MATCH_PAGE_SIZE : BULK_MATCH_PAGE_SIZE;
-        int maximumPages = recent ? 2 : MAX_BULK_MATCH_PAGES;
+        int requestSize = BULK_MATCH_PAGE_SIZE;
+        int maximumPages = MAX_BULK_MATCH_PAGES;
         boolean targeted = "ACT".equalsIgnoreCase(job.kind()) && job.targetSeasonId() != null
                 && !job.targetSeasonId().isBlank();
         boolean targetSeen = job.targetSeen();
@@ -195,12 +207,9 @@ public class MatchDataService {
                     pageContainsTarget = true;
                     targetSeen = true;
                 }
-                if (recent) matchProcessor.processStoredMatchSummary(match, job.puuid());
             }
-            if (!recent) {
-                matchProcessor.processStoredMatchBatch(matches, job.puuid(), requestedPage,
-                        "HISTORY".equalsIgnoreCase(job.kind()));
-            }
+            matchProcessor.processStoredMatchBatch(matches, job.puuid(), requestedPage,
+                    "HISTORY".equalsIgnoreCase(job.kind()));
 
             if (targeted && targetSeen && !pageContainsTarget) {
                 complete = true;
@@ -220,17 +229,9 @@ public class MatchDataService {
             }
         }
 
-        if ("RECENT".equalsIgnoreCase(job.kind())) {
-            dynamoDbService.updatePlayerLastRecentMatchUpdate(job.region(), job.name(), job.tag());
-            refreshMmrHistory(job.puuid(), job.region(), job.name(), job.tag());
-        }
         if (page > maximumPages) complete = true;
-        // RECENT is a bounded foreground phase. When its page budget is consumed,
-        // the processor queues a separate HISTORY job; leaving RECENT as QUEUED
-        // would make clients display "Refreshing" forever.
-        boolean scopeComplete = complete || "RECENT".equalsIgnoreCase(job.kind());
         dynamoDbService.updateBackfillState(job.puuid(), syncScope,
-                scopeComplete ? "COMPLETE" : "QUEUED", page);
+                complete ? "COMPLETE" : "QUEUED", page);
         return new BackfillResult(complete, page, targetSeen);
     }
 
@@ -238,6 +239,27 @@ public class MatchDataService {
         return "ACT".equalsIgnoreCase(job.kind())
                 ? "ACT#" + job.targetSeasonId()
                 : job.kind().toUpperCase(Locale.ROOT);
+    }
+
+    private void refreshRecentMatches(String puuid, String region, String name, String tag) {
+        Map<String, Object> response = apiRequestQueue.execute(
+                "recent matches for " + name + "#" + tag,
+                () -> apiClient.getRecentMatches(region, name, tag, RECENT_MATCH_PAGE_SIZE));
+        if (response == null || !(response.get("status") instanceof Number status) || status.intValue() != 200
+                || !(response.get("data") instanceof List<?> matches)) {
+            throw new IllegalStateException("Henrik returned an invalid recent-match response");
+        }
+        Set<String> processed = new HashSet<>();
+        for (Object value : matches) {
+            if (!(value instanceof Map<?, ?> raw)) continue;
+            Map<String, Object> match = new HashMap<>();
+            raw.forEach((key, field) -> match.put(key.toString(), field));
+            RecentMatchMapper.summary(match, puuid).ifPresent(summary -> {
+                if (!processed.add(summary.meta().id())) return;
+                fullMatchCache.put(summary.meta().id(), match);
+                matchProcessor.processStoredMatchSummary(summary, puuid);
+            });
+        }
     }
 
     /** Records a terminal worker failure so clients do not display a permanent refresh state. */
@@ -334,13 +356,45 @@ public class MatchDataService {
      * Strategy: Check cache first, then API if needed
      */
     public Object getMatchDetails(String matchId) {
-        // Stored-match records only contain summary statistics. The complete
-        // Henrik payload is required here for ranks, economy and round events.
-        // Do not return the lossy cached summary from this detail endpoint.
+        var cached = fullMatchCache.get(matchId);
+        if (cached.isPresent()) return Map.of("status", 200, "cached", true, "data", cached.get());
         LOG.info("Fetching full match details for {}", matchId);
-        return apiRequestQueue.execute(
+        Map<String, Object> response = apiRequestQueue.execute(
                 "match details " + matchId,
                 () -> apiClient.getMatchById(matchId));
+        if (response != null && response.get("status") instanceof Number status && status.intValue() == 200
+                && response.get("data") instanceof Map<?, ?> raw) {
+            Map<String, Object> data = new HashMap<>();
+            raw.forEach((key, value) -> data.put(key.toString(), value));
+            fullMatchCache.put(matchId, data);
+        }
+        return response;
+    }
+
+    /** Cache-only preloading must never fan out into Henrik calls for older history. */
+    public Map<String, Object> getCachedMatchDetails(List<String> ids) {
+        Map<String, Object> matches = new LinkedHashMap<>();
+        List<String> deferred = new ArrayList<>();
+        int bytes = 0;
+        ObjectMapper json = new ObjectMapper();
+        for (String id : ids.stream().filter(Objects::nonNull).filter(s -> !s.isBlank()).distinct().limit(20).toList()) {
+            var cached = fullMatchCache.get(id);
+            if (cached.isEmpty()) continue;
+            try {
+                int size = json.writeValueAsBytes(cached.get()).length;
+                // Leave room for JSON escaping in the Lambda proxy envelope.
+                if (size > 2_000_000) continue;
+                if (bytes + size > 2_000_000) {
+                    deferred.add(id);
+                    continue;
+                }
+                matches.put(id, cached.get());
+                bytes += size;
+            } catch (java.io.IOException e) {
+                LOG.warn("Cannot serialize cached match {}", id, e);
+            }
+        }
+        return Map.of("status", 200, "data", matches, "deferred", deferred);
     }
 
     public boolean syncStoredMatches(

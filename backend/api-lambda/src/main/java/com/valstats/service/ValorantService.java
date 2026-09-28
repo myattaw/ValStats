@@ -397,6 +397,10 @@ public class ValorantService {
         return Map.of("status", 200, "data", data);
     }
 
+    public Map<String, Object> getCachedMatchDetails(List<String> ids) {
+        return matchDataService.getCachedMatchDetails(ids);
+    }
+
     public Map<String, Object> refreshPlayerNameHistory(String puuid) {
         return refreshPlayerNameHistory(puuid, false);
     }

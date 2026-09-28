@@ -6,6 +6,7 @@ import {
     API_BASE_URL,
     calculateADR,
     fetchMatchDetails,
+    preloadMatchDetails,
     INITIAL_MATCHES_SIZE
 } from "./Match/utils/matchUtils";
 import { MatchDetailsPanel, MatchSkeleton } from "./Match/MatchComponents";
@@ -196,6 +197,17 @@ export function MatchHistory({
         [region, playerName, playerTag, selectedAct, selectedMode]
     );
 
+    const preloadDetails = useCallback(async (rows: Match[]) => {
+        const detailsById = await preloadMatchDetails(rows.map((match) => match.id));
+        if (!detailsById.size) return;
+        setMatches((current) => current.map((match) => {
+            const details = detailsById.get(match.id);
+            return details && !match.details
+                ? {...match, details, players: details.players, hasDetails: true}
+                : match;
+        }));
+    }, []);
+
     const fetchInitialMatches = useCallback(async (showLoading = true) => {
         if (showLoading) setIsInitialLoading(true);
 
@@ -252,6 +264,7 @@ export function MatchHistory({
                     visibleMatchIds.current = new Set(mergedMatches.map((match) => match.id));
                     return mergedMatches;
                 });
+                void preloadDetails(data);
                 // Season mode is still not cursor-paginated on the backend, so don't show load-more there.
                 setLastKey(json?.lastKey ?? null);
                 setHasMore(!!json?.lastKey);
@@ -267,7 +280,7 @@ export function MatchHistory({
         } finally {
             if (showLoading) setIsInitialLoading(false);
         }
-    }, [buildMatchesUrl, isSeasonMode]);
+    }, [buildMatchesUrl, isSeasonMode, preloadDetails]);
 
     const refreshMatches = useCallback(async () => {
         setIsBackgroundRefreshing(true);
@@ -435,6 +448,7 @@ export function MatchHistory({
                 return combined;
             });
 
+            void preloadDetails(newMatches);
             setLastKey(json?.lastKey ?? null);
             setHasMore(!!json?.lastKey);
         } catch (err) {

@@ -584,7 +584,7 @@ export function MatchHistory({
                                                             <span className="match-agent-name" title={match.agent}>{match.agent}</span>
                                                             <span className="match-agent-badges">
                                                                 {lobbyPlacement && (
-                                                                    <span className={`match-placement-badge ${lobbyPlacement.includes("MVP") ? "is-mvp" : ""}`}>
+                                                                    <span className={`match-placement-badge ${lobbyPlacement === "MVP" ? "is-mvp" : lobbyPlacement === "TEAM MVP" ? "is-team-mvp" : ""}`}>
                                                                         {lobbyPlacement}
                                                                     </span>
                                                                 )}

@@ -320,6 +320,7 @@
 .match-agent-badges .match-state-badge svg { width:9px; height:9px; }
 .match-placement-badge { max-width:100%; display:inline-flex; padding:3px 6px; overflow:hidden; border:1px solid rgba(255,255,255,.09); border-radius:4px; background:rgba(255,255,255,.045); color:#9eabb3; font-size:8px; font-weight:650; letter-spacing:.045em; line-height:1; text-overflow:ellipsis; white-space:nowrap; }
 .match-placement-badge.is-mvp { border-color:rgba(245,190,82,.2); background:rgba(245,190,82,.09); color:#e8c473; }
+.match-placement-badge.is-team-mvp { border-color:rgba(125,184,232,.25); background:rgba(125,184,232,.1); color:#9bc9ed; }
 .match-separator { display:block; width:1px; justify-self:center; background:rgba(255,255,255,.1); }
 .match-separator-major { height:58px; }
 .match-entry-grid>.match-separator-major:nth-of-type(2) { visibility:hidden; }

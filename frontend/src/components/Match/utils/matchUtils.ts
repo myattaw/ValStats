@@ -1,3 +1,5 @@
+import type { MatchDetails } from "../types/matchTypes";
+
 /**
  * In development Vite proxies this path to Micronaut. In production, either
  * serve the frontend and API from the same origin or set VITE_API_BASE_URL to
@@ -44,15 +46,79 @@ export const calculateADR = (match: any, puuid?: string): number => {
         : 0;
 };
 
-export const fetchMatchDetails = async (matchId: string) => {
-    const res = await fetch(`${API_BASE_URL}/match/${matchId}`);
-    const data = await res.json();
+// Keep a bounded browser cache and share in-flight preloads with dropdown clicks.
+const detailCache = new Map<string, MatchDetails>();
+const detailRequests = new Map<string, Promise<MatchDetails | undefined>>();
 
-    if (data.status !== 200 || !data.data) {
-        throw new Error("Failed to fetch match details");
+function rememberDetails(id: string, details: MatchDetails) {
+    detailCache.delete(id);
+    detailCache.set(id, details);
+    if (detailCache.size > 100) detailCache.delete(detailCache.keys().next().value!);
+    return details;
+}
+
+export const preloadMatchDetails = async (matchIds: string[]): Promise<Map<string, MatchDetails>> => {
+    const ids = [...new Set(matchIds)].slice(0, 20);
+    const missing = ids.filter((id) => !detailCache.has(id) && !detailRequests.has(id));
+    if (missing.length) {
+        const batch = (async () => {
+            const data: Record<string, any> = {};
+            let remaining = missing;
+            while (remaining.length) {
+                try {
+                    const response = await fetch(API_BASE_URL + "/matches/cached-details?" + new URLSearchParams({ids: remaining.join(",")}));
+                    if (!response.ok) break;
+                    const payload = await response.json();
+                    if (payload.status !== 200) break;
+                    Object.assign(data, payload.data ?? {});
+                    const deferred: string[] = Array.isArray(payload.deferred) ? payload.deferred : [];
+                    const next = remaining.filter((id) => deferred.includes(id) && !data[id]);
+                    if (next.length >= remaining.length) break;
+                    remaining = next;
+                } catch { break; }
+            }
+            return data;
+        })();
+        for (const id of missing) {
+            const request = batch.then((data) => {
+                if (!data[id]?.players?.all_players?.length) return undefined;
+                return rememberDetails(id, normalizeMatchDetails(data[id]));
+            }).finally(() => detailRequests.delete(id));
+            detailRequests.set(id, request);
+        }
     }
+    const result = new Map<string, MatchDetails>();
+    await Promise.all(ids.map(async (id) => {
+        const details = detailCache.get(id) ?? await detailRequests.get(id)?.catch(() => undefined);
+        if (details) result.set(id, details);
+    }));
+    return result;
+};
 
-    const matchData = data.data;
+export const fetchMatchDetails = async (matchId: string): Promise<MatchDetails> => {
+    const cached = detailCache.get(matchId) ?? await detailRequests.get(matchId);
+    if (cached) return cached;
+    // Recheck after waiting for a cache-only preload: another click may have started the fallback.
+    const pending = detailRequests.get(matchId);
+    if (pending) {
+        const details = await pending;
+        if (details) return details;
+    }
+    const request = (async () => {
+        const res = await fetch(API_BASE_URL + "/match/" + encodeURIComponent(matchId));
+        if (!res.ok) throw new Error("Failed to fetch match details");
+        const data = await res.json();
+        if (data.status !== 200 || !data.data?.players?.all_players?.length) {
+            throw new Error("Match details are unavailable");
+        }
+        return rememberDetails(matchId, normalizeMatchDetails(data.data));
+    })();
+    detailRequests.set(matchId, request);
+    try { return await request; }
+    finally { detailRequests.delete(matchId); }
+};
+
+export const normalizeMatchDetails = (matchData: any): MatchDetails => {
     const players = matchData.players?.all_players || [];
 
     const normalizedPlayers = players.map((p: any) => ({

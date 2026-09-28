@@ -1,7 +1,9 @@
+import { RecentSearches } from './RecentSearches';
+import type { RecentSearchHistory } from '../hooks/useRecentSearches';
 import { useState, type FormEvent } from 'react';
 import { ArrowRight, Search, ShieldCheck } from 'lucide-react';
 
-export function PlayerSearch({ onSearch, error }: { onSearch: (query: string) => void; error?: string | null }) {
+export function PlayerSearch({ onSearch, error, recentSearches }: { onSearch: (query: string) => boolean; error?: string | null; recentSearches: RecentSearchHistory }) {
   const [query, setQuery] = useState('');
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -24,6 +26,7 @@ export function PlayerSearch({ onSearch, error }: { onSearch: (query: string) =>
           </div>
           <div className="search-helper">Include the full Riot ID, including the tag.</div>
           {error && <p className="form-error" role="alert">{error}</p>}
+          <RecentSearches history={recentSearches} onSelect={onSearch} query={query} />
         </form>
       </div>
       <div className="hero-visual" aria-hidden="true">

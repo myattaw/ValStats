@@ -7,11 +7,13 @@ import { PlayerProfile } from './components/PlayerProfile';
 import { PlayerSearch } from './components/PlayerSearch';
 import { SiteHeader } from './components/SiteHeader';
 import { StatsOverview } from './components/StatsOverview';
+import { useRecentSearches } from './hooks/useRecentSearches';
 import { usePlayerData } from './hooks/usePlayerData';
 import { parsePlayerFromUrl, parsePlayerQuery, playerPath } from './lib/player';
 import type { PlayerIdentifier } from './types/player';
 
 export default function App() {
+  const recentSearches = useRecentSearches();
   const [player, setPlayer] = useState<PlayerIdentifier | null>(() => parsePlayerFromUrl());
   const [act, setAct] = useState<{ id: string; label: string; seasonKey?: string }>({ id: 'all', label: 'All Acts' });
   const [mode, setMode] = useState({ id: 'competitive', label: 'Competitive' });
@@ -45,21 +47,23 @@ export default function App() {
     const next = parsePlayerQuery(query);
     if (!next) {
       setInputError('Enter a complete Riot ID in the format Player#Tag.');
-      return;
+      return false;
     }
+    recentSearches.remember(next);
     setInputError(null);
     setAct({ id: 'all', label: 'All Acts' });
     setMode({ id: 'competitive', label: 'Competitive' });
     setPlayer(next);
     window.history.pushState(null, '', playerPath(next));
+    return true;
   };
 
   return (
     <div className="app-frame">
-      <SiteHeader compact={Boolean(player)} onSearch={search} />
+      <SiteHeader compact={Boolean(player)} onSearch={search} recentSearches={recentSearches} />
       <main className="page-shell main-content">
         {!player ? (
-          <PlayerSearch onSearch={search} error={inputError} />
+          <PlayerSearch onSearch={search} error={inputError} recentSearches={recentSearches} />
         ) : (
           <div className="dashboard">
             {(inputError || error) && <div className="error-banner"><AlertCircle size={18} />{inputError || error}</div>}

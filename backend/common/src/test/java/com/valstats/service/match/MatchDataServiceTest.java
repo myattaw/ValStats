@@ -23,6 +23,43 @@ import static org.mockito.Mockito.*;
 class MatchDataServiceTest {
 
     @Test
+    void newAccountReturnsTwentyStoredSummariesWithoutFullMatchesOrDerivedWrites() {
+        var api = mock(ValorantApiClient.class);
+        var dynamo = mock(DynamoDbService.class);
+        var cache = mock(FullMatchCache.class);
+        var db = mock(software.amazon.awssdk.services.dynamodb.DynamoDbClient.class);
+        var processor = new MatchProcessor(db, List.of());
+        when(dynamo.getMatchesFromGSI("p1", 20, null)).thenReturn(QueryResponse.builder().build());
+        var stored = java.util.stream.IntStream.range(0, 20)
+                .mapToObj(i -> {
+                    var full = RecentMatchMapperTest.fullMatch();
+                    @SuppressWarnings("unchecked") var meta = (Map<String, Object>) full.get("metadata");
+                    meta.put("matchid", "match-" + i);
+                    return RecentMatchMapper.summary(full, "p1").orElseThrow();
+                }).toList();
+        when(api.getStoredMatches("na", "Player", "Tag", 20, 1, null))
+                .thenReturn(storedResponse(500, stored));
+        var service = new MatchDataService(dynamo, api, new MatchResponseFormatter(), processor,
+                new HenrikApiRequestQueue(100_000, 10, 0, 1), cache);
+        var response = service.getPlayerMatches("p1", "na", "Player", "Tag", 20, null, "all", "all", true);
+        assertEquals(20, response.data().size());
+        verify(api).getStoredMatches("na", "Player", "Tag", 20, 1, null);
+        verifyNoMoreInteractions(api);
+        verifyNoInteractions(db);
+    }
+
+    @Test
+    void emptyCachePollingDoesNotFetchStoredMatches() {
+        var api = mock(ValorantApiClient.class);
+        var dynamo = mock(DynamoDbService.class);
+        when(dynamo.getMatchesFromGSI("p1", 20, null)).thenReturn(QueryResponse.builder().build());
+        var service = new MatchDataService(dynamo, api, new MatchResponseFormatter(), mock(MatchProcessor.class),
+                mock(HenrikApiRequestQueue.class), mock(FullMatchCache.class));
+        assertEquals(List.of(), service.getRecentMatchHistory("p1", "na", "Player", "Tag", "all", false).get("data"));
+        verifyNoInteractions(api);
+    }
+
+    @Test
     void recentRefreshCachesFullMatchesWithoutCallingStoredOrSingleMatchEndpoints() {
         var dynamo = mock(DynamoDbService.class);
         var api = mock(ValorantApiClient.class);
@@ -118,6 +155,9 @@ class MatchDataServiceTest {
         assertEquals(20, ((List<?>) result.get("data")).size());
         assertEquals(20, ((Map<?, ?>) result.get("details")).size());
         verify(cache, times(20)).put(any(), any());
+        var order = inOrder(cache, processor);
+        order.verify(cache, times(20)).put(any(), any());
+        order.verify(processor).processStoredMatchSummary(any(), eq("p1"));
         verify(api).getRecentMatches("na", "Player", "Tag", 10, 0);
         verify(api).getRecentMatches("na", "Player", "Tag", 10, 10);
         verify(api, never()).getStoredMatches(any(), any(), any(), any(), any(), any());

@@ -47,7 +47,25 @@ class ValorantServiceTest {
                 dynamoDbService, apiRequestQueue, refreshQueuePublisher);
         assertEquals(expected, service.getRecentMatches("na", "Player", "Tag", "all"));
         verify(dynamoDbService).updateBackfillState("p1", "RECENT", "COMPLETE", 1);
-        verifyNoInteractions(refreshQueuePublisher, apiClient, apiRequestQueue);
+        verifyNoInteractions(apiClient, apiRequestQueue);
+        verify(refreshQueuePublisher, org.mockito.Mockito.never()).enqueue(any());
+    }
+
+    @Test
+    void recentRefreshQueuesFullMatchesWithoutWaitingForHenrikOrCachePreloading() {
+        when(playerCacheService.getPuuidByNameTag("Player", "Tag")).thenReturn(Optional.of("p1"));
+        when(matchDataService.needsRefresh("p1", "na", "Player", "Tag")).thenReturn(true);
+        when(dynamoDbService.tryQueueBackfill("p1", "RECENT")).thenReturn(true);
+        when(refreshQueuePublisher.isConfigured()).thenReturn(true);
+        var service = new ValorantService(matchDataService, playerStatsService, playerCacheService, apiClient,
+                dynamoDbService, apiRequestQueue, refreshQueuePublisher);
+        var response = service.getRecentMatches("na", "Player", "Tag", "all");
+        assertEquals(true, response.get("refreshing"));
+        assertEquals(java.util.List.of(), response.get("data"));
+        verify(refreshQueuePublisher).enqueue(RefreshJob.matches("p1", "na", "Player", "Tag"));
+        verify(matchDataService, org.mockito.Mockito.never()).getRecentMatchHistory(
+                any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+        verifyNoInteractions(apiClient, apiRequestQueue);
     }
 
     @Test

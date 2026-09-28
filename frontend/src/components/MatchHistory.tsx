@@ -181,7 +181,7 @@ export function MatchHistory({
         [region, playerName, playerTag, selectedAct, selectedMode]
     );
 
-    const preloadDetails = useCallback(async (rows: Match[]) => {
+    const preloadDetails = useCallback(async (rows: Pick<Match, "id">[]) => {
         await preloadMatchDetails(rows.map((match) => match.id), (detailsById) => {
             if (!detailsById.size) return;
             setMatches((current) => current.map((match) => {
@@ -202,11 +202,7 @@ export function MatchHistory({
 
             if (!res.ok) {
                 console.error("Failed to fetch matches:", res.status);
-                if (showLoading) {
-                    setMatches([]);
-                    setLastKey(null);
-                    setHasMore(false);
-                }
+
                 return;
             }
 
@@ -226,11 +222,6 @@ export function MatchHistory({
                     }
                 }
                 setMatches((currentMatches) => {
-                    if (showLoading) {
-                        visibleMatchIds.current = new Set(data.map((match) => match.id));
-                        return data;
-                    }
-
                     const currentById = new Map(currentMatches.map((match) => [match.id, match]));
                     const refreshedIds = new Set(data.map((match) => match.id));
                     const refreshedMatches = data.map((match) => {
@@ -258,14 +249,11 @@ export function MatchHistory({
             }
 
         } catch (e) {
+            if (generation !== loadGeneration.current) return;
             console.error("Error fetching matches:", e);
-            if (showLoading) {
-                setMatches([]);
-                setLastKey(null);
-                setHasMore(false);
-            }
+
         } finally {
-            if (showLoading) setIsInitialLoading(false);
+            if (showLoading && generation === loadGeneration.current) setIsInitialLoading(false);
         }
     }, [buildMatchesUrl, isSeasonMode, preloadDetails]);
 
@@ -339,8 +327,8 @@ export function MatchHistory({
                     return result;
                 });
                 recentLoaded.current = true;
-                setIsInitialLoading(false);
-                void preloadDetails(rows);
+                if (rows.length > 0 || !payload.refreshing) setIsInitialLoading(false);
+                void preloadDetails(Array.from(visibleMatchIds.current, (id) => ({id})));
                 updated = updated || payload.updated === true || payload.refreshing === true;
                 if (!payload.refreshing) break;
                 await new Promise(resolve => window.setTimeout(resolve, 1500));
@@ -377,7 +365,10 @@ export function MatchHistory({
         setLoadingMore(false);
         setLastKey(null);
         setHasMore(true);
-        if (selectedAct === 'all') void refreshMatches();
+        if (selectedAct === 'all') {
+            void fetchInitialMatches();
+            void refreshMatches();
+        }
         else void fetchInitialMatches().then(() => { recentLoaded.current = true; return refreshMatches(); });
         return () => {
             loadGeneration.current++;

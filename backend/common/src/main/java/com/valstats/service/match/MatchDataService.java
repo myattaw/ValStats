@@ -72,6 +72,12 @@ public class MatchDataService {
             String act,
             String mode
     ) {
+        return getPlayerMatches(puuid, region, name, tag, size, lastKeyJson, act, mode, false);
+    }
+
+    public MatchResponses.MatchHistoryResponse getPlayerMatches(
+            String puuid, String region, String name, String tag, int size,
+            String lastKeyJson, String act, String mode, boolean bootstrap) {
         // =========================
         // FETCH MATCHES
         // =========================
@@ -97,6 +103,23 @@ public class MatchDataService {
             queryCursor = response.lastEvaluatedKey();
         } while (cachedMatches.size() < size && queryCursor != null && !queryCursor.isEmpty());
         responseLastKey = queryCursor;
+
+        // A new account has no local history yet. Return one compact stored page
+        // directly; full scoreboards and historical aggregation run separately.
+        if (bootstrap && cachedMatches.isEmpty() && exclusiveStartKey == null
+                && (act == null || "all".equalsIgnoreCase(act))) {
+            StoredMatchesResponse stored = apiRequestQueue.execute(
+                    "initial stored matches for " + name + "#" + tag,
+                    () -> apiClient.getStoredMatches(region, name, tag,
+                            Math.min(size, RECENT_MATCH_PAGE_SIZE), 1,
+                            "all".equals(normalizedMode) ? null : normalizedMode));
+            if (stored != null && stored.status() == 200 && stored.data() != null) {
+                for (var match : stored.data()) {
+                    var row = matchProcessor.storedMatchItem(match, puuid);
+                    if (row != null) cachedMatches.add(row);
+                }
+            }
+        }
 
         // =========================
         // ENSURE MMR IS FRESH
@@ -278,6 +301,10 @@ public class MatchDataService {
             // Detail caching must not depend on optional summary metadata such as season_id.
             fullMatchCache.put(id, match);
             details.put(id, match);
+        }
+        // Cache every scoreboard before performing the more expensive derived
+        // summary writes, so progress is visible across the entire recent slice.
+        for (var match : details.values()) {
             RecentMatchMapper.summary(match, puuid).ifPresent(summary -> {
                 // A later stored-history response supplies missing season identity. Avoid duplicate keys.
                 if (!"unknown".equals(summary.meta().season().id())) {

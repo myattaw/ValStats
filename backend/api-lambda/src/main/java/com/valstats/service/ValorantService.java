@@ -145,7 +145,8 @@ public class ValorantService {
                 size,
                 lastKey,
                 act,
-                mode
+                mode,
+                true
         );
         return matches;
     }
@@ -162,6 +163,13 @@ public class ValorantService {
             return response;
         }
         try {
+            if (refreshQueuePublisher.isConfigured()) {
+                refreshQueuePublisher.enqueue(RefreshJob.matches(puuid, region, name, tag));
+                // The browser already loads compact summaries independently.
+                // Never keep an API Gateway invocation open for full matches.
+                return Map.of("status", 200, "data", List.of(), "details", Map.of(),
+                        "updated", false, "refreshing", true);
+            }
             dynamoDbService.updateBackfillState(puuid, "RECENT", "RUNNING", 1);
             Map<String, Object> response = matchDataService.getRecentMatchHistory(puuid, region, name, tag, mode, true);
             dynamoDbService.updateBackfillState(puuid, "RECENT", "COMPLETE", 1);

@@ -34,6 +34,15 @@ public class MatchProcessor {
     }
 
     public boolean processStoredMatchSummary(StoredMatchesResponse.StoredMatch match, String puuid) {
+        return processStoredMatchSummary(match, puuid, true);
+    }
+
+    /** Maintain match/totals only; roster names and social insights belong to history work. */
+    public boolean processRecentMatchSummary(StoredMatchesResponse.StoredMatch match, String puuid) {
+        return processStoredMatchSummary(match, puuid, false);
+    }
+
+    private boolean processStoredMatchSummary(StoredMatchesResponse.StoredMatch match, String puuid, boolean includeInsights) {
         if (match == null || match.meta() == null || match.stats() == null) {
             return false;
         }
@@ -97,7 +106,7 @@ public class MatchProcessor {
                 tier
         );
 
-        if (newlyProcessed) {
+        if (newlyProcessed && includeInsights) {
             String outcome = outcome(str(stats.team()), redRounds, blueRounds);
             updateDimensionAggregate("PLAYER#" + puuid, "MAP#" + dimensionKey(
                             mapObj != null ? str(mapObj.id()) : str(mapObj != null ? mapObj.name() : "unknown")),
@@ -110,7 +119,7 @@ public class MatchProcessor {
             updateSocialAggregates(match, puuid, str(stats.team()), outcome);
         }
 
-        recordPlayerNames(match, gameStart);
+        if (includeInsights) recordPlayerNames(match, gameStart);
 
         return true;
     }

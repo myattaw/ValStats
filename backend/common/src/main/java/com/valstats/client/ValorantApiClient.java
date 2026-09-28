@@ -17,6 +17,12 @@ public interface ValorantApiClient {
             @PathVariable String region, @PathVariable String name, @PathVariable String tag,
             @QueryValue("size") Integer size, @QueryValue("start") Integer start);
 
+    @Get("/valorant/v4/matches/{region}/pc/{name}/{tag}")
+    Map<String, Object> getRecentMatchesByMode(
+            @PathVariable String region, @PathVariable String name, @PathVariable String tag,
+            @QueryValue("size") Integer size, @QueryValue("start") Integer start,
+            @QueryValue("mode") String mode);
+
     @Get("/valorant/v1/stored-matches/{region}/{name}/{tag}")
     StoredMatchesResponse getStoredMatches(
             @PathVariable String region,

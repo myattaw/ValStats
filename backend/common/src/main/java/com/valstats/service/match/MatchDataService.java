@@ -90,23 +90,35 @@ public class MatchDataService {
         String normalizedMode = mode == null ? "all"
                 : mode.replaceAll("[^A-Za-z0-9]", "").toLowerCase(Locale.ROOT);
         Map<String, AttributeValue> queryCursor = exclusiveStartKey;
+        boolean seasonQuery = act != null && !"all".equalsIgnoreCase(act);
         do {
             int remaining = size - cachedMatches.size();
-            QueryResponse response = act != null && !"all".equalsIgnoreCase(act)
-                    ? dynamoDbService.getMatchesBySeasonPaginated(puuid, act, remaining, queryCursor)
-                    : dynamoDbService.getMatchesFromGSI(puuid, remaining, queryCursor);
+            // A sparse mode must not degrade into one database request per
+            // nonmatching game when only one displayed row is still missing.
+            int querySize = "all".equals(normalizedMode) ? remaining : Math.max(100, remaining);
+            QueryResponse response = seasonQuery
+                    ? dynamoDbService.getMatchesBySeasonPaginated(puuid, act, querySize, queryCursor)
+                    : dynamoDbService.getMatchesFromGSI(puuid, querySize, queryCursor);
 
-            cachedMatches.addAll(response.items().stream()
+            var matching = response.items().stream()
                     .filter(item -> "all".equals(normalizedMode)
                             || (item.containsKey("mode") && normalizedMode.equals(item.get("mode").s())))
-                    .toList());
+                    .toList();
+            cachedMatches.addAll(matching.subList(0, Math.min(remaining, matching.size())));
             queryCursor = response.lastEvaluatedKey();
+            if (matching.size() > remaining) {
+                var last = cachedMatches.get(cachedMatches.size() - 1);
+                queryCursor = new HashMap<>();
+                for (String key : seasonQuery ? List.of("PK", "SK") : List.of("PK", "SK", "GSI1PK", "GSI1SK")) {
+                    queryCursor.put(key, last.get(key));
+                }
+            }
         } while (cachedMatches.size() < size && queryCursor != null && !queryCursor.isEmpty());
         responseLastKey = queryCursor;
 
         // A new account has no local history yet. Return one compact stored page
         // directly; full scoreboards and historical aggregation run separately.
-        if (bootstrap && cachedMatches.isEmpty() && exclusiveStartKey == null
+        if (bootstrap && cachedMatches.size() < Math.min(size, RECENT_MATCH_PAGE_SIZE) && exclusiveStartKey == null
                 && (act == null || "all".equalsIgnoreCase(act))) {
             StoredMatchesResponse stored = apiRequestQueue.execute(
                     "initial stored matches for " + name + "#" + tag,
@@ -114,10 +126,15 @@ public class MatchDataService {
                             Math.min(size, RECENT_MATCH_PAGE_SIZE), 1,
                             "all".equals(normalizedMode) ? null : normalizedMode));
             if (stored != null && stored.status() == 200 && stored.data() != null) {
+                Set<String> existingIds = new HashSet<>();
+                cachedMatches.forEach(row -> existingIds.add(row.get("matchId").s()));
                 for (var match : stored.data()) {
                     var row = matchProcessor.storedMatchItem(match, puuid);
-                    if (row != null) cachedMatches.add(row);
+                    if (row != null && existingIds.add(row.get("matchId").s())) cachedMatches.add(row);
                 }
+                cachedMatches.sort(Comparator.comparingLong(
+                        (Map<String, AttributeValue> row) -> Long.parseLong(row.get("gameStart").n())).reversed());
+                if (cachedMatches.size() > size) cachedMatches = new ArrayList<>(cachedMatches.subList(0, size));
             }
         }
 
@@ -272,14 +289,21 @@ public class MatchDataService {
     private record RecentBatch(List<Map<String, AttributeValue>> rows, Map<String, Map<String, Object>> details) {}
 
     private RecentBatch refreshRecentMatches(String puuid, String region, String name, String tag) {
+        return refreshRecentMatches(puuid, region, name, tag, "all", false);
+    }
+
+    private RecentBatch refreshRecentMatches(String puuid, String region, String name, String tag, String mode, boolean interactive) {
         List<Object> matches = new ArrayList<>();
         // Henrik caps each matches response at 10, including requests with size=20.
         // v4 exposes start pagination; v3 does not.
         for (int start = 0; start < RECENT_MATCH_PAGE_SIZE; start += 10) {
             int offset = start;
-            Map<String, Object> response = apiRequestQueue.execute(
-                    "recent matches offset " + offset + " for " + name + "#" + tag,
-                    () -> apiClient.getRecentMatches(region, name, tag, 10, offset));
+            String operation = "recent matches offset " + offset + " for " + name + "#" + tag;
+            java.util.concurrent.Callable<Map<String, Object>> request = () -> "all".equals(mode)
+                            ? apiClient.getRecentMatches(region, name, tag, 10, offset)
+                            : apiClient.getRecentMatchesByMode(region, name, tag, 10, offset, mode);
+            Map<String, Object> response = interactive
+                    ? apiRequestQueue.executeOnce(operation, request) : apiRequestQueue.execute(operation, request);
             if (response == null || !(response.get("status") instanceof Number status) || status.intValue() != 200
                     || !(response.get("data") instanceof List<?> page)) {
                 throw new IllegalStateException("Henrik returned an invalid recent-match response");
@@ -308,7 +332,7 @@ public class MatchDataService {
             RecentMatchMapper.summary(match, puuid).ifPresent(summary -> {
                 // A later stored-history response supplies missing season identity. Avoid duplicate keys.
                 if (!"unknown".equals(summary.meta().season().id())) {
-                    matchProcessor.processStoredMatchSummary(summary, puuid);
+                    matchProcessor.processRecentMatchSummary(summary, puuid);
                 }
                 var row = matchProcessor.storedMatchItem(summary, puuid);
                 if (row != null) rows.add(row);
@@ -325,15 +349,19 @@ public class MatchDataService {
         MatchResponses.MatchHistoryResponse history;
         Map<String, Object> preloaded;
         if (refresh) {
-            RecentBatch batch = refreshRecentMatches(puuid, region, name, tag);
-            String normalizedMode = mode == null ? "all" : mode.replaceAll("[^A-Za-z0-9]", "").toLowerCase(Locale.ROOT);
+            String normalizedMode = normalizeMode(mode);
+            RecentBatch batch = refreshRecentMatches(puuid, region, name, tag, normalizedMode, true);
             var rows = batch.rows().stream().filter(row -> "all".equals(normalizedMode)
                     || normalizedMode.equals(row.get("mode").s())).toList();
-            history = responseFormatter.formatCachedMatches(rows, dynamoDbService.getMMRHistory(puuid),
-                    fullMatchCache.getPlacements(rows.stream().map(row -> row.get("matchId").s()).toList(), puuid));
+            Map<String, MatchResponses.MatchPlacement> placements = new HashMap<>();
+            batch.details().forEach((id, detail) -> {
+                var placement = FullMatchCache.placements(detail).get(puuid);
+                if (placement != null) placements.put(id, placement);
+            });
+            history = responseFormatter.formatCachedMatches(rows, dynamoDbService.getMMRHistory(puuid), placements);
             preloaded = projectDetails(history.data().stream().map(MatchResponses.MatchSummary::id).toList(),
                     id -> Optional.ofNullable(batch.details().get(id)));
-            dynamoDbService.updatePlayerLastRecentMatchUpdate(region, name, tag);
+            dynamoDbService.updatePlayerLastRecentMatchUpdate(region, name, tag, normalizedMode);
         } else {
             history = getPlayerMatches(puuid, region, name, tag, RECENT_MATCH_PAGE_SIZE, null, "all", mode);
             preloaded = getCachedMatchDetails(history.data().stream().map(MatchResponses.MatchSummary::id).toList());
@@ -452,6 +480,17 @@ public class MatchDataService {
             fullMatchCache.put(matchId, data);
         }
         return response;
+    }
+
+    public static String normalizeMode(String mode) {
+        return mode == null || mode.isBlank() ? "all"
+                : mode.replaceAll("[^A-Za-z0-9]", "").toLowerCase(Locale.ROOT);
+    }
+
+    public boolean needsRefresh(String puuid, String region, String name, String tag, String mode) {
+        String normalizedMode = normalizeMode(mode);
+        long lastUpdate = dynamoDbService.getPlayerLastRecentMatchUpdate(region, name, tag, normalizedMode).orElse(0L);
+        return Instant.now().getEpochSecond() - lastUpdate > 300;
     }
 
     /** Cache-only preloading must never fan out into Henrik calls for older history. */

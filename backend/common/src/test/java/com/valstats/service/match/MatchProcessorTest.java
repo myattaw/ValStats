@@ -19,6 +19,21 @@ import static org.mockito.ArgumentMatchers.any;
 class MatchProcessorTest {
 
     @Test
+    void recentSummaryMaintainsTotalsWithoutRosterAndSocialWrites() {
+        var db = mock(DynamoDbClient.class);
+        var recorder = mock(PlayerNameRecorder.class);
+        var processor = new MatchProcessor(db, List.of(recorder));
+        assertTrue(processor.processRecentMatchSummary(match(), "target-puuid"));
+        org.mockito.Mockito.verifyNoInteractions(recorder);
+        verify(db).updateItem(org.mockito.ArgumentMatchers.argThat(
+                (software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest request) ->
+                        "TOTAL".equals(request.key().get("SK").s())));
+        verify(db, org.mockito.Mockito.never()).updateItem(org.mockito.ArgumentMatchers.argThat(
+                (software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest request) ->
+                        request.key().get("SK").s().startsWith("SOCIAL#")));
+    }
+
+    @Test
     void bulkHistoryUsesBatchWrites() {
         DynamoDbClient dynamoDb = mock(DynamoDbClient.class);
         when(dynamoDb.batchWriteItem(any(software.amazon.awssdk.services.dynamodb.model.BatchWriteItemRequest.class)))

@@ -120,6 +120,7 @@ public class DynamoDbService {
 
     public boolean tryQueueBackfill(String puuid, String scope) {
         long now = Instant.now().getEpochSecond();
+        long leaseSeconds = scope.startsWith("RECENT_VIEW#") ? 45 : 600;
         try {
             dbClient.updateItem(UpdateItemRequest.builder()
                     .tableName(tableName)
@@ -133,7 +134,7 @@ public class DynamoDbService {
                             ":complete", AttributeValue.fromS("COMPLETE"),
                             ":failed", AttributeValue.fromS("FAILED"),
                             ":now", AttributeValue.fromN(String.valueOf(now)),
-                            ":lease", AttributeValue.fromN(String.valueOf(now + 600)),
+                            ":lease", AttributeValue.fromN(String.valueOf(now + leaseSeconds)),
                             ":updated", AttributeValue.fromS(Instant.now().toString())))
                     .build());
             return true;
@@ -144,6 +145,7 @@ public class DynamoDbService {
 
     public void updateBackfillState(String puuid, String scope, String status, int nextPage) {
         long now = Instant.now().getEpochSecond();
+        long leaseSeconds = scope.startsWith("RECENT_VIEW#") ? 45 : 600;
         try {
             dbClient.updateItem(UpdateItemRequest.builder()
                     .tableName(tableName)
@@ -159,7 +161,7 @@ public class DynamoDbService {
                             ":status", AttributeValue.fromS(status),
                             ":complete", AttributeValue.fromS("COMPLETE"),
                             ":page", AttributeValue.fromN(String.valueOf(nextPage)),
-                            ":lease", AttributeValue.fromN(String.valueOf("COMPLETE".equals(status) ? now : now + 600)),
+                            ":lease", AttributeValue.fromN(String.valueOf("COMPLETE".equals(status) ? now : now + leaseSeconds)),
                             ":updated", AttributeValue.fromS(Instant.now().toString())))
                     .build());
         } catch (ConditionalCheckFailedException staleUpdate) {
@@ -619,13 +621,17 @@ public class DynamoDbService {
      * Used to enforce the 5-minute cooldown for the matches endpoint.
      */
     public Optional<Long> getPlayerLastRecentMatchUpdate(String region, String name, String tag) {
+        return getPlayerLastRecentMatchUpdate(region, name, tag, "all");
+    }
+
+    public Optional<Long> getPlayerLastRecentMatchUpdate(String region, String name, String tag, String mode) {
         try {
             String pk = String.format("PLAYER_UPDATE#%s#%s#%s", region, name, tag);
             GetItemResponse response = dbClient.getItem(GetItemRequest.builder()
                     .tableName(tableName)
                     .key(Map.of(
                             "PK", AttributeValue.fromS(pk),
-                            "SK", AttributeValue.fromS("RECENT_MATCHES")
+                            "SK", AttributeValue.fromS("all".equals(mode) ? "RECENT_MATCHES" : "RECENT_MATCHES#" + mode)
                     ))
                     .projectionExpression("updatedAt, recentFetchVersion")
                     .build());
@@ -645,6 +651,10 @@ public class DynamoDbService {
      * Update the timestamp for when a player's recently played matches were last updated.
      */
     public void updatePlayerLastRecentMatchUpdate(String region, String name, String tag) {
+        updatePlayerLastRecentMatchUpdate(region, name, tag, "all");
+    }
+
+    public void updatePlayerLastRecentMatchUpdate(String region, String name, String tag, String mode) {
         try {
             String pk = String.format("PLAYER_UPDATE#%s#%s#%s", region, name, tag);
             long now = System.currentTimeMillis() / 1000;
@@ -653,7 +663,7 @@ public class DynamoDbService {
                     .tableName(tableName)
                     .key(Map.of(
                             "PK", AttributeValue.fromS(pk),
-                            "SK", AttributeValue.fromS("RECENT_MATCHES")
+                            "SK", AttributeValue.fromS("all".equals(mode) ? "RECENT_MATCHES" : "RECENT_MATCHES#" + mode)
                     ))
                     .updateExpression("SET updatedAt = :now, recentFetchVersion = :version")
                     .expressionAttributeValues(Map.of(

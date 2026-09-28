@@ -154,28 +154,25 @@ public class ValorantService {
     public Map<String, Object> getRecentMatches(String region, String name, String tag, String mode) {
         String puuid = resolvePuuid(name, tag, region);
         if (puuid == null) return errorResponse("Player not found");
-        boolean refresh = matchDataService.needsRefresh(puuid, region, name, tag);
+        mode = MatchDataService.normalizeMode(mode);
+        String scope = "RECENT_VIEW#" + mode;
+        boolean refresh = matchDataService.needsRefresh(puuid, region, name, tag, mode);
         if (!refresh) return matchDataService.getRecentMatchHistory(puuid, region, name, tag, mode, false);
-        if (!dynamoDbService.tryQueueBackfill(puuid, "RECENT")) {
+        if (!dynamoDbService.tryQueueBackfill(puuid, scope)) {
             Map<String, Object> response = new HashMap<>(
                     matchDataService.getRecentMatchHistory(puuid, region, name, tag, mode, false));
             response.put("refreshing", true);
             return response;
         }
         try {
-            if (refreshQueuePublisher.isConfigured()) {
-                refreshQueuePublisher.enqueue(RefreshJob.matches(puuid, region, name, tag));
-                // The browser already loads compact summaries independently.
-                // Never keep an API Gateway invocation open for full matches.
-                return Map.of("status", 200, "data", List.of(), "details", Map.of(),
-                        "updated", false, "refreshing", true);
-            }
-            dynamoDbService.updateBackfillState(puuid, "RECENT", "RUNNING", 1);
+            // Only the bounded selected-mode slice belongs in this request.
+            // Older history remains queued after the browser displays this response.
+            dynamoDbService.updateBackfillState(puuid, scope, "RUNNING", 1);
             Map<String, Object> response = matchDataService.getRecentMatchHistory(puuid, region, name, tag, mode, true);
-            dynamoDbService.updateBackfillState(puuid, "RECENT", "COMPLETE", 1);
+            dynamoDbService.updateBackfillState(puuid, scope, "COMPLETE", 1);
             return response;
         } catch (RuntimeException failure) {
-            dynamoDbService.updateBackfillState(puuid, "RECENT", "FAILED", 1);
+            dynamoDbService.updateBackfillState(puuid, scope, "FAILED", 1);
             throw failure;
         }
     }

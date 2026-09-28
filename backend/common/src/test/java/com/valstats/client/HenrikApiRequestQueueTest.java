@@ -16,6 +16,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class HenrikApiRequestQueueTest {
 
+    @Test
+    void interactivePagesDoNotConsumeTheWorkerRetryBudget() {
+        var queue = new HenrikApiRequestQueue(100_000, 10, 3, 60);
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        org.junit.jupiter.api.Assertions.assertThrows(io.micronaut.http.client.exceptions.HttpClientResponseException.class,
+                () -> queue.executeOnce("recent page", () -> {
+                    calls.incrementAndGet();
+                    throw new io.micronaut.http.client.exceptions.HttpClientResponseException("busy",
+                            io.micronaut.http.HttpResponse.status(io.micronaut.http.HttpStatus.SERVICE_UNAVAILABLE));
+                }));
+        assertEquals(1, calls.get());
+    }
+
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
     @AfterEach

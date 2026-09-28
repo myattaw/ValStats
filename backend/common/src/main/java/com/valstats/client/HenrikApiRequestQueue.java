@@ -69,6 +69,11 @@ public class HenrikApiRequestQueue {
         return execute(operation, request, false);
     }
 
+    /** A multi-page interactive response must not multiply the HTTP retry budget. */
+    public <T> T executeOnce(String operation, Callable<T> request) {
+        return execute(operation, request, false, 0);
+    }
+
     /**
      * Executes opportunistic work only when no normal request is active or waiting.
      * An HTTP request that is already in flight is allowed to finish.
@@ -78,6 +83,10 @@ public class HenrikApiRequestQueue {
     }
 
     private <T> T execute(String operation, Callable<T> request, boolean lowPriority) {
+        return execute(operation, request, lowPriority, maxRetries);
+    }
+
+    private <T> T execute(String operation, Callable<T> request, boolean lowPriority, int retryLimit) {
         long operationStartedAt = System.nanoTime();
         Semaphore capacity = lowPriority ? lowQueueCapacity : normalQueueCapacity;
         if (!capacity.tryAcquire()) {
@@ -101,7 +110,7 @@ public class HenrikApiRequestQueue {
                     boolean rateLimited = exception.getStatus() == HttpStatus.TOO_MANY_REQUESTS;
                     boolean temporaryServerFailure = exception.getStatus().getCode() == 408
                             || exception.getStatus().getCode() >= 500;
-                    if ((!rateLimited && !temporaryServerFailure) || attempt >= maxRetries) {
+                    if ((!rateLimited && !temporaryServerFailure) || attempt >= retryLimit) {
                         if (telemetry != null) {
                             if (rateLimited) telemetry.rateLimited(operation, retryDelaySeconds(exception));
                             else telemetry.failure(operation);
@@ -117,7 +126,7 @@ public class HenrikApiRequestQueue {
                             exception.getStatus().getCode(), operation, delaySeconds, attempt + 1, maxRetries);
                     sleep(TimeUnit.SECONDS.toMillis(delaySeconds));
                 } catch (HttpClientException exception) {
-                    if (!isTransientNetworkFailure(exception) || attempt >= maxRetries) {
+                    if (!isTransientNetworkFailure(exception) || attempt >= retryLimit) {
                         if (telemetry != null) telemetry.failure(operation);
                         throw exception;
                     }

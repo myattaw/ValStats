@@ -39,39 +39,39 @@ class ValorantServiceTest {
     @Test
     void recentResponseDoesNotWaitForOrQueueOlderHistory() {
         when(playerCacheService.getPuuidByNameTag("Player", "Tag")).thenReturn(Optional.of("p1"));
-        when(matchDataService.needsRefresh("p1", "na", "Player", "Tag")).thenReturn(true);
-        when(dynamoDbService.tryQueueBackfill("p1", "RECENT")).thenReturn(true);
+        when(matchDataService.needsRefresh("p1", "na", "Player", "Tag", "all")).thenReturn(true);
+        when(dynamoDbService.tryQueueBackfill("p1", "RECENT_VIEW#all")).thenReturn(true);
         var expected = Map.<String, Object>of("status", 200, "data", java.util.List.of(), "updated", true);
         when(matchDataService.getRecentMatchHistory("p1", "na", "Player", "Tag", "all", true)).thenReturn(expected);
         var service = new ValorantService(matchDataService, playerStatsService, playerCacheService, apiClient,
                 dynamoDbService, apiRequestQueue, refreshQueuePublisher);
         assertEquals(expected, service.getRecentMatches("na", "Player", "Tag", "all"));
-        verify(dynamoDbService).updateBackfillState("p1", "RECENT", "COMPLETE", 1);
+        verify(dynamoDbService).updateBackfillState("p1", "RECENT_VIEW#all", "COMPLETE", 1);
         verifyNoInteractions(apiClient, apiRequestQueue);
         verify(refreshQueuePublisher, org.mockito.Mockito.never()).enqueue(any());
     }
 
     @Test
-    void recentRefreshQueuesFullMatchesWithoutWaitingForHenrikOrCachePreloading() {
+    void recentRefreshReturnsSelectedModeDirectlyEvenWithAConfiguredHistoryQueue() {
         when(playerCacheService.getPuuidByNameTag("Player", "Tag")).thenReturn(Optional.of("p1"));
-        when(matchDataService.needsRefresh("p1", "na", "Player", "Tag")).thenReturn(true);
-        when(dynamoDbService.tryQueueBackfill("p1", "RECENT")).thenReturn(true);
-        when(refreshQueuePublisher.isConfigured()).thenReturn(true);
+        when(matchDataService.needsRefresh("p1", "na", "Player", "Tag", "competitive")).thenReturn(true);
+        when(dynamoDbService.tryQueueBackfill("p1", "RECENT_VIEW#competitive")).thenReturn(true);
+        org.mockito.Mockito.lenient().when(refreshQueuePublisher.isConfigured()).thenReturn(true);
+        var expected = Map.<String, Object>of("status", 200, "data", java.util.List.of("recent"), "updated", true);
+        when(matchDataService.getRecentMatchHistory("p1", "na", "Player", "Tag", "competitive", true))
+                .thenReturn(expected);
         var service = new ValorantService(matchDataService, playerStatsService, playerCacheService, apiClient,
                 dynamoDbService, apiRequestQueue, refreshQueuePublisher);
-        var response = service.getRecentMatches("na", "Player", "Tag", "all");
-        assertEquals(true, response.get("refreshing"));
-        assertEquals(java.util.List.of(), response.get("data"));
-        verify(refreshQueuePublisher).enqueue(RefreshJob.matches("p1", "na", "Player", "Tag"));
-        verify(matchDataService, org.mockito.Mockito.never()).getRecentMatchHistory(
-                any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+        var response = service.getRecentMatches("na", "Player", "Tag", "competitive");
+        assertEquals(expected, response);
+        verify(refreshQueuePublisher, org.mockito.Mockito.never()).enqueue(any());
         verifyNoInteractions(apiClient, apiRequestQueue);
     }
 
     @Test
     void concurrentRecentRequestUsesCachedResponseWhileTheFirstRequestRuns() {
         when(playerCacheService.getPuuidByNameTag("Player", "Tag")).thenReturn(Optional.of("p1"));
-        when(matchDataService.needsRefresh("p1", "na", "Player", "Tag")).thenReturn(true);
+        when(matchDataService.needsRefresh("p1", "na", "Player", "Tag", "all")).thenReturn(true);
         when(matchDataService.getRecentMatchHistory("p1", "na", "Player", "Tag", "all", false))
                 .thenReturn(Map.of("status", 200, "data", java.util.List.of()));
         var service = new ValorantService(matchDataService, playerStatsService, playerCacheService, apiClient,

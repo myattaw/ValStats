@@ -141,8 +141,12 @@ public class ValorantController {
     }
 
     @Get("/matches/cached-details")
-    public Map<String, Object> getCachedMatchDetails(@QueryValue String ids) {
-        return valorantService.getCachedMatchDetails(java.util.Arrays.asList(ids.split(",")));
+    public Map<String, Object> getCachedMatchDetails(io.micronaut.http.HttpRequest<?> request) {
+        // The payload-v2 adapter splits comma-delimited query parameters before
+        // binding. A scalar String receives only the first ID in the batch.
+        return valorantService.getCachedMatchDetails(request.getParameters().getAll("ids").stream()
+                .flatMap(value -> java.util.Arrays.stream(value.split(",")))
+                .map(String::trim).filter(value -> !value.isEmpty()).distinct().limit(20).toList());
     }
 
     @Get("/players/{puuid}")

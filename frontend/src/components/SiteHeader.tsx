@@ -37,9 +37,9 @@ export function SiteHeader({ compact, onSearch, recentSearches }: { compact: boo
             <Search size={17} aria-hidden="true" />
             <input ref={inputRef} value={query} onChange={(e) => { setQuery(e.target.value); setHistoryOpen(true); }}
               onFocus={() => setHistoryOpen(true)} onClick={() => setHistoryOpen(true)} autoComplete="off"
-              aria-controls={historyOpen && recentSearches.entries.length ? 'header-recent-searches' : undefined} placeholder="Player#Tag" aria-label="Riot ID" />
+              aria-controls={historyOpen ? 'header-recent-searches' : undefined} placeholder="Player#Tag" aria-label="Riot ID" />
             <button type="submit" aria-label="Search player"><Search size={15}/><span>Search</span></button>
-            {historyOpen && recentSearches.entries.length > 0 && <div className="header-recent-searches">
+            {historyOpen && <div className="header-recent-searches">
               <RecentSearches id="header-recent-searches" history={recentSearches} onSelect={select} query={query} />
             </div>}
           </form>

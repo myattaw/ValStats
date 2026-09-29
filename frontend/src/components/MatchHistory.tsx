@@ -315,6 +315,15 @@ export function MatchHistory({
                     const detail = details.get(match.id);
                     return detail ? {...match, details: detail, players: detail.players, hasDetails: true} : match;
                 });
+                // Only animate arrivals after a list is already visible, not the initial load.
+                if (visibleMatchIds.current.size > 0) {
+                    const addedIds = rows
+                        .filter((match) => !visibleMatchIds.current.has(match.id))
+                        .map((match) => match.id);
+                    if (addedIds.length > 0) {
+                        setNewMatchIds((current) => new Set([...current, ...addedIds]));
+                    }
+                }
                 setMatches((current) => {
                     const merged = new Map(current.map((match) => [match.id, match]));
                     for (const match of rows) {
@@ -536,7 +545,12 @@ export function MatchHistory({
                             const rrChangeColor = match.rrChange > 0 ? "text-[#4ade80]" : "text-[#f87171]";
 
                             return (
-                                <div className="match-day-entry" key={match.id}>
+                                <div
+                                    className={`match-day-entry${isNew ? " match-day-entry-arriving" : ""}`}
+                                    key={match.id}
+                                    style={isNew ? {animationDelay: `${Math.min(index, 4) * 75}ms`} : undefined}
+                                >
+                                <div className="match-day-entry-content">
                                 {startsNewDay && (
                                     <div className="match-day-divider">
                                         <span>{matchDay.label}</span>
@@ -779,6 +793,7 @@ export function MatchHistory({
                                         )}
                                     </div>
                                 </Collapsible>
+                                </div>
                                 </div>
                             );
                         })}

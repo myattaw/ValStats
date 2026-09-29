@@ -395,6 +395,15 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline:2px solid v
 .match-day-divider { display:flex; align-items:center; gap:10px; min-height:27px; padding:5px 3px 1px; color:#96a2aa; }
 .match-day-divider::after { content:""; height:1px; flex:1; background:linear-gradient(90deg,rgba(255,255,255,.13),rgba(255,255,255,.025)); }
 .match-day-divider span { flex:none; font-size:9px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; }
+.match-day-entry-arriving { display:grid; animation:match-arrival 650ms cubic-bezier(.22,1,.36,1) both; }
+.match-day-entry-arriving > .match-day-entry-content { min-height:0; overflow:hidden; }
+@keyframes match-arrival {
+  from { grid-template-rows:0fr; opacity:0; transform:translateY(-12px); }
+  to { grid-template-rows:1fr; opacity:1; transform:translateY(0); }
+}
+@media (prefers-reduced-motion:reduce) {
+  .match-day-entry-arriving { animation:none; }
+}
 .timeline-panel .round-selector { gap:3px; padding:2px 0 10px; }
 .timeline-panel .round-selector:after { display:none; }
 .timeline-panel .round-selector button { width:34px; height:32px; flex-basis:34px; border:0!important; border-radius:5px; background:transparent!important; color:#7f8c97; cursor:pointer; transition:color .15s ease,background .15s ease; }

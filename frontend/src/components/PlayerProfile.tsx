@@ -26,7 +26,7 @@ function CopyPlayerName({username}: {username: string}) {
     }
 
     return (
-        <>
+        <span className="copy-player-name-control">
             <button type="button" className="copy-player-name" onClick={copyUsername}
                     disabled={status === 'copying'} title={`Copy ${username}`}
                     aria-label={`Copy username ${username}`}>
@@ -35,7 +35,7 @@ function CopyPlayerName({username}: {username: string}) {
             <span className="copy-player-name-status" role="status">
                 {status === 'copied' ? 'Copied' : status === 'error' ? 'Unable to copy. Try again.' : ''}
             </span>
-        </>
+        </span>
     );
 }
 
@@ -219,7 +219,7 @@ export function PlayerProfile({
                         <img src={profile.card.small} alt="Player card"/> : <Trophy/>}
                     {profile?.account_level && <span className="level-badge">{profile.account_level}</span>}
                 </div>
-                <div>
+                <div className="profile-info">
                     <div className="profile-status-row">
                         <span className="eyebrow">Player profile</span>
                         <span className={`load-status ${visibleStatus}`}
@@ -230,14 +230,16 @@ export function PlayerProfile({
             </span>
                     </div>
                     <div className="profile-name-row">
-                        <h1>{profile?.name ?? 'Loading player'}<span>#{profile?.tag ?? ''}</span></h1>
+                        <h1 title={profile ? `${profile.name}#${profile.tag}` : undefined}><span className="profile-username">{profile?.name ?? 'Loading player'}</span><span className="profile-tag">#{profile?.tag ?? ''}</span></h1>
                         {profile?.name && profile?.tag && (
                             <CopyPlayerName key={`${profile.name}#${profile.tag}`} username={`${profile.name}#${profile.tag}`}/>
                         )}
+                    </div>
+                    <div className="profile-details">
                         <PlayerNameHistory puuid={profile?.puuid} refreshVersion={nameHistoryRefreshVersion}
                                            onScanningChange={setIsFindingPreviousNames}/>
+                        {profile?.account_level && <p>Account Level {profile.account_level}</p>}
                     </div>
-                    {profile?.account_level && <p>Account Level {profile.account_level}</p>}
                 </div>
             </div>
             <div className="rank-grid">

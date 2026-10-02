@@ -1,10 +1,43 @@
-import {useState} from 'react';
-import {Check, LoaderCircle, RefreshCw, Search, Shield, Trophy} from 'lucide-react';
+import {useEffect, useState} from 'react';
+import {Check, Copy, LoaderCircle, RefreshCw, Search, Shield, Trophy} from 'lucide-react';
 import {Skeleton} from './ui/skeleton';
 import type {MmrData, ProfileData} from '../types/player';
 import {PlayerNameHistory} from './PlayerNameHistory';
 
 const TIER_SET = '03621f52-342b-cf4e-4f86-9350a49c6d04';
+
+function CopyPlayerName({username}: {username: string}) {
+    const [status, setStatus] = useState<'idle' | 'copying' | 'copied' | 'error'>('idle');
+
+    useEffect(() => {
+        if (status !== 'copied' && status !== 'error') return;
+        const timeout = window.setTimeout(() => setStatus('idle'), 2500);
+        return () => window.clearTimeout(timeout);
+    }, [status]);
+
+    async function copyUsername() {
+        setStatus('copying');
+        try {
+            await navigator.clipboard.writeText(username);
+            setStatus('copied');
+        } catch {
+            setStatus('error');
+        }
+    }
+
+    return (
+        <>
+            <button type="button" className="copy-player-name" onClick={copyUsername}
+                    disabled={status === 'copying'} title={`Copy ${username}`}
+                    aria-label={`Copy username ${username}`}>
+                {status === 'copied' ? <Check size={14}/> : <Copy size={14}/>}
+            </button>
+            <span className="copy-player-name-status" role="status">
+                {status === 'copied' ? 'Copied' : status === 'error' ? 'Unable to copy. Try again.' : ''}
+            </span>
+        </>
+    );
+}
 
 function rankIcon(tier?: number) {
     return tier ? `https://media.valorant-api.com/competitivetiers/${TIER_SET}/${tier}/smallicon.png` : undefined;
@@ -198,6 +231,9 @@ export function PlayerProfile({
                     </div>
                     <div className="profile-name-row">
                         <h1>{profile?.name ?? 'Loading player'}<span>#{profile?.tag ?? ''}</span></h1>
+                        {profile?.name && profile?.tag && (
+                            <CopyPlayerName key={`${profile.name}#${profile.tag}`} username={`${profile.name}#${profile.tag}`}/>
+                        )}
                         <PlayerNameHistory puuid={profile?.puuid} refreshVersion={nameHistoryRefreshVersion}
                                            onScanningChange={setIsFindingPreviousNames}/>
                     </div>

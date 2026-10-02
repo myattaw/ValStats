@@ -436,3 +436,10 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline:2px solid v
   .match-victory .match-card-body:before { background:linear-gradient(90deg,rgba(69,212,131,.14),rgba(69,212,131,.04) 65%,transparent 96%); }.match-defeat .match-card-body:before { background:linear-gradient(90deg,rgba(240,100,104,.14),rgba(240,100,104,.04) 65%,transparent 96%); }
   .combined-match-view { display:block; overflow:visible; }.combined-match-view .scoreboard-only { min-width:0; width:100%; }.combined-match-view .scoreboard-player-row { grid-template-columns:minmax(0,1fr) auto; gap:8px; padding:7px 8px; }.combined-match-view .scoreboard-team-header { grid-template-columns:1fr; padding-inline:8px; }.combined-match-view .scoreboard-team-header .scoreboard-round-numbers,.combined-match-view .player-round-track { display:none; }.combined-match-view .scoreboard-player-stats { display:flex; gap:9px; }.combined-match-view .scoreboard-player-stats>div:nth-child(n+3) { display:none; }.combined-match-view .scoreboard-player-identity { min-width:0; }.combined-match-view .scoreboard-player-link { max-width:145px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.combined-match-view .scoreboard-map { width:100%; min-width:0; border-left:0; border-top:1px solid var(--line); }.combined-match-view .map-stage,.combined-match-view .tactical-map { min-height:240px; }
 }
+
+.copy-player-name { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: #778293; cursor: pointer; }
+.copy-player-name:hover { background: rgba(255,255,255,.06); color: #d7dde6; }
+.copy-player-name:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.copy-player-name:disabled { opacity: .5; cursor: wait; }
+.copy-player-name-status { color: #aeb7c4; font-size: 11px; }
+.copy-player-name-status:empty { display: none; }

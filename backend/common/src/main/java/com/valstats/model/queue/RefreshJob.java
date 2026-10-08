@@ -29,6 +29,11 @@ public record RefreshJob(
         return new RefreshJob(puuid, region, name, tag, Instant.now().getEpochSecond(), "RECENT", 1, 2, "", false);
     }
 
+    public static RefreshJob recentView(String puuid, String region, String name, String tag, String mode) {
+        return new RefreshJob(puuid, region, name, tag, Instant.now().getEpochSecond(),
+                "RECENT_VIEW#" + mode, 1, 1, "", false);
+    }
+
     public static RefreshJob history(String puuid, String region, String name, String tag, int page) {
         return new RefreshJob(puuid, region, name, tag, Instant.now().getEpochSecond(), "HISTORY", page, 1, "", false);
     }

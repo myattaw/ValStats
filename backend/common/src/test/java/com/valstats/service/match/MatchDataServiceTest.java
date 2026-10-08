@@ -92,7 +92,7 @@ class MatchDataServiceTest {
     }
 
     @Test
-    void competitiveViewFetchesTwentyCompetitiveScoreboardsBeforeApplyingTheDisplayFilter() {
+    void competitiveViewFetchesOnlyTheFirstTenCompetitiveScoreboards() {
         var api = mock(ValorantApiClient.class);
         var dynamo = mock(DynamoDbService.class);
         var cache = mock(FullMatchCache.class);
@@ -107,13 +107,12 @@ class MatchDataServiceTest {
         }).toList();
         when(api.getRecentMatchesByMode("na", "Player", "Tag", 10, 0, "competitive"))
                 .thenReturn(Map.of("status", 200, "data", matches.subList(0, 10)));
-        when(api.getRecentMatchesByMode("na", "Player", "Tag", 10, 10, "competitive"))
-                .thenReturn(Map.of("status", 200, "data", matches.subList(10, 20)));
         var service = new MatchDataService(dynamo, api, new MatchResponseFormatter(), processor,
                 new HenrikApiRequestQueue(100_000, 10, 0, 1), cache);
         var result = service.getRecentMatchHistory("p1", "na", "Player", "Tag", "Competitive", true);
         var rows = (List<com.valstats.model.response.MatchResponses.MatchSummary>) result.get("data");
-        assertEquals(20, rows.size());
+        assertEquals(10, rows.size());
+        verify(api, never()).getRecentMatchesByMode("na", "Player", "Tag", 10, 10, "competitive");
         assertTrue(rows.stream().allMatch(row -> row.placement() != null));
         verify(api, never()).getRecentMatches(any(), any(), any(), any(), any());
         verify(dynamo).updatePlayerLastRecentMatchUpdate("na", "Player", "Tag", "competitive");
@@ -161,7 +160,7 @@ class MatchDataServiceTest {
     void emptyCachePollingDoesNotFetchStoredMatches() {
         var api = mock(ValorantApiClient.class);
         var dynamo = mock(DynamoDbService.class);
-        when(dynamo.getMatchesFromGSI("p1", 20, null)).thenReturn(QueryResponse.builder().build());
+        when(dynamo.getMatchesFromGSI("p1", 10, null)).thenReturn(QueryResponse.builder().build());
         var service = new MatchDataService(dynamo, api, new MatchResponseFormatter(), mock(MatchProcessor.class),
                 mock(HenrikApiRequestQueue.class), mock(FullMatchCache.class));
         assertEquals(List.of(), service.getRecentMatchHistory("p1", "na", "Player", "Tag", "all", false).get("data"));
@@ -180,7 +179,7 @@ class MatchDataServiceTest {
                 .thenReturn(Map.of("status", 200, "data", List.of(full, full)));
         var service = new MatchDataService(dynamo, api, new MatchResponseFormatter(), processor, queue, cache);
         assertTrue(service.processBackfill(RefreshJob.matches("p1", "na", "Player", "Tag")).complete());
-        verify(cache).put("m1", full);
+        verify(cache).putIfChanged("m1", full);
         verify(processor).processRecentMatchSummary(any(), eq("p1"));
         verify(api, never()).getStoredMatches(any(), any(), any(), any(), any(), any());
         verify(api, never()).getMatchById(any());
@@ -242,7 +241,7 @@ class MatchDataServiceTest {
     }
 
     @Test
-    void returnsAllTwentyRecentMatchesDirectlyWithoutWaitingForHistoryOrIndexReads() {
+    void returnsFirstTenRecentMatchesWithoutFetchingTheSecondPage() {
         var api = mock(ValorantApiClient.class);
         var dynamo = mock(DynamoDbService.class);
         var cache = mock(FullMatchCache.class);
@@ -256,26 +255,58 @@ class MatchDataServiceTest {
         }).toList();
         when(api.getRecentMatches("na", "Player", "Tag", 10, 0))
                 .thenReturn(Map.of("status", 200, "data", matches.subList(0, 10)));
-        when(api.getRecentMatches("na", "Player", "Tag", 10, 10))
-                .thenReturn(Map.of("status", 200, "data", matches.subList(10, 20)));
         var service = new MatchDataService(dynamo, api, new MatchResponseFormatter(), processor,
                 new HenrikApiRequestQueue(100_000, 10, 0, 1), cache);
         var result = service.getRecentMatchHistory("p1", "na", "Player", "Tag", "all", true);
-        assertEquals(20, ((List<?>) result.get("data")).size());
-        assertEquals(20, ((Map<?, ?>) result.get("details")).size());
-        verify(cache, times(20)).put(any(), any());
+        assertEquals(10, ((List<?>) result.get("data")).size());
+        assertEquals(10, ((Map<?, ?>) result.get("details")).size());
+        verify(cache, times(10)).putIfChanged(any(), any());
         var order = inOrder(cache, processor);
-        order.verify(cache, times(20)).put(any(), any());
+        order.verify(cache, times(10)).putIfChanged(any(), any());
         order.verify(processor).processRecentMatchSummary(any(), eq("p1"));
         assertTrue(((List<com.valstats.model.response.MatchResponses.MatchSummary>) result.get("data"))
                 .stream().allMatch(match -> match.placement() != null));
         verify(cache, never()).getPlacements(any(), any());
         verify(processor, never()).processStoredMatchSummary(any(), any());
         verify(api).getRecentMatches("na", "Player", "Tag", 10, 0);
-        verify(api).getRecentMatches("na", "Player", "Tag", 10, 10);
+        verify(api, never()).getRecentMatches("na", "Player", "Tag", 10, 10);
         verify(api, never()).getStoredMatches(any(), any(), any(), any(), any(), any());
         verify(api, never()).getMatchById(any());
         verify(dynamo, never()).getMatchesFromGSI(any(), anyInt(), any());
+    }
+
+    @Test
+    void selectedModeWorkerPublishesSnapshotBeforeCompletingAndPollingAvoidsIndexAndDetails() {
+        var api = mock(ValorantApiClient.class);
+        var dynamo = mock(DynamoDbService.class);
+        var cache = mock(FullMatchCache.class);
+        var processor = spy(new MatchProcessor(mock(software.amazon.awssdk.services.dynamodb.DynamoDbClient.class), List.of()));
+        var full = RecentMatchMapperTest.fullMatch();
+        ((Map<?, ?>) full.get("metadata")).remove("season_id");
+        when(api.getRecentMatchesByMode("na", "Player", "Tag", 10, 0, "competitive"))
+                .thenReturn(Map.of("status", 200, "data", List.of(full)));
+        var service = new MatchDataService(dynamo, api, new MatchResponseFormatter(), processor,
+                new HenrikApiRequestQueue(100_000, 10, 0, 1), cache);
+        var job = RefreshJob.recentView("p1", "na", "Player", "Tag", "competitive");
+        assertTrue(service.processBackfill(job).complete());
+        var rows = List.of(processor.storedMatchItem(RecentMatchMapper.summary(full, "p1").orElseThrow(), "p1"));
+        var order = inOrder(dynamo);
+        order.verify(dynamo).updateBackfillState("p1", "RECENT_VIEW#competitive", "RUNNING", 1);
+        order.verify(dynamo).putRecentMatchSnapshot(eq("p1"), eq("competitive"), argThat(items ->
+                items.size() == 1 && "m1".equals(items.get(0).get("matchId").s())));
+        order.verify(dynamo).updatePlayerLastRecentMatchUpdate("na", "Player", "Tag", "competitive");
+        order.verify(dynamo).updateBackfillState("p1", "RECENT_VIEW#competitive", "COMPLETE", 1);
+        verify(api).getRecentMatchesByMode("na", "Player", "Tag", 10, 0, "competitive");
+        verifyNoMoreInteractions(api);
+        when(dynamo.getRecentMatchSnapshot("p1", "competitive")).thenReturn(java.util.Optional.of(rows));
+        var result = service.getRecentMatchHistory("p1", "na", "Player", "Tag", "competitive", false);
+        assertEquals(1, ((List<?>) result.get("data")).size());
+        assertEquals(Map.of(), result.get("details"));
+        verify(dynamo, never()).getMatchesFromGSI(any(), anyInt(), any());
+        verify(cache, never()).get(any());
+        verify(processor, never()).processRecentMatchSummary(any(), any());
+        service.markBackfillFailed(job);
+        verify(dynamo).updateBackfillState("p1", "RECENT_VIEW#competitive", "FAILED", 1);
     }
 
     @Test
@@ -289,7 +320,7 @@ class MatchDataServiceTest {
         var service = new MatchDataService(mock(DynamoDbService.class), api, new MatchResponseFormatter(), processor,
                 new HenrikApiRequestQueue(100_000, 10, 0, 1), cache);
         service.processBackfill(RefreshJob.matches("p1", "na", "Player", "Tag"));
-        verify(cache).put("m1", full);
+        verify(cache).putIfChanged("m1", full);
         verify(processor, never()).processStoredMatchSummary(any(), any());
         verify(processor, never()).processRecentMatchSummary(any(), any());
     }

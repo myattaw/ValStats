@@ -52,20 +52,40 @@ class ValorantServiceTest {
     }
 
     @Test
-    void recentRefreshReturnsSelectedModeDirectlyEvenWithAConfiguredHistoryQueue() {
+    void recentRefreshQueuesSelectedModeAndImmediatelyReturnsCachedMatches() {
         when(playerCacheService.getPuuidByNameTag("Player", "Tag")).thenReturn(Optional.of("p1"));
         when(matchDataService.needsRefresh("p1", "na", "Player", "Tag", "competitive")).thenReturn(true);
         when(dynamoDbService.tryQueueBackfill("p1", "RECENT_VIEW#competitive")).thenReturn(true);
-        org.mockito.Mockito.lenient().when(refreshQueuePublisher.isConfigured()).thenReturn(true);
-        var expected = Map.<String, Object>of("status", 200, "data", java.util.List.of("recent"), "updated", true);
-        when(matchDataService.getRecentMatchHistory("p1", "na", "Player", "Tag", "competitive", true))
+        when(refreshQueuePublisher.isConfigured()).thenReturn(true);
+        var expected = Map.<String, Object>of("status", 200, "data", java.util.List.of("cached"), "updated", false);
+        when(matchDataService.getRecentMatchHistory("p1", "na", "Player", "Tag", "competitive", false))
                 .thenReturn(expected);
         var service = new ValorantService(matchDataService, playerStatsService, playerCacheService, apiClient,
                 dynamoDbService, apiRequestQueue, refreshQueuePublisher);
         var response = service.getRecentMatches("na", "Player", "Tag", "competitive");
-        assertEquals(expected, response);
-        verify(refreshQueuePublisher, org.mockito.Mockito.never()).enqueue(any());
+        assertEquals(expected.get("data"), response.get("data"));
+        assertEquals(false, response.get("updated"));
+        assertEquals(true, response.get("refreshing"));
+        verify(refreshQueuePublisher).enqueue(argThat(job -> "RECENT_VIEW#competitive".equals(job.kind())
+                && "p1".equals(job.puuid())));
+        verify(matchDataService, org.mockito.Mockito.never())
+                .getRecentMatchHistory("p1", "na", "Player", "Tag", "competitive", true);
         verifyNoInteractions(apiClient, apiRequestQueue);
+    }
+
+    @Test
+    void failedRecentEnqueueReleasesTheRefreshLease() {
+        when(playerCacheService.getPuuidByNameTag("Player", "Tag")).thenReturn(Optional.of("p1"));
+        when(matchDataService.needsRefresh("p1", "na", "Player", "Tag", "all")).thenReturn(true);
+        when(dynamoDbService.tryQueueBackfill("p1", "RECENT_VIEW#all")).thenReturn(true);
+        when(refreshQueuePublisher.isConfigured()).thenReturn(true);
+        org.mockito.Mockito.doThrow(new IllegalStateException("queue unavailable"))
+                .when(refreshQueuePublisher).enqueue(any());
+        var service = new ValorantService(matchDataService, playerStatsService, playerCacheService, apiClient,
+                dynamoDbService, apiRequestQueue, refreshQueuePublisher);
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> service.getRecentMatches("na", "Player", "Tag", "all"));
+        verify(dynamoDbService).updateBackfillState("p1", "RECENT_VIEW#all", "FAILED", 1);
     }
 
     @Test

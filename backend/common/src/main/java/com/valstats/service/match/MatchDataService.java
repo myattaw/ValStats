@@ -203,6 +203,14 @@ public class MatchDataService {
     public BackfillResult processBackfill(RefreshJob job) {
         String syncScope = syncScope(job);
         dynamoDbService.updateBackfillState(job.puuid(), syncScope, "RUNNING", Math.max(1, job.page()));
+        if (job.kind().startsWith("RECENT_VIEW#")) {
+            String mode = normalizeMode(job.kind().substring("RECENT_VIEW#".length()));
+            RecentBatch batch = refreshRecentMatches(job.puuid(), job.region(), job.name(), job.tag(), mode, false, 10);
+            dynamoDbService.putRecentMatchSnapshot(job.puuid(), mode, batch.rows());
+            dynamoDbService.updatePlayerLastRecentMatchUpdate(job.region(), job.name(), job.tag(), mode);
+            dynamoDbService.updateBackfillState(job.puuid(), syncScope, "COMPLETE", 1);
+            return new BackfillResult(true, 1, false);
+        }
         if ("RECENT".equalsIgnoreCase(job.kind())) {
             refreshRecentMatches(job.puuid(), job.region(), job.name(), job.tag());
             dynamoDbService.updatePlayerLastRecentMatchUpdate(job.region(), job.name(), job.tag());
@@ -281,6 +289,7 @@ public class MatchDataService {
     }
 
     private String syncScope(RefreshJob job) {
+        if (job.kind().startsWith("RECENT_VIEW#")) return job.kind();
         return "ACT".equalsIgnoreCase(job.kind())
                 ? "ACT#" + job.targetSeasonId()
                 : job.kind().toUpperCase(Locale.ROOT);
@@ -293,10 +302,15 @@ public class MatchDataService {
     }
 
     private RecentBatch refreshRecentMatches(String puuid, String region, String name, String tag, String mode, boolean interactive) {
+        return refreshRecentMatches(puuid, region, name, tag, mode, interactive, interactive ? 10 : RECENT_MATCH_PAGE_SIZE);
+    }
+
+    private RecentBatch refreshRecentMatches(String puuid, String region, String name, String tag, String mode,
+                                             boolean interactive, int limit) {
         List<Object> matches = new ArrayList<>();
         // Henrik caps each matches response at 10, including requests with size=20.
         // v4 exposes start pagination; v3 does not.
-        for (int start = 0; start < RECENT_MATCH_PAGE_SIZE; start += 10) {
+        for (int start = 0; start < limit; start += 10) {
             int offset = start;
             String operation = "recent matches offset " + offset + " for " + name + "#" + tag;
             java.util.concurrent.Callable<Map<String, Object>> request = () -> "all".equals(mode)
@@ -323,7 +337,7 @@ public class MatchDataService {
                     ? Objects.toString(metadata.get("matchid"), "") : "";
             if (id.isBlank() || !processed.add(id) || !FullMatchCache.isComplete(id, match)) continue;
             // Detail caching must not depend on optional summary metadata such as season_id.
-            fullMatchCache.put(id, match);
+            fullMatchCache.putIfChanged(id, match);
             details.put(id, match);
         }
         // Cache every scoreboard before performing the more expensive derived
@@ -339,7 +353,7 @@ public class MatchDataService {
             });
         }
         LOG.info("Recent matches: requested={}, returned={}, cached={}, summaries={}",
-                RECENT_MATCH_PAGE_SIZE, matches.size(), details.size(), rows.size());
+                limit, matches.size(), details.size(), rows.size());
         return new RecentBatch(rows, details);
     }
 
@@ -361,10 +375,17 @@ public class MatchDataService {
             history = responseFormatter.formatCachedMatches(rows, dynamoDbService.getMMRHistory(puuid), placements);
             preloaded = projectDetails(history.data().stream().map(MatchResponses.MatchSummary::id).toList(),
                     id -> Optional.ofNullable(batch.details().get(id)));
+            dynamoDbService.putRecentMatchSnapshot(puuid, normalizedMode, rows);
             dynamoDbService.updatePlayerLastRecentMatchUpdate(region, name, tag, normalizedMode);
         } else {
-            history = getPlayerMatches(puuid, region, name, tag, RECENT_MATCH_PAGE_SIZE, null, "all", mode);
-            preloaded = getCachedMatchDetails(history.data().stream().map(MatchResponses.MatchSummary::id).toList());
+            String normalizedMode = normalizeMode(mode);
+            var snapshot = dynamoDbService.getRecentMatchSnapshot(puuid, normalizedMode);
+            history = snapshot.map(rows -> responseFormatter.formatCachedMatches(rows,
+                            dynamoDbService.getMMRHistory(puuid), fullMatchCache.getPlacements(
+                                    rows.stream().map(row -> row.get("matchId").s()).toList(), puuid)))
+                    .orElseGet(() -> getPlayerMatches(puuid, region, name, tag, 10, null, "all", normalizedMode));
+            // The browser preloads scoreboards separately; keep every poll a small cached read.
+            preloaded = Map.of("data", Map.of(), "deferred", List.of());
         }
         return Map.of("status", 200, "data", history.data(), "details", preloaded.get("data"),
                 "deferred", preloaded.get("deferred"), "updated", refresh);

@@ -21,6 +21,8 @@ class MatchProcessorTest {
     @Test
     void recentSummaryMaintainsTotalsWithoutRosterAndSocialWrites() {
         var db = mock(DynamoDbClient.class);
+        when(db.getItem(any(software.amazon.awssdk.services.dynamodb.model.GetItemRequest.class)))
+                .thenReturn(software.amazon.awssdk.services.dynamodb.model.GetItemResponse.builder().build());
         var recorder = mock(PlayerNameRecorder.class);
         var processor = new MatchProcessor(db, List.of(recorder));
         assertTrue(processor.processRecentMatchSummary(match(), "target-puuid"));
@@ -31,6 +33,19 @@ class MatchProcessorTest {
         verify(db, org.mockito.Mockito.never()).updateItem(org.mockito.ArgumentMatchers.argThat(
                 (software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest request) ->
                         request.key().get("SK").s().startsWith("SOCIAL#")));
+    }
+
+    @Test
+    void unchangedRecentSummaryDoesNotRewriteTheMatchOrAggregates() {
+        var db = mock(DynamoDbClient.class);
+        var processor = new MatchProcessor(db, List.of());
+        var existing = processor.storedMatchItem(match(), "target-puuid");
+        existing.put("processed_at", software.amazon.awssdk.services.dynamodb.model.AttributeValue.fromS("old"));
+        when(db.getItem(any(software.amazon.awssdk.services.dynamodb.model.GetItemRequest.class)))
+                .thenReturn(software.amazon.awssdk.services.dynamodb.model.GetItemResponse.builder().item(existing).build());
+        assertTrue(processor.processRecentMatchSummary(match(), "target-puuid"));
+        verify(db, org.mockito.Mockito.never()).putItem(any(software.amazon.awssdk.services.dynamodb.model.PutItemRequest.class));
+        verify(db, org.mockito.Mockito.never()).updateItem(any(software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest.class));
     }
 
     @Test

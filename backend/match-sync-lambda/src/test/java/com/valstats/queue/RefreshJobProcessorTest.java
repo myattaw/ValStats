@@ -71,6 +71,14 @@ class RefreshJobProcessorTest {
     }
 
     @Test
+    void selectedModeRefreshDoesNotStartHistoryBeforeTheBrowserDisplaysIt() {
+        var job = RefreshJob.recentView("puuid", "na", "Player", "NA1", "competitive");
+        when(matchDataService.processBackfill(job)).thenReturn(new MatchDataService.BackfillResult(true, 1, false));
+        processor.process(job);
+        org.mockito.Mockito.verifyNoInteractions(publisher);
+    }
+
+    @Test
     void completeHistoryJobDoesNotQueueAnotherPage() {
         RefreshJob job = RefreshJob.history("puuid", "na", "Player", "NA1", 8);
         when(matchDataService.processBackfill(job))

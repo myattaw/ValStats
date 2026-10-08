@@ -120,7 +120,7 @@ public class DynamoDbService {
 
     public boolean tryQueueBackfill(String puuid, String scope) {
         long now = Instant.now().getEpochSecond();
-        long leaseSeconds = scope.startsWith("RECENT_VIEW#") ? 45 : 600;
+        long leaseSeconds = 600; // Include SQS wait time and the worker's upstream retry budget.
         try {
             dbClient.updateItem(UpdateItemRequest.builder()
                     .tableName(tableName)
@@ -145,7 +145,7 @@ public class DynamoDbService {
 
     public void updateBackfillState(String puuid, String scope, String status, int nextPage) {
         long now = Instant.now().getEpochSecond();
-        long leaseSeconds = scope.startsWith("RECENT_VIEW#") ? 45 : 600;
+        long leaseSeconds = 600;
         try {
             dbClient.updateItem(UpdateItemRequest.builder()
                     .tableName(tableName)
@@ -676,6 +676,21 @@ public class DynamoDbService {
         } catch (DynamoDbException e) {
             LOG.error("Failed to update recent match timestamp", e);
         }
+    }
+
+    /** A strongly consistent recent slice also covers matches without season metadata. */
+    public void putRecentMatchSnapshot(String puuid, String mode, List<Map<String, AttributeValue>> rows) {
+        putItem(Map.of("PK", AttributeValue.fromS("PLAYER#" + puuid),
+                "SK", AttributeValue.fromS("RECENT_SNAPSHOT#" + mode),
+                "matches", AttributeValue.fromL(rows.stream().map(AttributeValue::fromM).toList())));
+    }
+
+    public Optional<List<Map<String, AttributeValue>>> getRecentMatchSnapshot(String puuid, String mode) {
+        var response = dbClient.getItem(GetItemRequest.builder().tableName(tableName).consistentRead(true)
+                .key(Map.of("PK", AttributeValue.fromS("PLAYER#" + puuid),
+                        "SK", AttributeValue.fromS("RECENT_SNAPSHOT#" + mode))).build());
+        if (!response.hasItem() || !response.item().containsKey("matches")) return Optional.empty();
+        return Optional.of(response.item().get("matches").l().stream().map(AttributeValue::m).toList());
     }
 
     private long getLong(Map<String, AttributeValue> map, String key) {

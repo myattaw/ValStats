@@ -39,6 +39,14 @@ public class MatchProcessor {
 
     /** Maintain match/totals only; roster names and social insights belong to history work. */
     public boolean processRecentMatchSummary(StoredMatchesResponse.StoredMatch match, String puuid) {
+        var expected = storedMatchItem(match, puuid);
+        if (expected == null) return false;
+        var existing = ddb.getItem(GetItemRequest.builder().tableName(tableName).consistentRead(true)
+                .key(Map.of("PK", expected.get("PK"), "SK", expected.get("SK"))).build()).item();
+        boolean unchanged = !existing.isEmpty() && expected.entrySet().stream()
+                .filter(entry -> !"processed_at".equals(entry.getKey()))
+                .allMatch(entry -> entry.getValue().equals(existing.getOrDefault(entry.getKey(), AttributeValue.fromS(""))));
+        if (unchanged) return true;
         return processStoredMatchSummary(match, puuid, false);
     }
 

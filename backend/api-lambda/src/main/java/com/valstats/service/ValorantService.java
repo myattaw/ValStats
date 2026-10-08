@@ -165,6 +165,13 @@ public class ValorantService {
             return response;
         }
         try {
+            if (refreshQueuePublisher.isConfigured()) {
+                refreshQueuePublisher.enqueue(RefreshJob.recentView(puuid, region, name, tag, mode));
+                Map<String, Object> response = new HashMap<>(
+                        matchDataService.getRecentMatchHistory(puuid, region, name, tag, mode, false));
+                response.put("refreshing", true);
+                return response;
+            }
             // Only the bounded selected-mode slice belongs in this request.
             // Older history remains queued after the browser displays this response.
             dynamoDbService.updateBackfillState(puuid, scope, "RUNNING", 1);

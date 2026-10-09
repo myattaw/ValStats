@@ -531,3 +531,31 @@
   .match-skeleton-result-group>div:last-child { display:none; }
   .match-skeleton-chevron { width:16px; height:16px; }
 }
+
+/* Match hit accuracy and a rank badge spanning rank and RR rows. */
+@media (min-width:768px) {
+  .match-main-info { grid-template-columns:130px 235px 205px minmax(0,1fr); }
+  .match-performance-row>span:nth-of-type(4) { grid-column:2; grid-row:2; margin-left:157px; padding-left:10px; border-left:1px solid rgba(255,255,255,.06); }
+  .match-primary-row>.match-rank-group { grid-row:1 / span 2; align-self:stretch; align-items:flex-start; padding:5px 0 0 65px; }
+  .match-rank-group .match-rank-icon { position:absolute; left:15px; top:50%; transform:translateY(-50%); width:42px; height:42px; }
+  .match-rank-group::before { top:50%; }
+  .match-primary-row>.match-rr-change { position:relative; padding-left:65px; }
+}
+@media (min-width:768px) and (max-width:1100px) {
+  .match-main-info { grid-template-columns:90px 200px 165px minmax(0,1fr); column-gap:8px; }
+  .match-performance-row>span { gap:4px; }
+  .match-performance-row>span:nth-of-type(3) { margin-left:65px; padding-left:8px; }
+  .match-performance-row>span:nth-of-type(4) { margin-left:128px; padding-left:8px; }
+  .match-performance-row small { font-size:8px; }
+  .match-performance-row strong { font-size:10px; }
+  .match-primary-row>.match-rank-group,.match-primary-row>.match-rr-change { padding-left:51px; }
+  .match-rank-group .match-rank-icon { left:9px; width:36px; height:36px; }
+  .match-rank-group .rank-name-full { font-size:12px; }
+}
+@media (max-width:767px) {
+  .match-performance-row { flex-wrap:wrap; row-gap:5px; }
+}
+@media (max-width:420px) {
+  .match-performance-row>span:last-child { display:inline-flex; }
+  .match-performance-row>i:last-of-type { display:block; }
+}

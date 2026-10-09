@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronsDown, Clock, Loader2, MapPin, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
+import { ChevronDown, ChevronsDown, Clock, CircleHelp, Loader2, MapPin, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import { Match } from "./Match/types/matchTypes";
 import {
@@ -521,6 +521,11 @@ export function MatchHistory({
                             const previousMatchDay = index > 0 ? getMatchDay(matches[index - 1]).key : null;
                             const startsNewDay = matchDay.key !== previousMatchDay;
                             const detailAdr = calculateADR(match, puuid ?? undefined);
+                            const viewer = (match.details?.players ?? match.players)?.find(player => player.puuid === (puuid ?? match.puuid));
+                            const shots = viewer ? [viewer.headshots, viewer.bodyshots, viewer.legshots] : [];
+                            const hasShots = shots.length === 3 && shots.every(value => typeof value === "number" && Number.isFinite(value) && value >= 0);
+                            const totalShots = hasShots ? shots.reduce<number>((total, value) => total + (value ?? 0), 0) : 0;
+                            const headshotPercentage = hasShots ? (totalShots > 0 ? ((viewer!.headshots! / totalShots) * 100).toFixed(1) : "0.0") + "%" : "—";
                             const displayedAdr = match.adr && match.adr > 0 ? Math.round(match.adr) : detailAdr;
                             const matchBgStyle = match.mapId
                                 ? {
@@ -542,7 +547,7 @@ export function MatchHistory({
                             const resultBadgeColor = isVictory
                                 ? "text-[#4ade80]"
                                 : "text-[#f87171]";
-                            const rrChangeColor = match.rrChange > 0 ? "text-[#4ade80]" : "text-[#f87171]";
+                            const rrChangeColor = match.rrChange > 0 ? "text-[#4ade80]" : match.rrChange < 0 ? "text-[#f87171]" : "text-gray-400";
 
                             return (
                                 <div
@@ -637,11 +642,13 @@ export function MatchHistory({
                                                                 <span className="rank-name-compact" aria-label={getRankName(match)}>{getCompactRankName(match)}</span>
                                                             </span>
                                                             <span className={`match-rr-change ${rrChangeColor}`}>
-                                                                {match.rrChange !== 0 && (
+                                                                {match.rrChange !== 0 ? (
                                                                     <>
                                                                         {match.rrChange > 0 ? <TrendingUp /> : <TrendingDown />}
                                                                         <span>{match.rrChange > 0 ? "+" : ""}{match.rrChange}<span className="rr-suffix"> RR</span></span>
                                                                     </>
+                                                                ) : (
+                                                                    <><CircleHelp aria-hidden="true" /><span>RR unknown</span></>
                                                                 )}
                                                             </span>
                                                         </div>
@@ -652,6 +659,8 @@ export function MatchHistory({
                                                             <span><small>ACS</small><strong>{match.acs}</strong></span>
                                                             <i aria-hidden="true" />
                                                             <span><small>ADR</small><strong>{displayedAdr || "—"}</strong></span>
+                                                            <i aria-hidden="true" />
+                                                            <span title="Headshots as a percentage of all hits"><small>HS%</small><strong>{headshotPercentage}</strong></span>
                                                         </div>
                                                     </div>
 
